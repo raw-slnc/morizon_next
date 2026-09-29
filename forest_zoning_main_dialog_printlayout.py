@@ -1,7 +1,7 @@
 # QGIS-API
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 
@@ -125,12 +125,12 @@ class ForestZoningMainDialogPrintlayout:
             printlayout_name = "ゾーン統計量"
 
         if printlayout_name in printlayout_list:
-            if QMessageBox.No == QMessageBox.question(
+            if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
                 f'出力先フォルダに"{printlayout_name}"のレイアウトが存在します、上書きしますか？',
-                QMessageBox.Yes,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes,
+                QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return

@@ -1,6 +1,7 @@
 [general]
 name=MORIZON NEXT
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.44
+qgisMaximumVersion=4.99
 about=MORIZON NEXTは、林野庁委託事業として開発された森林ゾーニング支援ツール「もりぞん（MORIZON）」を土台とする非公式の独自継続版です。
     原版が採用する「林業の収益性」と「山地災害リスク」の両面から森林管理の方向性を検討する考え方と、基本的な処理体系を継承しています。
     謝辞：原版は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc.がQGISプラグインとして実装したものです。

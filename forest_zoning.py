@@ -1,14 +1,13 @@
 import os
 
 # QGIS-API
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 
 from .forest_zoning_main_dialog import ForestZoningMainDialog
-from .forest_zoning_settings_dialog import ForestZoningSettingsDialog
 
 PLUGIN_NAME = "MORIZON"
 
@@ -20,11 +19,8 @@ class ForestZoning:
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
         self.menu = PLUGIN_NAME
-        self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
-        self.toolbar.setObjectName(PLUGIN_NAME)
 
         self.main_dialog = None
-        self.settings_dialog = None
 
     def add_action(
         self,
@@ -47,24 +43,20 @@ class ForestZoning:
         if whats_this is not None:
             action.setWhatsThis(whats_this)
         if add_to_toolbar:
-            self.toolbar.addAction(action)
+            self.iface.addRasterToolBarIcon(action)
         if add_to_menu:
-            self.iface.addPluginToMenu(self.menu, action)
+            self.iface.addPluginToRasterMenu(self.menu, action)
         self.actions.append(action)
         return action
 
     def initGui(self):
+        icon_path = os.path.join(self.plugin_dir, "imgs", "icon.png")
+
         # メニュー設定
         self.add_action(
-            icon_path=None,
+            icon_path=icon_path,
             text="ゾーニング",
             callback=self.show_main_dialog,
-            parent=self.win,
-        )
-        self.add_action(
-            icon_path=None,
-            text="設定",
-            callback=self.show_settings_dialog,
             parent=self.win,
         )
 
@@ -80,9 +72,8 @@ class ForestZoning:
 
     def unload(self):
         for action in self.actions:
-            self.iface.removePluginMenu(PLUGIN_NAME, action)
-            self.iface.removeToolBarIcon(action)
-        del self.toolbar
+            self.iface.removePluginRasterMenu(self.menu, action)
+            self.iface.removeRasterToolBarIcon(action)
 
         QgsProject.instance().layerTreeRoot().addedChildren.disconnect(
             self.onLayersChanged
@@ -105,28 +96,9 @@ class ForestZoning:
     def show_main_dialog(self):
         if self.main_dialog is None:
             self.main_dialog = ForestZoningMainDialog()
-            self.main_dialog.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.main_dialog.show()
 
     def is_visible_main_dialog(self):
         if self.main_dialog is None:
             return False
         return self.main_dialog.isVisible()
-
-    def show_settings_dialog(self):
-        if self.settings_dialog is None:
-            self.settings_dialog = ForestZoningSettingsDialog()
-        else:
-            self.settings_dialog.__init__()
-
-        # メイン画面の表示状態を保存
-        if self.is_visible_main_dialog():
-            # 設定画面を開く前にメイン画面が開かれていたなら
-            # 設定画面を開くときにメイン画面を不可視にして
-            # 設定画面を閉じるときに再表示し新しい設定値を読み込み
-            self.main_dialog.hide()
-            self.settings_dialog.exec()
-            self.main_dialog.show()
-            self.main_dialog.scoring.set_scoring_score_labels_from_settings()
-        else:
-            self.settings_dialog.exec()

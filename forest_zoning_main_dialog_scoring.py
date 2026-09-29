@@ -2,9 +2,9 @@ import os
 import json
 
 # QGIS-API
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 from qgis.utils import iface
@@ -478,9 +478,9 @@ class ForestZoningMainDialogScoring:
             scoring_obj.threshold1_spinbox.value(),
             scoring_obj.threshold2_spinbox.value(),
         )
-        result = stats_dialog.exec_()
+        result = stats_dialog.exec()
 
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted:
             # しきい値をメイン画面で反映
             threshold1, threshold2 = stats_dialog.get_thresholds()
             scoring_obj.threshold1_spinbox.setValue(threshold1)
@@ -490,8 +490,9 @@ class ForestZoningMainDialogScoring:
             scoring_obj.append_threshold_history([threshold1, threshold2])
             self.refresh_scoring_ui()
 
-        self.main.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.main.show()
+        self.main.raise_()
+        self.main.activateWindow()
 
     def init_scoring_rlayer_stats(self, scoring_obj: ScoringObject):
         """レイヤがリセットされた時の挙動"""
@@ -656,12 +657,12 @@ class ForestZoningMainDialogScoring:
     def run_scoring(self):
         existing_filenames = self.scoring_get_existing_filenames()
         if len(existing_filenames) > 0:
-            if QMessageBox.No == QMessageBox.question(
+            if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
                 "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
-                QMessageBox.Yes,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes,
+                QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
@@ -729,7 +730,7 @@ class ForestZoningMainDialogScoring:
             )
         )
         thread.start()
-        progress_dialog.exec_()
+        progress_dialog.exec()
 
         if thread.abort_flag:
             QMessageBox.information(self.main, "中断", "処理を中断しました。")

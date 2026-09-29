@@ -2,14 +2,24 @@ import os
 
 from osgeo import gdal
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+
+try:
+    # matplotlibはQGISの実行環境に同梱されていない場合がある（例：QGIS4 Flatpak）。
+    # 無い場合はヒストグラム表示のみ無効化し、他の統計表示は継続する。
+    import matplotlib.pyplot as plt
+    try:
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+    except ImportError:
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
 
 # QGIS-API
 from qgis.PyQt import uic
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 from .settings_manager import SettingsManager
@@ -70,32 +80,38 @@ class ForestZoningScoringStatsDialog(QDialog):
         MIN_VALUE = 0  # 入力ラスター（スコアリング）の有効値は常に0以上
         self.rlayer_array = self.rlayer_array[MIN_VALUE <= self.rlayer_array]
 
-        # グラフ周り初期化
-        graph_fig = plt.figure()
-        graph_fig.subplots_adjust(top=0.95, right=0.95, wspace=0, hspace=0)
-        ax = graph_fig.add_subplot(1, 1, 1)
-        # グラフの描画
-        if self.layer_name == "cost":
-            # 集材作業効率は離散値なのでヒストグラムの描画に工夫が必要
-            ax.hist(
-                self.rlayer_array,
-                # fmt: off
-                # 刻みを1ずつ、0~10で固定
-                bins=[0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11],
-                # fmt: on
-                align="left",  # ラベルがbarの中心となるように
-            )
-        else:
-            ax.hist(self.rlayer_array, bins=64)
+        # グラフ周り初期化（matplotlibが利用できない環境ではヒストグラム表示のみ省略する）
+        if MATPLOTLIB_AVAILABLE:
+            graph_fig = plt.figure()
+            graph_fig.subplots_adjust(top=0.95, right=0.95, wspace=0, hspace=0)
+            ax = graph_fig.add_subplot(1, 1, 1)
+            # グラフの描画
+            if self.layer_name == "cost":
+                # 集材作業効率は離散値なのでヒストグラムの描画に工夫が必要
+                ax.hist(
+                    self.rlayer_array,
+                    # fmt: off
+                    # 刻みを1ずつ、0~10で固定
+                    bins=[0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11],
+                    # fmt: on
+                    align="left",  # ラベルがbarの中心となるように
+                )
+            else:
+                ax.hist(self.rlayer_array, bins=64)
 
-        # しきい値の縦棒は後から更新するためクラス変数
-        self.graph_threshold1 = ax.axvline(threshold1, color="r")
-        self.graph_threshold2 = ax.axvline(threshold2, color="r")
-        # ウィジェットを追加する
-        self.graph_canvas = FigureCanvasQTAgg(graph_fig)
-        self.graph_canvas.setFixedWidth(600)
-        self.graph_canvas.setFixedHeight(400)
-        self.graphAreaFrame.layout().addWidget(self.graph_canvas)
+            # しきい値の縦棒は後から更新するためクラス変数
+            self.graph_threshold1 = ax.axvline(threshold1, color="r")
+            self.graph_threshold2 = ax.axvline(threshold2, color="r")
+            # ウィジェットを追加する
+            self.graph_canvas = FigureCanvasQTAgg(graph_fig)
+            self.graph_canvas.setFixedWidth(600)
+            self.graph_canvas.setFixedHeight(400)
+            self.graphAreaFrame.layout().addWidget(self.graph_canvas)
+        else:
+            no_graph_label = QLabel(
+                "matplotlibが見つからないため、ヒストグラム表示は省略されています。"
+            )
+            self.graphAreaFrame.layout().addWidget(no_graph_label)
 
         # UIを初期化
         self.threshold1Spinbox.setValue(threshold1)
@@ -156,6 +172,9 @@ class ForestZoningScoringStatsDialog(QDialog):
         """
         グラフの表示を更新する
         """
+        if not MATPLOTLIB_AVAILABLE:
+            return
+
         threshold1, threshold2 = self.get_thresholds_for_graph()
         # しきい値の縦棒
         self.graph_threshold1.set_xdata(threshold1)

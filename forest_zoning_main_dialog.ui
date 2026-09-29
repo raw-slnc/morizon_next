@@ -1755,9 +1755,6 @@
            <property name="storageMode">
             <enum>QgsFileWidget::SaveFile</enum>
            </property>
-           <property name="options">
-            <set>QFileDialog::DontResolveSymlinks</set>
-           </property>
           </widget>
          </item>
         </layout>
@@ -2084,6 +2081,12 @@
         </spacer>
        </item>
       </layout>
+     </widget>
+     <widget class="QWidget" name="tab_settings">
+      <attribute name="title">
+       <string>設定</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="settingsTabLayout"/>
      </widget>
     </widget>
    </item>

@@ -15,9 +15,9 @@ import os
 
 # QGIS-API
 from qgis.PyQt import uic
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 
@@ -25,10 +25,12 @@ from qgis.gui import *
 class ProgressDialog(QDialog):
     def __init__(self, set_abort_flag_callback):
         super().__init__()
-        self.setWindowFlag(Qt.WindowCloseButtonHint, False)
-        self.setWindowFlag(Qt.WindowStaysOnTopHint)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self
+        )
+        self.setWindowIcon(
+            QIcon(os.path.join(os.path.dirname(__file__), "imgs", "icon.png"))
         )
 
         self.set_abort_flag_callback = set_abort_flag_callback
@@ -48,8 +50,8 @@ class ProgressDialog(QDialog):
         super().keyPressEvent(event)
 
     def on_abort_click(self):
-        if QMessageBox.Yes == QMessageBox.question(
-            self, "確認", "処理を中断し、以降の処理をスキップしてよろしいですか？", QMessageBox.Yes, QMessageBox.No
+        if QMessageBox.StandardButton.Yes == QMessageBox.question(
+            self, "確認", "処理を中断し、以降の処理をスキップしてよろしいですか？", QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
         ):
             if self.abortButton.isEnabled():  # 中断可能な場合のみ中断イベントを発火させる
                 self.set_abort_flag_callback(True)
