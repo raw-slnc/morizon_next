@@ -1,0 +1,42 @@
+MORIZON NEXT
+Copyright and Attribution Notice
+
+1. Original MORIZON
+
+MORIZON NEXT is based on the MORIZON forest zoning plugin distributed by
+the Forestry Agency of Japan (林野庁) through the Geospatial Information
+Center (geospatial.jp).
+
+The original source package contains the following notice:
+
+  ForestZoningPlugin
+  Copyright (C) 2021 MIERUNE Inc.
+  Contact stated in the original source: info@mierune.co.jp
+
+The original MORIZON was developed through a project commissioned by the
+Forestry Agency of Japan. The Japan Forest Technology Association
+(日本森林技術協会) organized the zoning concept and workflow, and
+MIERUNE Inc. implemented the QGIS plugin.
+
+2. MORIZON NEXT modifications
+
+Modifications for QGIS 3.x/4.x dual compatibility, bug fixes, and the
+MORIZON NEXT identity are undertaken as an independent technical
+initiative by:
+
+  Copyright (C) 2026 Hideharu Masai
+
+MORIZON NEXT is independently maintained. It is not an official
+modification or release of, nor guaranteed or supported by, the Japan
+Forest Technology Association or the Forestry Agency of Japan.
+
+3. License
+
+This distribution is licensed under the GNU General Public License
+version 3. The license selection follows the GPL v3 conditions for use,
+modification, and redistribution stated for the MORIZON tool as a whole
+on the official Forestry Agency distribution page at:
+
+  https://www.geospatial.jp/ckan/dataset/rinya-morizon-dateset
+
+See LICENSE for the complete license text.
