@@ -45,15 +45,15 @@ OUTPUT_DISTANCE = {
     "FILE_NAME": "Y_03_chiri",
 }
 OUTPUT_SITEIDX_SUGI = {
-    "DISPLAY_NAME": "収益性/地位（スギ）",
+    "DISPLAY_NAME": "収益性/地位/スギ",
     "FILE_NAME": "Y_01_chii_sugi",
 }
 OUTPUT_SITEIDX_HINOKI = {
-    "DISPLAY_NAME": "収益性/地位（ヒノキ）",
+    "DISPLAY_NAME": "収益性/地位/ヒノキ",
     "FILE_NAME": "Y_01_chii_hinoki",
 }
 OUTPUT_SITEIDX_KARAMATSU = {
-    "DISPLAY_NAME": "収益性/地位（カラマツ）",
+    "DISPLAY_NAME": "収益性/地位/カラマツ",
     "FILE_NAME": "Y_01_chii_karamatsu",
 }
 OUTPUT_SAVEAREA = {

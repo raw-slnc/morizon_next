@@ -40,12 +40,12 @@ def generate(
     vlayer = QgsVectorLayer(output_path, "org")
     vlayer.dataProvider().addAttributes(
         [
-            QgsField(name="ratio_1", type=QVariant.Double, len=6, prec=3),
-            QgsField(name="ratio_2", type=QVariant.Double, len=6, prec=3),
-            QgsField(name="ratio_3", type=QVariant.Double, len=6, prec=3),
-            QgsField(name="ratio_4", type=QVariant.Double, len=6, prec=3),
-            QgsField(name="count_1_4", type=QVariant.Double, len=6, prec=3),
-            QgsField(name="ratio_1_4", type=QVariant.Double, len=6, prec=3),
+            QgsField(name="ratio_1", type=QMetaType.Type.Double, len=6, prec=3),
+            QgsField(name="ratio_2", type=QMetaType.Type.Double, len=6, prec=3),
+            QgsField(name="ratio_3", type=QMetaType.Type.Double, len=6, prec=3),
+            QgsField(name="ratio_4", type=QMetaType.Type.Double, len=6, prec=3),
+            QgsField(name="count_1_4", type=QMetaType.Type.Double, len=6, prec=3),
+            QgsField(name="ratio_1_4", type=QMetaType.Type.Double, len=6, prec=3),
         ]
     )
     vlayer.updateFields()

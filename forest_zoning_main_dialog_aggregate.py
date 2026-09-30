@@ -10,7 +10,6 @@ from qgis.gui import *
 
 from . import processes
 from .constants import OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
-from .utils import is_tmpdir_valid
 from .progress_dialog import ProgressDialog
 
 
@@ -29,10 +28,10 @@ class ForestZoningMainDialogAggregate:
         )
         self.main.aggregateSetDemButton.clicked.connect(self.load_aggregate_dem_path)
         self.main.aggregateZoningLayerCombobox.setFilters(
-            QgsMapLayerProxyModel.RasterLayer
+            QgsMapLayerProxyModel.Filter.RasterLayer
         )
         self.main.aggregatePolygonLayerCommbobox.setFilters(
-            QgsMapLayerProxyModel.VectorLayer
+            QgsMapLayerProxyModel.Filter.VectorLayer
         )
         self.main.aggregateRunButton.clicked.connect(self.run_aggregate)
         self.main.aggregateOutputDirFileWidget.setFilter("*.shp")
@@ -87,15 +86,6 @@ class ForestZoningMainDialogAggregate:
         self.main.aggregateDemFileWidget.setFilePath(dem_path)
 
     def run_aggregate(self):
-        # GRASSエラーを回避するために環境変数に不正な文字がないか確認
-        if not is_tmpdir_valid():
-            QMessageBox.information(
-                self.main,
-                "エラー",
-                f"TEMPディレクトリーに不正な文字があります。\nマニュアルに従い、システム環境変数を設定していください。",
-            )
-            return
-
         output_path = self.main.aggregateOutputDirFileWidget.filePath()
         zoning_rlayer = self.main.aggregateZoningLayerCombobox.currentLayer()
 
@@ -145,6 +135,7 @@ class ForestZoningMainDialogAggregate:
         thread.postMessage.connect(progress_dialog.set_messsage)
         thread.processFinished.connect(self.add_layers_to_project)
         thread.processFinished.connect(progress_dialog.close)
+        thread.processFailed.connect(progress_dialog.close)
         thread.processFailed.connect(
             lambda error_message: QMessageBox.information(
                 self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"

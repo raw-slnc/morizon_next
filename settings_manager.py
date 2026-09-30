@@ -93,3 +93,36 @@ class SettingsManager:
 
     def get_settings(self):
         return self.__settings
+
+
+class FgdCredentialsManager:
+    """
+    基盤地図情報ダウンロードサービスのログインID・パスワードの保存。
+
+    平文でQSettingsに保存する(ユーザー指示による)。SettingsManagerとは別の
+    設定グループを使い、「ファイル書き出し」で出力されるsettings.jsonには
+    絶対に含まれないようにする(パスワードが意図せずファイルとして
+    共有されるのを防ぐため)。
+    """
+
+    SETTING_GROUP = '/MORIZON/fgd_credentials'
+
+    def load(self) -> dict:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        username = qsettings.value('username', '')
+        password = qsettings.value('password', '')
+        auto_fill = qsettings.value('auto_fill', False, type=bool)
+        qsettings.endGroup()
+        return {'username': username, 'password': password, 'auto_fill': auto_fill}
+
+    def store(self, username: str, password: str, auto_fill: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue('username', username)
+        qsettings.setValue('password', password)
+        qsettings.setValue('auto_fill', auto_fill)
+        qsettings.endGroup()
+
+    def clear(self):
+        self.store('', '', False)

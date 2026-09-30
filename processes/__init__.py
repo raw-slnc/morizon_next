@@ -14,6 +14,9 @@ try:
     from . import raster_writer
     from . import raster_styler
     from . import printlayout
+    from . import dem_fetch
+    from . import siteindex_fetch
+    from . import building_road_fetch
     from ..constants import OUTPUT_AGGREGATE, ZONING_COLORS
 except Exception as e:
     print(e)

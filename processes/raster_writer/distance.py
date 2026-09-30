@@ -8,17 +8,23 @@ from qgis.gui import *
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 
-from .utils import adjust_extent_and_resolution
+from .utils import adjust_extent_and_resolution, resolve_algorithm_id
 from ...utils import get_tiff_info
 from ...constants import OUTPUT_DISTANCE
 
 
 def generate(basis_dem_filepath: str,
              line_vector_filepath: str,
-             output_dir: str) -> str:
+             output_dir: str):
     """
-    線分への距離ラスターを生成する
+    線分への距離ラスターを生成する。line_vector_filepathにフィーチャが
+    1件も無い場合（対象範囲に道路データが存在しない等）はNoneを返し、
+    呼び出し側でスキップできるようにする。
     """
+    line_vlayer = QgsVectorLayer(line_vector_filepath, "line_vector", "ogr")
+    if line_vlayer.featureCount() == 0:
+        return None
+
     basis_dem_info = get_tiff_info(basis_dem_filepath)
 
     line_vector_extent = processing.run("qgis:polygonfromlayerextent", {
@@ -43,7 +49,7 @@ def generate(basis_dem_filepath: str,
         "OUTPUT": "TEMPORARY_OUTPUT",
     })["OUTPUT"]
 
-    distance_filepath = processing.run("grass7:r.grow.distance", {
+    distance_filepath = processing.run(resolve_algorithm_id("grass:r.grow.distance", "grass7:r.grow.distance"), {
         "input": line_raster_filepath,
         "-": False,
         "-m": True,

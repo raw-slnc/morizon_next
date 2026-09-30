@@ -13,6 +13,7 @@ from ...settings_manager import SettingsManager
 from ..costcsv_parser import CostcsvParser
 from ...constants import OUTPUT_COST
 from . import shc
+from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 
 
 def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str) -> str:
@@ -73,7 +74,7 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str) -> str:
     )
     calc.processCalculation()
 
-    return output_filepath
+    return replace_with_adjusted_extent_and_resolution(dem_filepath, output_filepath)
 
 
 def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
@@ -91,7 +92,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
     size = int(settings_manager.get_setting("ruggedness_param"))
 
     min_filepath = processing.run(
-        "grass7:r.neighbors",
+        resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {
             "-a": False,
             "-c": False,
@@ -111,7 +112,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
     )["output"]
 
     max_filepath = processing.run(
-        "grass7:r.neighbors",
+        resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {
             "-a": False,
             "-c": False,

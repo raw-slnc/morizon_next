@@ -51,9 +51,9 @@ def write_rawdata_qml(siteidx_filepath: str, wood_type="sugi") -> str:
     renderer = get_quantile_renderer(rlayer, colors)
     renderer.setOpacity(0.8)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode_Multiply)
-    rlayer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum,
-                                  QgsRasterMinMaxOrigin.MinMax)
+    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
+                                  QgsRasterMinMaxOrigin.Limits.MinMax)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.qml') as temp_qml:
         rlayer.saveNamedStyle(temp_qml.name)
@@ -68,9 +68,9 @@ def write_scoring_qml(siteidx_filepath: str) -> str:
     renderer = get_quantile_renderer(rlayer, colors)
     renderer.setOpacity(0.8)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode_Multiply)
-    rlayer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum,
-                                  QgsRasterMinMaxOrigin.MinMax)
+    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
+                                  QgsRasterMinMaxOrigin.Limits.MinMax)
 
     # 等量区分QML -> ラベル置換 -> 桁丸目 -> 出力
     with tempfile.NamedTemporaryFile(delete=False, suffix='.qml') as temp_qml:

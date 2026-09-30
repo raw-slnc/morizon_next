@@ -51,7 +51,7 @@ class ForestZoningMainDialogZoning:
             self.main.zoningProfitLayerCombobox,
             self.main.zoningRiskLayerCombobox,
         ):
-            combobox.setFilters(QgsMapLayerProxyModel.RasterLayer)
+            combobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
 
         # UI入力時にステート更新
         self.main.zoningProfitLayerCombobox.layerChanged.connect(
@@ -227,6 +227,7 @@ class ForestZoningMainDialogZoning:
         thread.setAbortable.connect(progress_dialog.set_abortable)
         thread.processFinished.connect(progress_dialog.close)
         thread.processFinished.connect(self.add_layers_to_project)
+        thread.processFailed.connect(progress_dialog.close)
         thread.processFailed.connect(
             lambda error_message: QMessageBox.information(
                 self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"

@@ -33,6 +33,28 @@
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout">
          <item>
+          <widget class="QPushButton" name="elementsStartFromDemBrowserPushButton">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">padding:12px;</string>
+           </property>
+           <property name="text">
+            <string>DEMブラウザから開始する</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QPushButton" name="elementsLoadFromDirPushButton">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
@@ -51,6 +73,28 @@
            </property>
            <property name="text">
             <string>フォルダから一括読み込み</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="elementsClearSettingsPushButton">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">padding:12px;</string>
+           </property>
+           <property name="text">
+            <string>設定をクリアする</string>
            </property>
           </widget>
          </item>
@@ -156,6 +200,76 @@
            </property>
           </widget>
          </item>
+         <item row="0" column="3">
+          <widget class="QLabel" name="elementsDemStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="3">
+          <widget class="QLabel" name="elementsNppStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="3">
+          <widget class="QLabel" name="elementsSradStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="3">
+          <widget class="QLabel" name="elementsVtexStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="3">
+          <widget class="QLabel" name="elementsBuildingStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="3">
+          <widget class="QLabel" name="elementsNetworkStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="3">
+          <widget class="QLabel" name="elementsCostCsvStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color:#ff0000;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item>
@@ -251,6 +365,14 @@
            </layout>
           </item>
          </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="costCsvGroupBox">
+         <property name="title">
+          <string>作業システム設定</string>
+         </property>
+         <layout class="QVBoxLayout" name="costCsvGroupBoxLayout"/>
         </widget>
        </item>
        <item>

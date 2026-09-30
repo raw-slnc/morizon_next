@@ -2,7 +2,7 @@ import json
 
 from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 
-from .settings_manager import SettingsManager, DEFAULT_SETTINGS
+from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager
 
 
 class ForestZoningMainDialogSettings:
@@ -23,6 +23,10 @@ class ForestZoningMainDialogSettings:
             self.restore_default_settings)
         self.widget.writeFilePushbutton.clicked.connect(self.write_settings_to_file)
         self.widget.readFilePushbutton.clicked.connect(self.read_settings_from_file)
+
+        self.widget.fgdCredentialsSaveButton.clicked.connect(self.store_fgd_credentials)
+        self.widget.fgdCredentialsClearButton.clicked.connect(self.clear_fgd_credentials)
+        self.set_fgd_credentials_ui_values()
 
         self.widget.settingsRuggednessSpinbox.valueChanged.connect(
             lambda: self.force_odd(self.widget.settingsRuggednessSpinbox))
@@ -263,3 +267,27 @@ class ForestZoningMainDialogSettings:
 
         self.set_ui_values(new_settings)
         QMessageBox.information(self.widget, "完了", "設定ファイルを読み込みました\nまだ保存はされていません")
+
+    def set_fgd_credentials_ui_values(self):
+        creds = FgdCredentialsManager().load()
+        self.widget.fgdUsernameLineEdit.setText(creds["username"])
+        self.widget.fgdPasswordLineEdit.setText(creds["password"])
+        self.widget.fgdAutoFillCheckbox.setChecked(bool(creds["auto_fill"]))
+
+    def store_fgd_credentials(self):
+        FgdCredentialsManager().store(
+            self.widget.fgdUsernameLineEdit.text(),
+            self.widget.fgdPasswordLineEdit.text(),
+            self.widget.fgdAutoFillCheckbox.isChecked(),
+        )
+        QMessageBox.information(self.widget, "完了", "ログイン情報を保存しました")
+
+    def clear_fgd_credentials(self):
+        answer = QMessageBox.question(
+            self.widget, "確認", "保存したログイン情報を削除してよろしいですか？",
+            QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.No:
+            return
+        FgdCredentialsManager().clear()
+        self.set_fgd_credentials_ui_values()

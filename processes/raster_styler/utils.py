@@ -17,8 +17,8 @@ def get_quantile_renderer(rlayer: QgsRasterLayer, colors=[[255, 255, 255], [255,
     color_ramp = QgsPresetSchemeColorRamp(qcolors)
 
     renderer.createShader(color_ramp,
-                          colorRampType=QgsColorRampShader.Discrete,
-                          classificationMode=QgsColorRampShader.Quantile,
+                          colorRampType=QgsColorRampShader.Type.Discrete,
+                          classificationMode=QgsColorRampShader.ClassificationMode.Quantile,
                           classes=len(colors))
 
     return renderer

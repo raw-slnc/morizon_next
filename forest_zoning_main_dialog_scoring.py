@@ -147,7 +147,7 @@ class ForestZoningMainDialogScoring:
         # レイヤー選択プルダウンをラスター限定に
         list(
             map(
-                lambda obj: obj.combobox.setFilters(QgsMapLayerProxyModel.RasterLayer),
+                lambda obj: obj.combobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer),
                 self.scoring_objs_dict.values(),
             )
         )
@@ -436,7 +436,7 @@ class ForestZoningMainDialogScoring:
 
         target_layer.loadNamedStyle(qml_filepath)
         iface.layerTreeView().refreshLayerSymbology(target_layer.id())  # レイヤー一覧の凡例を更新
-        target_layer.setBlendMode(QPainter.CompositionMode_Multiply)  # 乗算に設定
+        target_layer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)  # 乗算に設定
         target_layer.triggerRepaint()  # キャンバス上の見た目を更新
 
     def scoring_reload_thresholds(self, scoring_obj: ScoringObject):
@@ -598,7 +598,7 @@ class ForestZoningMainDialogScoring:
                 error_texts.append(f"{name}ラスターを指定してください")
                 continue
 
-            if combobox.currentLayer().type() != QgsMapLayer.RasterLayer:
+            if combobox.currentLayer().type() != QgsMapLayer.LayerType.RasterLayer:
                 error_texts.append(f"{name}ラスターを指定してください")
                 continue
 
@@ -724,6 +724,7 @@ class ForestZoningMainDialogScoring:
         thread.setAbortable.connect(progress_dialog.set_abortable)
         thread.processFinished.connect(progress_dialog.close)
         thread.processFinished.connect(self.add_layers_to_project)
+        thread.processFailed.connect(progress_dialog.close)
         thread.processFailed.connect(
             lambda error_message: QMessageBox.information(
                 self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"
@@ -749,3 +750,24 @@ class ForestZoningMainDialogScoring:
         for rlayer in rlayers_dict.values():
             QgsProject.instance().addMapLayer(rlayer, False)
             group_node.addLayer(rlayer)
+        ForestZoningMainDialogScoring._set_mutually_exclusive_group(group_node, initial_child_index=None)
+
+    @staticmethod
+    def _set_mutually_exclusive_group(group, initial_child_index=None):
+        children = group.children()
+        if not children:
+            return
+        group.setItemVisibilityChecked(False)
+        for idx, child in enumerate(children):
+            child.setItemVisibilityChecked(
+                initial_child_index is not None and idx == initial_child_index
+            )
+        if hasattr(group, "setIsMutuallyExclusive"):
+            try:
+                if initial_child_index is None:
+                    group.setIsMutuallyExclusive(True)
+                else:
+                    initial_child_index = max(0, min(initial_child_index, len(children) - 1))
+                    group.setIsMutuallyExclusive(True, initial_child_index)
+            except TypeError:
+                group.setIsMutuallyExclusive(True)

@@ -37,13 +37,13 @@ class ForestZoningMainDialogPrintlayout:
         )
 
         self.main.printlayoutBackgroundLayerCombobox.setFilters(
-            QgsMapLayerProxyModel.RasterLayer
+            QgsMapLayerProxyModel.Filter.RasterLayer
         )
         self.main.printlayoutZoningLayerCombobox.setFilters(
-            QgsMapLayerProxyModel.RasterLayer
+            QgsMapLayerProxyModel.Filter.RasterLayer
         )
         self.main.printlayoutAggregateLayerCombobox.setFilters(
-            QgsMapLayerProxyModel.VectorLayer
+            QgsMapLayerProxyModel.Filter.VectorLayer
         )
 
         self.main.printlayoutBackgroundLayerCombobox.layerChanged.connect(
@@ -139,4 +139,3 @@ class ForestZoningMainDialogPrintlayout:
         processes.printlayout.create_printlayout.generate(
             target_name, background_layer, target_layer
         )
-        self.main.hide()

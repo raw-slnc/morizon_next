@@ -12,13 +12,14 @@ import processing
 from ...settings_manager import SettingsManager
 from ...utils import get_raster_stats
 from ...constants import OUTPUT_SHC
+from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 
 
 def generate(dem_filepath: str, output_dir: str) -> str:
     """
     DEMから地形の複雑性ラスターを生成する
     """
-    smoothed_filepath = processing.run("saga:gaussianfilter", {
+    smoothed_filepath = processing.run(resolve_algorithm_id("sagang:gaussianfilter", "saga:gaussianfilter"), {
         "INPUT": dem_filepath,
         "MODE": 1,
         "RADIUS": 12,
@@ -26,7 +27,7 @@ def generate(dem_filepath: str, output_dir: str) -> str:
         "RESULT": "TEMPORARY_OUTPUT"
     })["RESULT"]
 
-    curvature_filepath = processing.run("saga:slopeaspectcurvature", {
+    curvature_filepath = processing.run(resolve_algorithm_id("sagang:slopeaspectcurvature", "saga:slopeaspectcurvature"), {
         'ELEVATION': smoothed_filepath,
         'ASPECT': 'TEMPORARY_OUTPUT',
         'C_CROS': 'TEMPORARY_OUTPUT',
@@ -69,7 +70,7 @@ def generate(dem_filepath: str, output_dir: str) -> str:
 
         settings_manager = SettingsManager()
         calculation_size = int(settings_manager.get_setting("shc_param"))
-        output_filepath = processing.run("grass7:r.neighbors", {
+        output_filepath = processing.run(resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"), {
             'input': temp_normalized_curvature.name,
             'output': os.path.join(output_dir, OUTPUT_SHC["FILE_NAME"] + ".tif"),
             '-a': False,
@@ -85,4 +86,4 @@ def generate(dem_filepath: str, output_dir: str) -> str:
             'size': calculation_size
         })["output"]
 
-        return output_filepath
+        return replace_with_adjusted_extent_and_resolution(dem_filepath, output_filepath)

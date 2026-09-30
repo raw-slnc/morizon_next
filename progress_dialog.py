@@ -38,6 +38,7 @@ class ProgressDialog(QDialog):
 
     def init_ui(self):
         self.label.setText("処理開始中...")
+        self.detailLabel.setText("")
         self.progressBar.setValue(0)
         self.progressBar.setMaximum(0)
         self.abortButton.setEnabled(True)
@@ -45,7 +46,7 @@ class ProgressDialog(QDialog):
         self.abortButton.clicked.connect(self.on_abort_click)
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             return
         super().keyPressEvent(event)
 
@@ -64,8 +65,16 @@ class ProgressDialog(QDialog):
     def add_progress(self, value: int):
         self.progressBar.setValue(self.progressBar.value() + value)
 
+    def set_progress(self, value: int):
+        self.progressBar.setValue(value)
+
     def set_messsage(self, message: str):
         self.label.setText(message + "...")
+        self.adjustSize()
+
+    def set_detail(self, detail: str):
+        self.detailLabel.setText(detail)
+        self.adjustSize()
 
     def set_abortable(self, abortable=True):
         self.abortButton.setEnabled(abortable)

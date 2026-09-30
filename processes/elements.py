@@ -7,7 +7,9 @@ from qgis.gui import *
 
 from . import raster_writer
 from . import raster_styler
-from ..utils import get_tiff_info, is_resampling_needed
+from ..utils import (
+    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias
+)
 from ..constants import (
     OUTPUT_COST,
     OUTPUT_DISTANCE,
@@ -52,6 +54,17 @@ class ProcessingThread(QThread):
 
         # 処理に成功したレイヤーの名前とインスタンスを保持する辞書
         output_rlayers_dict = {}
+
+        # SAGA/GRASS等がTMP/TEMPや入力ファイルパスの全角文字でエラーを起こす問題への対処。
+        # ユーザーのフォルダ名・プロジェクトの保存場所は一切変えさせず、
+        # 処理の内部でだけ半角安全な別名パス・一時フォルダに差し替える
+        ascii_tmpdir = AsciiSafeProcessingTmpdir()
+        ascii_tmpdir.enter()
+
+        self.input_files_dict = {
+            key: (get_ascii_safe_alias(path) if path else path)
+            for key, path in self.input_files_dict.items()
+        }
 
         try:
             is_resampling = is_resampling_needed(
@@ -149,20 +162,24 @@ class ProcessingThread(QThread):
                 distance_filepath = raster_writer.distance.generate(dem_for_processes,
                                                                     self.input_files_dict["network"],
                                                                     self.output_dir)
-                distance_rawdata_qml_filepath = raster_styler.distance.write_rawdata_qml(
-                    self.output_dir)
-                distance_scoring_qml_filepath = raster_styler.distance.write_scoring_qml(distance_filepath,
-                                                                                         self.output_dir)
-                distance_rawdata_rlayer = QgsRasterLayer(distance_filepath,
-                                                         OUTPUT_DISTANCE["DISPLAY_NAME"])
-                distance_scoring_rlayer = QgsRasterLayer(distance_filepath,
-                                                         OUTPUT_DISTANCE["DISPLAY_NAME"] + "[スコアリング]")
-                distance_rawdata_rlayer.loadNamedStyle(
-                    distance_rawdata_qml_filepath)
-                distance_scoring_rlayer.loadNamedStyle(
-                    distance_scoring_qml_filepath)
-                output_rlayers_dict[OUTPUT_DISTANCE["DISPLAY_NAME"]] = [
-                    distance_rawdata_rlayer, distance_scoring_rlayer]
+                if distance_filepath is None:
+                    self.postMessage.emit(
+                        f'{OUTPUT_DISTANCE["DISPLAY_NAME"]}: 対象範囲に道路データが無いためスキップしました')
+                else:
+                    distance_rawdata_qml_filepath = raster_styler.distance.write_rawdata_qml(
+                        self.output_dir)
+                    distance_scoring_qml_filepath = raster_styler.distance.write_scoring_qml(distance_filepath,
+                                                                                             self.output_dir)
+                    distance_rawdata_rlayer = QgsRasterLayer(distance_filepath,
+                                                             OUTPUT_DISTANCE["DISPLAY_NAME"])
+                    distance_scoring_rlayer = QgsRasterLayer(distance_filepath,
+                                                             OUTPUT_DISTANCE["DISPLAY_NAME"] + "[スコアリング]")
+                    distance_rawdata_rlayer.loadNamedStyle(
+                        distance_rawdata_qml_filepath)
+                    distance_scoring_rlayer.loadNamedStyle(
+                        distance_scoring_qml_filepath)
+                    output_rlayers_dict[OUTPUT_DISTANCE["DISPLAY_NAME"]] = [
+                        distance_rawdata_rlayer, distance_scoring_rlayer]
 
                 if self.abort_flag:
                     self.processFinished.emit(output_rlayers_dict)
@@ -227,26 +244,32 @@ class ProcessingThread(QThread):
                 savearea_filepath = raster_writer.savearea.generate(dem_for_processes,
                                                                     self.input_files_dict["building"],
                                                                     self.output_dir)
-                savearea_rawdata_qml_filepath = raster_styler.savearea.write_rawdata_qml(
-                    self.output_dir)
-                savearea_scoring_qml_filepath = raster_styler.savearea.write_scoring_qml(
-                    self.output_dir)
-                savearea_rawdata_rlayer = QgsRasterLayer(savearea_filepath,
-                                                         OUTPUT_SAVEAREA["DISPLAY_NAME"])
-                savearea_scoring_rlayer = QgsRasterLayer(savearea_filepath,
-                                                         OUTPUT_SAVEAREA["DISPLAY_NAME"] + "[スコアリング]")
-                savearea_rawdata_rlayer.loadNamedStyle(
-                    savearea_rawdata_qml_filepath)
-                savearea_scoring_rlayer.loadNamedStyle(
-                    savearea_scoring_qml_filepath)
-                output_rlayers_dict[OUTPUT_SAVEAREA["DISPLAY_NAME"]] = [
-                    savearea_rawdata_rlayer, savearea_scoring_rlayer]
+                if savearea_filepath is None:
+                    self.postMessage.emit(
+                        f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 対象範囲に建物データが無いためスキップしました')
+                else:
+                    savearea_rawdata_qml_filepath = raster_styler.savearea.write_rawdata_qml(
+                        self.output_dir)
+                    savearea_scoring_qml_filepath = raster_styler.savearea.write_scoring_qml(
+                        self.output_dir)
+                    savearea_rawdata_rlayer = QgsRasterLayer(savearea_filepath,
+                                                             OUTPUT_SAVEAREA["DISPLAY_NAME"])
+                    savearea_scoring_rlayer = QgsRasterLayer(savearea_filepath,
+                                                             OUTPUT_SAVEAREA["DISPLAY_NAME"] + "[スコアリング]")
+                    savearea_rawdata_rlayer.loadNamedStyle(
+                        savearea_rawdata_qml_filepath)
+                    savearea_scoring_rlayer.loadNamedStyle(
+                        savearea_scoring_qml_filepath)
+                    output_rlayers_dict[OUTPUT_SAVEAREA["DISPLAY_NAME"]] = [
+                        savearea_rawdata_rlayer, savearea_scoring_rlayer]
         except Exception as e:
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
             self.processFailed.emit(str(e))
             self.abort_flag = True
             self.processFinished.emit(output_rlayers_dict)
             return
+        finally:
+            ascii_tmpdir.restore()
 
         self.postMessage.emit('終了処理中')
 

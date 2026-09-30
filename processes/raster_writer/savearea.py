@@ -11,14 +11,21 @@ import processing
 
 from ...utils import get_tiff_info
 from ...constants import OUTPUT_SAVEAREA
+from .utils import resolve_algorithm_id
 
 
 def generate(basis_dem_filepath: str,
              building_filepath: str,
-             output_dir: str) -> str:
+             output_dir: str):
     """
-    保全対象を含む流域ラスターを生成する
+    保全対象を含む流域ラスターを生成する。building_filepathにフィーチャが
+    1件も無い場合（対象範囲に建物データが存在しない等）はNoneを返し、
+    呼び出し側でスキップできるようにする。
     """
+    building_vlayer = QgsVectorLayer(building_filepath, "building", "ogr")
+    if building_vlayer.featureCount() == 0:
+        return None
+
     fixed_basin_vlayer = create_basin_polygon(basis_dem_filepath)
     basis_deminfo = get_tiff_info(basis_dem_filepath)
 
@@ -116,7 +123,7 @@ def generate(basis_dem_filepath: str,
 
 def create_basin_polygon(basis_dem_filepath):
     """DEMを利用して流域ポリゴンを生成する。必要ならジオメトリの修復を試みる。"""
-    basin_filepath = processing.run("grass7:r.watershed", {
+    basin_filepath = processing.run(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
         'elevation': basis_dem_filepath,
         '-4': False,
         '-a': False,

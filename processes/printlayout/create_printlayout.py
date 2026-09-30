@@ -35,8 +35,8 @@ def generate(target_name, background_layer, target_layer):
     map.setFrameEnabled(True)
 
     # マップの表示の調整
-    map.attemptMove(QgsLayoutPoint(20, 10, QgsUnitTypes.LayoutMillimeters))
-    map.attemptResize(QgsLayoutSize(310, 270, QgsUnitTypes.LayoutMillimeters))
+    map.attemptMove(QgsLayoutPoint(20, 10, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
+    map.attemptResize(QgsLayoutSize(310, 270, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
     target_layer_extent = get_target_layer_extent(target_layer)
     map.zoomToExtent(target_layer_extent)
     layout.addLayoutItem(map)
@@ -50,18 +50,18 @@ def generate(target_name, background_layer, target_layer):
     scalebar.setFont(QFont("Arial", 14))
     scalebar.setStyle("Single Box")
     scalebar.setFillColor(QColor("Black"))
-    scalebar.setUnits(QgsUnitTypes.DistanceKilometers)
+    scalebar.setUnits(QgsUnitTypes.DistanceUnit.DistanceKilometers)
     scalebar.setUnitLabel("km")
     scalebar.setLinkedMap(map)
-    scalebar.setSegmentSizeMode(1)  # 1:"Fit segment width" Mode
+    scalebar.setSegmentSizeMode(Qgis.ScaleBarSegmentSizeMode.FitWidth)
     scalebar.setNumberOfSegmentsLeft(0)
     scalebar.setNumberOfSegments(2)
     scalebar.setMinimumBarWidth(15)
     scalebar.setMaximumBarWidth(120)
     scalebar.update()
-    scalebar.setReferencePoint(QgsLayoutItem.Middle)
+    scalebar.setReferencePoint(QgsLayoutItem.ReferencePoint.Middle)
     layout.addLayoutItem(scalebar)
-    scalebar.attemptMove(QgsLayoutPoint(210, 287, QgsUnitTypes.LayoutMillimeters))
+    scalebar.attemptMove(QgsLayoutPoint(210, 287, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
 
     # 凡例の追加
     legend = QgsLayoutItemLegend(layout)
@@ -72,7 +72,7 @@ def generate(target_name, background_layer, target_layer):
         QgsProject.instance().layerTreeRoot().findLayer(target_layer.id()).layer()
     )
     layout.addItem(legend)
-    legend.attemptMove(QgsLayoutPoint(334, 14, QgsUnitTypes.LayoutMillimeters))
+    legend.attemptMove(QgsLayoutPoint(334, 14, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
     layout.addLayoutItem(legend)
 
     # レイアウトを開く

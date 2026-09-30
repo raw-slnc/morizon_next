@@ -36,7 +36,7 @@ class QSeperatorSpinbox(QSpinBox):
         # UIの共通設定
         self.setSuffix("px")
         self.setMaximum(9999999)
-        self.setButtonSymbols(QSpinBox.NoButtons)
+        self.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.setMinimum(0)
         self.setReadOnly(True)
 
@@ -177,8 +177,8 @@ class ForestZoningScoringStatsDialog(QDialog):
 
         threshold1, threshold2 = self.get_thresholds_for_graph()
         # しきい値の縦棒
-        self.graph_threshold1.set_xdata(threshold1)
-        self.graph_threshold2.set_xdata(threshold2)
+        self.graph_threshold1.set_xdata([threshold1, threshold1])
+        self.graph_threshold2.set_xdata([threshold2, threshold2])
 
         self.graph_canvas.draw()
 

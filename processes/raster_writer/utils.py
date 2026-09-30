@@ -1,8 +1,26 @@
+import os
+import shutil
+import tempfile
+
 import processing
+from qgis.core import QgsApplication
 
 from ...utils import (
     get_tiff_info
 )
+
+
+def resolve_algorithm_id(*candidate_ids: str) -> str:
+    """
+    候補のうち、実際に登録されているアルゴリズムIDを返す
+    (プロバイダーIDはQGISのバージョンや構成で異なる: grass7/grass, saga/sagang)
+    どれも見つからない場合は先頭の候補を返す
+    """
+    registry = QgsApplication.processingRegistry()
+    for algorithm_id in candidate_ids:
+        if registry.algorithmById(algorithm_id) is not None:
+            return algorithm_id
+    return candidate_ids[0]
 
 
 def resampling(tiff_filepath: str,
@@ -42,6 +60,27 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
         "RESAMPLING": resampling_alg,
         "INPUT": target_tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT",
-        "EXTRA": "-overwrite"
     })["OUTPUT"]
     return output
+
+
+def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
+                                                target_tiff_filepath: str,
+                                                resampling_alg_name="nearest") -> str:
+    """
+    既存の出力ラスターを、基準ラスターと同じ領域・解像度に揃えて置き換える
+    """
+    target_dir = os.path.dirname(target_tiff_filepath) or None
+    temp_dir = tempfile.mkdtemp(dir=target_dir)
+    temp_filepath = os.path.join(temp_dir, "adjusted.tif")
+    try:
+        adjusted_filepath = adjust_extent_and_resolution(
+            basis_tiff_filepath,
+            target_tiff_filepath,
+            output_filepath=temp_filepath,
+            resampling_alg_name=resampling_alg_name,
+        )
+        os.replace(adjusted_filepath, target_tiff_filepath)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    return target_tiff_filepath

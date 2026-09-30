@@ -26,8 +26,8 @@ def write_qml(profit_filepath: str, output_dir: str) -> str:
     renderer = get_quantile_renderer(rlayer, colors)
     renderer.setOpacity(0.5)
     rlayer.setRenderer(renderer)
-    rlayer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum,
-                                  QgsRasterMinMaxOrigin.MinMax)
+    rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
+                                  QgsRasterMinMaxOrigin.Limits.MinMax)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.qml') as temp_qml:
         rlayer.saveNamedStyle(temp_qml.name)
