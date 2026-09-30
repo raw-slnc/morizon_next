@@ -15,6 +15,7 @@ from ...constants import (
 )
 
 from .utils import (
+    apply_output_blend_mode,
     get_quantile_renderer,
     hex_to_rgb,
     replace_colorramp_labels,
@@ -49,9 +50,9 @@ def write_rawdata_qml(siteidx_filepath: str, wood_type="sugi") -> str:
 
     rlayer = QgsRasterLayer(siteidx_filepath, '')
     renderer = get_quantile_renderer(rlayer, colors)
-    renderer.setOpacity(0.8)
+    renderer.setOpacity(0.65)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 
@@ -66,9 +67,9 @@ def write_scoring_qml(siteidx_filepath: str) -> str:
     rlayer = QgsRasterLayer(siteidx_filepath, '')
     colors = list(map(hex_to_rgb, SCORING_COLORS_SITEIDX))
     renderer = get_quantile_renderer(rlayer, colors)
-    renderer.setOpacity(0.8)
+    renderer.setOpacity(0.65)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 

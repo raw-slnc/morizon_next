@@ -9,6 +9,7 @@ from qgis.gui import *
 
 from . import raster_writer
 from . import raster_styler
+from ..utils import move_output_layers_to_main_thread
 from ..constants import OUTPUT_ZONING, OUTPUT_ZONING_THRESHOLDS_JSON
 
 
@@ -70,7 +71,7 @@ class ProcessingThread(QThread):
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
             self.processFailed.emit(str(e))
             self.abort_flag = True
-            self.processFinished.emit(output_rlayers_dict)
+            self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
             return
 
         with open(
@@ -87,4 +88,4 @@ class ProcessingThread(QThread):
         # 本当はここでプロジェクトにレイヤーを追加したい
         # しかし別スレッドでプロジェクトに追加されたレイヤーはUIで認識できない
         # なのでメインスレッドでレイヤーを追加するため、処理結果をメインスレッドに渡す
-        self.processFinished.emit(output_rlayers_dict)
+        self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))

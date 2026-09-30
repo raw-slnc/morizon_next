@@ -11,6 +11,7 @@ from .forest_zoning_main_dialog_zoning import ForestZoningMainDialogZoning
 from .forest_zoning_main_dialog_aggregate import ForestZoningMainDialogAggregate
 from .forest_zoning_main_dialog_printlayout import ForestZoningMainDialogPrintlayout
 from .forest_zoning_main_dialog_settings import ForestZoningMainDialogSettings
+from .forest_zoning_main_dialog_archive import ForestZoningMainDialogArchive
 
 
 class ForestZoningMainDialog(QDialog):
@@ -42,3 +43,4 @@ class ForestZoningMainDialog(QDialog):
         self.aggregate = ForestZoningMainDialogAggregate(self)
         self.printlayout = ForestZoningMainDialogPrintlayout(self)
         self.settings = ForestZoningMainDialogSettings(self.settings_widget, self)
+        self.archive = ForestZoningMainDialogArchive(self)

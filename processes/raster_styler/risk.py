@@ -12,6 +12,7 @@ from ...constants import (
     SCORING_COLORS_RISK
 )
 from .utils import (
+    apply_output_blend_mode,
     get_quantile_renderer,
     hex_to_rgb,
     replace_colorramp_labels,
@@ -26,6 +27,7 @@ def write_qml(risk_filepath: str, output_dir: str) -> str:
     renderer = get_quantile_renderer(rlayer, colors)
     renderer.setOpacity(0.8)
     rlayer.setRenderer(renderer)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 

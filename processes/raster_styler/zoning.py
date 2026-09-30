@@ -4,6 +4,7 @@ from ...constants import (
     OUTPUT_ZONING,
     ZONING_COLORS
 )
+from .utils import output_blend_mode_value
 
 
 def write_qml(output_dir: str) -> str:
@@ -67,7 +68,7 @@ def write_qml(output_dir: str) -> str:
     <rasterresampler maxOversampling="2"/>
     <resamplingStage>resamplingFilter</resamplingStage>
   </pipe>
-  <blendMode>0</blendMode>
+  <blendMode>{output_blend_mode_value()}</blendMode>
 </qgis>
     """)
 

@@ -17,7 +17,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>MORIZON</string>
+   <string>Morizon Next</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_4">
    <item>
@@ -421,6 +421,13 @@
           <widget class="QgsFileWidget" name="elementsOutputDirFileWidget">
            <property name="storageMode">
             <enum>QgsFileWidget::GetDirectory</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="morizonMultiplyOutputCheckbox">
+           <property name="text">
+            <string>Morizon Next 乗算出力を適用する</string>
            </property>
           </widget>
          </item>
@@ -2210,6 +2217,20 @@
       </attribute>
       <layout class="QVBoxLayout" name="settingsTabLayout"/>
      </widget>
+    </widget>
+   </item>
+   <!-- クレジット表記 -->
+   <item>
+    <widget class="QLabel" name="labelCredit">
+     <property name="text">
+      <string notr="true">Based on MORIZON / Maintained by Avid Tree Work</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+     <property name="styleSheet">
+      <string>color: #888; font-size: 8pt; padding: 4px 0;</string>
+     </property>
     </widget>
    </item>
   </layout>

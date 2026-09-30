@@ -7,6 +7,7 @@ from ...constants import (
 )
 
 from ...settings_manager import SettingsManager
+from .utils import output_blend_mode_value
 
 
 def write_rawdata_qml(output_dir: str) -> str:
@@ -37,7 +38,7 @@ def write_rawdata_qml(output_dir: str) -> str:
     <provider>
       <resampling zoomedOutResamplingMethod="nearestNeighbour" enabled="false" zoomedInResamplingMethod="nearestNeighbour" maxOversampling="2"/>
     </provider>
-    <rasterrenderer alphaBand="-1" classificationMin="0" band="1" nodataColor="" type="singlebandpseudocolor" opacity="0.8" classificationMax="73.9964905">
+    <rasterrenderer alphaBand="-1" classificationMin="0" band="1" nodataColor="" type="singlebandpseudocolor" opacity="0.65" classificationMax="73.9964905">
       <rasterTransparency/>
       <minMaxOrigin>
         <limits>MinMax</limits>
@@ -71,7 +72,7 @@ def write_rawdata_qml(output_dir: str) -> str:
     <rasterresampler maxOversampling="2"/>
     <resamplingStage>resamplingFilter</resamplingStage>
   </pipe>
-  <blendMode>6</blendMode>
+  <blendMode>{output_blend_mode_value()}</blendMode>
 </qgis>""")
         return output_filepath
 
@@ -106,7 +107,7 @@ def write_scoring_qml(output_dir: str) -> str:
     <provider>
       <resampling zoomedOutResamplingMethod="nearestNeighbour" enabled="false" zoomedInResamplingMethod="nearestNeighbour" maxOversampling="2"/>
     </provider>
-    <rasterrenderer alphaBand="-1" classificationMin="0" band="1" nodataColor="" type="singlebandpseudocolor" opacity="0.8" classificationMax="73.9964905">
+    <rasterrenderer alphaBand="-1" classificationMin="0" band="1" nodataColor="" type="singlebandpseudocolor" opacity="0.65" classificationMax="73.9964905">
       <rasterTransparency/>
       <minMaxOrigin>
         <limits>MinMax</limits>
@@ -136,6 +137,6 @@ def write_scoring_qml(output_dir: str) -> str:
     <rasterresampler maxOversampling="2"/>
     <resamplingStage>resamplingFilter</resamplingStage>
   </pipe>
-  <blendMode>6</blendMode>
+  <blendMode>{output_blend_mode_value()}</blendMode>
 </qgis>""")
         return output_filepath

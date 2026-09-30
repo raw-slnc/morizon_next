@@ -34,12 +34,26 @@ class ForestZoningMainDialogAggregate:
         )
         self.update_aggregate_layer_scope()
         self.main.aggregatePolygonLayerCommbobox.setFilters(
-            QgsMapLayerProxyModel.Filter.VectorLayer
+            QgsMapLayerProxyModel.Filter.PolygonLayer
         )
+        self.main.aggregatePolygonLayerCommbobox.setAllowEmptyLayer(True, "未選択")
+        self.main.aggregatePolygonLayerCommbobox.setCurrentIndex(0)
         self.main.aggregateRunButton.clicked.connect(self.run_aggregate)
         self.main.aggregateOutputDirFileWidget.setFilter("*.shp")
         filename = OUTPUT_AGGREGATE.get("FILE_NAME")
         self.main.aggregateOutputDirFileWidget.setDefaultRoot(f"{filename}.shp")
+
+        # 出力先未指定時は、プロジェクト内蔵のプラグイン管理フォルダをデフォルトにする
+        # (set_morizon_layer_scopeがこの管理フォルダ配下しか候補にしないため、
+        # 他タブと出力先を揃えておく必要がある)
+        if self.main.aggregateOutputDirFileWidget.filePath() == "":
+            project_home = QgsProject.instance().homePath()
+            if project_home != "":
+                default_output_dir = os.path.join(project_home, "morizon_next", "aggregate")
+                os.makedirs(default_output_dir, exist_ok=True)
+                self.main.aggregateOutputDirFileWidget.setFilePath(
+                    os.path.join(default_output_dir, f"{filename}.shp")
+                )
 
         self.main.aggregateZoningLayerCombobox.layerChanged.connect(
             self.refresh_aggregate_ui
@@ -113,6 +127,9 @@ class ForestZoningMainDialogAggregate:
             folderpath = os.path.dirname(output_path)
             filename_no_extension = os.path.splitext(os.path.basename(output_path))[0]
             file_list = glob.glob(f"{folderpath}/{filename_no_extension}.*")
+
+            # 既存の出力レイヤーを置き換えるため、先にプロジェクトから外してファイルを解放する
+            utils.remove_project_layers_by_sources([output_path])
 
             # deletableを初期化
             deletable = True
@@ -205,7 +222,7 @@ class ForestZoningMainDialogAggregate:
         for rlayer in rlayers_dict.values():
             # プロジェクトのレイヤー一覧の一番上にレイヤーを追加
             QgsProject.instance().addMapLayer(rlayer, False)
-            root = QgsProject().instance().layerTreeRoot()
+            root = QgsProject.instance().layerTreeRoot()
             root.insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()

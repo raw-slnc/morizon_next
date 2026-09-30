@@ -2,7 +2,6 @@ import os
 import glob
 import re
 import gc
-import uuid
 
 # QGIS-API
 from qgis.PyQt.QtCore import *
@@ -17,7 +16,10 @@ from qgis.utils import iface
 from .progress_dialog import ProgressDialog
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog
 from .dem_loader import GSITileDEMLoader
+from .settings_manager import OutputLayerStyleManager
 from . import processes
+from . import utils
+from .processes.raster_styler import apply_output_blend_mode
 from .constants import (
     INPUT_DEM,
     INPUT_NPP,
@@ -45,9 +47,6 @@ class ForestZoningMainDialogElements:
     """
     メイン画面の「要素計算」タブの処理を実装するクラス
     """
-    _OUTPUT_VISIBILITY_PROPERTY_KEY = "morizon_next/output_visibility_rules_token"
-    _OUTPUT_VISIBILITY_TOKEN = uuid.uuid4().hex
-    _output_visibility_rule_slots = []
 
     def __init__(self, main):
         self.main = main
@@ -66,6 +65,7 @@ class ForestZoningMainDialogElements:
         self.main.elementsClearSettingsPushButton.clicked.connect(
             self.clear_elements_settings
         )
+        self._init_output_blend_option()
         # UIの変更を検知しUI全体を更新する
         for signal in (
             self.main.elementsDemFileWidget.fileChanged,
@@ -99,6 +99,28 @@ class ForestZoningMainDialogElements:
         self.main.costCsvGroupBoxLayout.addWidget(self.costcsv_editor)
 
         self.refresh_elements_ui()
+
+    def _init_output_blend_option(self):
+        manager = OutputLayerStyleManager()
+        self.main.morizonMultiplyOutputCheckbox.blockSignals(True)
+        self.main.morizonMultiplyOutputCheckbox.setChecked(
+            manager.load_apply_multiply()
+        )
+        self.main.morizonMultiplyOutputCheckbox.blockSignals(False)
+        self.main.morizonMultiplyOutputCheckbox.toggled.connect(
+            self.handle_output_blend_option_toggled
+        )
+
+    def handle_output_blend_option_toggled(self, checked: bool):
+        OutputLayerStyleManager().store_apply_multiply(checked)
+        if checked:
+            QMessageBox.warning(
+                self.main,
+                "描画負荷の警告",
+                "Morizon Next 乗算出力を有効にすると、出力レイヤーを下の地図と合成して描画します。\n\n"
+                "多数の乗算レイヤーや広い範囲では多くの処理能力を要求し、"
+                "QGISの描画や操作が重くなる場合があります。必要な場合だけ有効にしてください。",
+            )
 
     def handle_costcsv_export(self, editor_widget):
         project_home = QgsProject.instance().homePath()
@@ -250,31 +272,7 @@ class ForestZoningMainDialogElements:
         error_texts = []
         mondatory_files_dict = self.get_elements_mandatory_files_dict()
 
-        def validate_output(output_name: str):
-            """
-            出力データのバリデーション
-            """
-            groups = QgsProject().instance().layerTreeRoot().findGroups()
-            group_names = list(map(lambda g: g.name(), groups))
-            if output_name in group_names:
-                error_texts.append(f"プロジェクトにすでに「{output_name}」が存在します")
-
-        if self.main.elementsSiteIdxCheckbox.isChecked():
-            validate_output(OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"])
-            validate_output(OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"])
-            validate_output(OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"])
-        if self.main.elementsCostCheckbox.isChecked():
-            validate_output(OUTPUT_COST["DISPLAY_NAME"])
-        if self.main.elementsDistanceCheckbox.isChecked():
-            validate_output(OUTPUT_DISTANCE["DISPLAY_NAME"])
-        if self.main.elementsShcCheckbox.isChecked():
-            validate_output(OUTPUT_SHC["DISPLAY_NAME"])
-        if self.main.elementsSlopeCheckbox.isChecked():
-            validate_output(OUTPUT_SLOPE["DISPLAY_NAME"])
-        if self.main.elementsSaveareaCheckbox.isChecked():
-            validate_output(OUTPUT_SAVEAREA["DISPLAY_NAME"])
-
-        # その他
+        # 既存の出力は実行時の上書き確認で置き換えるため、ここでは止めない
         if not mondatory_files_dict["dem"]:
             error_texts.append("計算する要素をひとつ以上選択してください")
         if self.main.elementsOutputDirFileWidget.filePath() == "":
@@ -614,7 +612,10 @@ class ForestZoningMainDialogElements:
         )
         if answer == QMessageBox.StandardButton.No:
             return
+        self.reset_elements_inputs()
 
+    def reset_elements_inputs(self):
+        """要素計算タブの入力ファイル・チェックボックスを初期状態に戻す（確認なし）"""
         for filewidget in (
             self.main.elementsDemFileWidget,
             self.main.elementsNppFileWidget,
@@ -679,13 +680,18 @@ class ForestZoningMainDialogElements:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
+                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 self.main.show()
                 return
+            output_dir = self.main.elementsOutputDirFileWidget.filePath()
+            utils.remove_project_layers_by_sources(
+                [os.path.join(output_dir, filename) for filename in existing_filenames]
+            )
 
         input_files_dict = {
             "dem": self.main.elementsDemFileWidget.filePath(),
@@ -753,17 +759,13 @@ class ForestZoningMainDialogElements:
         """
         要素計算の処理結果を受け取って各要素ごとの2レイヤーを1つのグループとしてプロジェクトに追加。
 
-        DISPLAY_NAME（例：「収益性/地位/スギ」）はスラッシュ区切りで任意の階層数の
-        グループにネストできる。2階層（例：「収益性/地利」）の場合は最後のセグメント
-        専用の葉グループを作りその中に2レイヤーを格納する。3階層以上（例：
-        「収益性/地位/スギ」）の場合は最後のセグメントは葉グループを作らず、
-        1つ手前のグループ（「地位」）へ樹種ごとのレイヤーをまとめて直接追加する
-        （2026-09-30、ユーザー指示による設計）。
-        レイヤー実体の名前（rlayer.name()）はスコアリングタブ等が
-        プロジェクト全体をフラットに名前検索する際に使うため変更せず、
-        レイヤーツリー上の表示名だけ最後のセグメント（例：「スギ」）に短縮する。
+        DISPLAY_NAMEはスラッシュ区切りでグループにネストできる。
+        2階層（例：「収益性/地位（スギ）」「収益性/地利」）の場合は、
+        最後のセグメント専用の葉グループを作り、その中に2レイヤーを格納する。
+        3階層以上の場合は最後のセグメントは葉グループを作らず、
+        1つ手前のグループへレイヤーをまとめて直接追加する。
         """
-        root = QgsProject().instance().layerTreeRoot()
+        root = QgsProject.instance().layerTreeRoot()
         group_cache = {}
         layer_items = list(reversed(list(output_rlayers_dict.items())))
         if not layer_items:
@@ -808,19 +810,15 @@ class ForestZoningMainDialogElements:
                 target_group = parent_group
                 target_group.setItemVisibilityChecked(False)
 
-            for i, rlayer in enumerate(rlayers):
-                # QMLでの定義がQGISの不具合で反映されないのでコードでも設定する
-                rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+            for rlayer in rlayers:
+                # QML側の指定が環境によって反映されない場合があるため、追加時にも明示する
+                apply_output_blend_mode(rlayer)
 
                 QgsProject.instance().addMapLayer(rlayer, False)
                 layer_node = target_group.addLayer(rlayer)
                 layer_node.setItemVisibilityChecked(False)
                 # シンボロジ（凡例の展開）は閉じておく
                 layer_node.setExpanded(False)
-                if i == 0:
-                    # 生データ側は表示名だけ短縮する(rlayer.name()自体は変えない)
-                    layer_node.setName(short_name)
-                # スコアリング側はタブ間検索に使われる名前そのままを表示する
 
             progress_dialog.setValue(step)
             QCoreApplication.processEvents()
@@ -840,27 +838,19 @@ class ForestZoningMainDialogElements:
 
     @staticmethod
     def setup_output_layer_tree_visibility(root=None):
+        """
+        要素計算の出力グループにQGIS標準の排他的表示（Mutually Exclusive Group）を設定する。
+        設定はプロジェクトに保存されるため、プラグインの起動有無に関係なく有効。
+        """
         root = root or QgsProject.instance().layerTreeRoot()
-        profit_group = ForestZoningMainDialogElements._find_direct_group(root, "収益性")
-        risk_group = ForestZoningMainDialogElements._find_direct_group(root, "災害リスク")
-        axis_groups = [group for group in (profit_group, risk_group) if group is not None]
-        if not axis_groups:
-            return
-
-        for axis_group in axis_groups:
-            ForestZoningMainDialogElements._set_mutually_exclusive_group(
-                axis_group,
-                reset_children=False,
-            )
+        for axis_name in ("収益性", "災害リスク"):
+            axis_group = ForestZoningMainDialogElements._find_direct_group(root, axis_name)
+            if axis_group is None:
+                continue
+            ForestZoningMainDialogElements._set_mutually_exclusive_group(axis_group)
             for child in axis_group.children():
                 if isinstance(child, QgsLayerTreeGroup):
-                    ForestZoningMainDialogElements._set_mutually_exclusive_group(
-                        child,
-                        reset_children=False,
-                    )
-
-        if len(axis_groups) >= 2:
-            ForestZoningMainDialogElements._connect_output_visibility_rules(axis_groups)
+                    ForestZoningMainDialogElements._set_mutually_exclusive_group(child)
 
     @staticmethod
     def _find_direct_group(parent, name):
@@ -870,109 +860,7 @@ class ForestZoningMainDialogElements:
         return None
 
     @staticmethod
-    def _activate_output_node(node, axis_groups):
-        active_axis_group = ForestZoningMainDialogElements._axis_group_for_node(
-            node,
-            axis_groups,
-        )
-        if active_axis_group is None:
+    def _set_mutually_exclusive_group(group):
+        if not group.children():
             return
-
-        current = node
-        while current is not None:
-            parent = current.parent()
-            if parent is None:
-                break
-
-            if current is active_axis_group:
-                for axis_group in axis_groups:
-                    if axis_group is not active_axis_group:
-                        axis_group.setItemVisibilityChecked(False)
-                current.setItemVisibilityChecked(True)
-                break
-
-            if isinstance(parent, QgsLayerTreeGroup):
-                for sibling in parent.children():
-                    if sibling is current:
-                        continue
-                    if isinstance(current, QgsLayerTreeGroup) and isinstance(sibling, QgsLayerTreeGroup):
-                        sibling.setItemVisibilityChecked(False)
-                    elif not isinstance(current, QgsLayerTreeGroup) and not isinstance(sibling, QgsLayerTreeGroup):
-                        sibling.setItemVisibilityChecked(False)
-
-            current.setItemVisibilityChecked(True)
-            if parent is not QgsProject.instance().layerTreeRoot():
-                parent.setItemVisibilityChecked(True)
-            current = parent
-
-    @staticmethod
-    def _axis_group_for_node(node, axis_groups):
-        current = node
-        while current is not None:
-            for axis_group in axis_groups:
-                if current is axis_group:
-                    return axis_group
-            current = current.parent()
-        return None
-
-    @staticmethod
-    def _set_mutually_exclusive_group(group, initial_child_index=None, reset_children=True):
-        children = group.children()
-        if not children:
-            return
-        if reset_children:
-            group.setItemVisibilityChecked(False)
-            for idx, child in enumerate(children):
-                child.setItemVisibilityChecked(
-                    initial_child_index is not None and idx == initial_child_index
-                )
-        if hasattr(group, "setIsMutuallyExclusive"):
-            try:
-                group.setIsMutuallyExclusive(False)
-            except TypeError:
-                pass
-
-    @staticmethod
-    def _connect_output_visibility_rules(axis_groups):
-        token = ForestZoningMainDialogElements._OUTPUT_VISIBILITY_TOKEN
-        property_key = ForestZoningMainDialogElements._OUTPUT_VISIBILITY_PROPERTY_KEY
-        syncing = {"active": False}
-        connected_any = {"value": False}
-
-        def on_visibility_changed(node):
-            if syncing["active"] or not node.itemVisibilityChecked():
-                return
-            if ForestZoningMainDialogElements._axis_group_for_node(node, axis_groups) is None:
-                return
-            syncing["active"] = True
-            try:
-                ForestZoningMainDialogElements._activate_output_node(
-                    node,
-                    axis_groups,
-                )
-            finally:
-                syncing["active"] = False
-
-        def connect_node(node):
-            existing_token = node.customProperty(property_key, "")
-            if existing_token != token:
-                if existing_token:
-                    try:
-                        node.visibilityChanged.disconnect()
-                    except (AttributeError, TypeError):
-                        pass
-                try:
-                    node.visibilityChanged.connect(on_visibility_changed)
-                    node.setCustomProperty(property_key, token)
-                    connected_any["value"] = True
-                except (AttributeError, TypeError):
-                    pass
-            for child in node.children():
-                connect_node(child)
-
-        for axis_group in axis_groups:
-            connect_node(axis_group)
-        if connected_any["value"]:
-            ForestZoningMainDialogElements._output_visibility_rule_slots.append(
-                on_visibility_changed
-            )
+        group.setIsMutuallyExclusive(True)

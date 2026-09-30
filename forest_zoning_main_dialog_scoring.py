@@ -15,6 +15,7 @@ from .progress_dialog import ProgressDialog
 
 from .forest_zoning_scoring_stats_dialog import ForestZoningScoringStatsDialog
 from .processes.raster_styler import (
+    apply_output_blend_mode,
     write_qml_by_thresholds_and_colors,
 )
 from . import processes
@@ -154,6 +155,17 @@ class ForestZoningMainDialogScoring:
         )
         self.main.scoringSaveareaLayerCombobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
         self.update_scoring_layer_scope()
+
+        # 出力先未指定時は、プロジェクト内蔵のプラグイン管理フォルダをデフォルトにする
+        # (set_morizon_layer_scopeがこの管理フォルダ配下しか候補にしないため、
+        # 他タブと出力先を揃えておく必要がある)
+        if self.main.scoringOutputDirFileWidget.filePath() == "":
+            project_home = QgsProject.instance().homePath()
+            if project_home != "":
+                default_output_dir = os.path.join(project_home, "morizon_next", "scoring")
+                os.makedirs(default_output_dir, exist_ok=True)
+                self.main.scoringOutputDirFileWidget.setFilePath(default_output_dir)
+
         # 初期値セット
         list(
             map(
@@ -165,7 +177,9 @@ class ForestZoningMainDialogScoring:
         list(
             map(
                 lambda obj: obj.combobox.layerChanged.connect(
-                    lambda: self.init_scoring_rlayer_stats(obj)
+                    lambda _layer=None, scoring_obj=obj: self.init_scoring_rlayer_stats(
+                        scoring_obj
+                    )
                 ),
                 self.scoring_objs_dict.values(),
             )
@@ -427,24 +441,37 @@ class ForestZoningMainDialogScoring:
 
     def update_scoring_layer_scope(self):
         name_suffix = "[スコアリング]"
-        allowed_names = {
-            OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_COST["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_DISTANCE["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_SLOPE["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_SHC["DISPLAY_NAME"] + name_suffix,
-            OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix,
-        }
-        for combobox in (
-            self.main.scoringSiteidxLayerCombobox,
-            self.main.scoringCostLayerCombobox,
-            self.main.scoringDistanceLayerCombobox,
-            self.main.scoringSlopeLayerCombobox,
-            self.main.scoringShcLayerCombobox,
-            self.main.scoringSaveareaLayerCombobox,
-        ):
+        combobox_allowed_names = (
+            (
+                self.main.scoringSiteidxLayerCombobox,
+                {
+                    OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
+                },
+            ),
+            (
+                self.main.scoringCostLayerCombobox,
+                {OUTPUT_COST["DISPLAY_NAME"] + name_suffix},
+            ),
+            (
+                self.main.scoringDistanceLayerCombobox,
+                {OUTPUT_DISTANCE["DISPLAY_NAME"] + name_suffix},
+            ),
+            (
+                self.main.scoringSlopeLayerCombobox,
+                {OUTPUT_SLOPE["DISPLAY_NAME"] + name_suffix},
+            ),
+            (
+                self.main.scoringShcLayerCombobox,
+                {OUTPUT_SHC["DISPLAY_NAME"] + name_suffix},
+            ),
+            (
+                self.main.scoringSaveareaLayerCombobox,
+                {OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix},
+            ),
+        )
+        for combobox, allowed_names in combobox_allowed_names:
             utils.set_morizon_layer_scope(
                 combobox,
                 allowed_names=allowed_names,
@@ -466,7 +493,7 @@ class ForestZoningMainDialogScoring:
 
         target_layer.loadNamedStyle(qml_filepath)
         iface.layerTreeView().refreshLayerSymbology(target_layer.id())  # レイヤー一覧の凡例を更新
-        target_layer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)  # 乗算に設定
+        apply_output_blend_mode(target_layer)
         target_layer.triggerRepaint()  # キャンバス上の見た目を更新
 
     def scoring_reload_thresholds(self, scoring_obj: ScoringObject):
@@ -604,19 +631,42 @@ class ForestZoningMainDialogScoring:
 
     def get_scoring_error_texts(self):
         error_texts = []
+        name_suffix = "[スコアリング]"
 
-        for name, combobox in (
-            ("地位", self.main.scoringSiteidxLayerCombobox),
-            (OUTPUT_COST["DISPLAY_NAME"], self.main.scoringCostLayerCombobox),
+        for name, combobox, allowed_names in (
+            (
+                "地位",
+                self.main.scoringSiteidxLayerCombobox,
+                {
+                    OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
+                },
+            ),
+            (
+                OUTPUT_COST["DISPLAY_NAME"],
+                self.main.scoringCostLayerCombobox,
+                {OUTPUT_COST["DISPLAY_NAME"] + name_suffix},
+            ),
             (
                 OUTPUT_DISTANCE["DISPLAY_NAME"],
                 self.main.scoringDistanceLayerCombobox,
+                {OUTPUT_DISTANCE["DISPLAY_NAME"] + name_suffix},
             ),  # nopep8
-            (OUTPUT_SLOPE["DISPLAY_NAME"], self.main.scoringSlopeLayerCombobox),
-            (OUTPUT_SHC["DISPLAY_NAME"], self.main.scoringShcLayerCombobox),
+            (
+                OUTPUT_SLOPE["DISPLAY_NAME"],
+                self.main.scoringSlopeLayerCombobox,
+                {OUTPUT_SLOPE["DISPLAY_NAME"] + name_suffix},
+            ),
+            (
+                OUTPUT_SHC["DISPLAY_NAME"],
+                self.main.scoringShcLayerCombobox,
+                {OUTPUT_SHC["DISPLAY_NAME"] + name_suffix},
+            ),
             (
                 OUTPUT_SAVEAREA["DISPLAY_NAME"],
                 self.main.scoringSaveareaLayerCombobox,
+                {OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix},
             ),  # nopep8
         ):
 
@@ -632,17 +682,20 @@ class ForestZoningMainDialogScoring:
                 error_texts.append(f"{name}ラスターを指定してください")
                 continue
 
+            if not utils.is_morizon_managed_layer(
+                combobox.currentLayer(),
+                allowed_names=allowed_names,
+                allowed_extensions={".tif", ".tiff"},
+            ):
+                error_texts.append(f"{name}ラスターを指定してください")
+                continue
+
             # 統計量をもとにした妥当性チェック
             if not utils.is_valid_elements_layer(combobox.currentLayer()):
                 # ラスタータイルはここで引っかかる: MIN=1000000 MEAN=1000000 MAX=-10000 となるため
                 error_texts.append(f"有効な{name}ラスターを指定してください")
 
-        # 出力レイヤーの存在確認
-        groups = QgsProject().instance().layerTreeRoot().findGroups()
-        group_names = list(map(lambda g: g.name(), groups))
-        output_group_name = "スコアリング"
-        if output_group_name in group_names:
-            error_texts.append(f"プロジェクトにすでに「{output_group_name}」が存在します")
+        # 既存の出力は実行時の上書き確認で置き換えるため、ここでは止めない
 
         if (
             not self.main.scoringSiteidxLayerCombobox.parent().isChecked()
@@ -690,12 +743,17 @@ class ForestZoningMainDialogScoring:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
+                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
+            output_dir = self.main.scoringOutputDirFileWidget.filePath()
+            utils.remove_project_layers_by_sources(
+                [os.path.join(output_dir, filename) for filename in existing_filenames]
+            )
 
         input_layers_dict = {
             "siteidx": self.main.scoringSiteidxLayerCombobox.currentLayer(),
@@ -773,11 +831,12 @@ class ForestZoningMainDialogScoring:
         """
         処理結果を受け取ってレイヤー群を1つのグループとしてプロジェクトに追加
         """
-        root = QgsProject().instance().layerTreeRoot()
+        root = QgsProject.instance().layerTreeRoot()
         group_node = root.insertGroup(0, "スコアリング")
         group_node.setExpanded(False)
 
         for rlayer in rlayers_dict.values():
+            apply_output_blend_mode(rlayer)
             QgsProject.instance().addMapLayer(rlayer, False)
             group_node.addLayer(rlayer)
         ForestZoningMainDialogScoring._set_mutually_exclusive_group(group_node, initial_child_index=None)

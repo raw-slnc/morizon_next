@@ -5,7 +5,7 @@ from qgis.core import *
 from qgis.gui import *
 import processing
 
-from ..utils import is_resampling_needed, get_tiff_info
+from ..utils import is_resampling_needed, get_tiff_info, move_output_layers_to_main_thread
 from . import raster_writer
 from . import raster_styler
 from ..constants import OUTPUT_AGGREGATE
@@ -72,11 +72,11 @@ class ProcessingThread(QThread):
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
             self.processFailed.emit(str(e))
             self.abort_flag = True
-            self.processFinished.emit(vlayer_dict)
+            self.processFinished.emit(move_output_layers_to_main_thread(vlayer_dict))
             return
 
         self.postMessage.emit("終了処理中")
-        self.processFinished.emit(vlayer_dict)
+        self.processFinished.emit(move_output_layers_to_main_thread(vlayer_dict))
 
 
 

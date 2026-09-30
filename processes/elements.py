@@ -12,7 +12,8 @@ from qgis.gui import *
 from . import raster_writer
 from . import raster_styler
 from ..utils import (
-    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias
+    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias,
+    move_output_layers_to_main_thread,
 )
 from ..constants import (
     OUTPUT_COST,
@@ -143,7 +144,7 @@ class ProcessingThread(QThread):
                         siteidx_rawdata_rlayer, siteidx_scoring_rlayer]
 
                 if self.abort_flag:
-                    self.processFinished.emit(output_rlayers_dict)
+                    self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
             if self.target_elements_dict["cost"]:
@@ -171,7 +172,7 @@ class ProcessingThread(QThread):
                     cost_rawdata_rlayer, cost_scoring_rlayer]
 
                 if self.abort_flag:
-                    self.processFinished.emit(output_rlayers_dict)
+                    self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
             if self.target_elements_dict["distance"]:
@@ -204,7 +205,7 @@ class ProcessingThread(QThread):
                         distance_rawdata_rlayer, distance_scoring_rlayer]
 
                 if self.abort_flag:
-                    self.processFinished.emit(output_rlayers_dict)
+                    self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
             if self.target_elements_dict["shc"]:
@@ -230,7 +231,7 @@ class ProcessingThread(QThread):
                     shc_rawdata_rlayer, shc_scoring_rlayer]
 
                 if self.abort_flag:
-                    self.processFinished.emit(output_rlayers_dict)
+                    self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
             if self.target_elements_dict["slope"]:
@@ -256,7 +257,7 @@ class ProcessingThread(QThread):
                     slope_rawdata_rlayer, slope_scoring_rlayer]
 
                 if self.abort_flag:
-                    self.processFinished.emit(output_rlayers_dict)
+                    self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
             if self.target_elements_dict["savearea"]:
@@ -291,7 +292,7 @@ class ProcessingThread(QThread):
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
             self.processFailed.emit(str(e))
             self.abort_flag = True
-            self.processFinished.emit(output_rlayers_dict)
+            self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
             return
         finally:
             ascii_tmpdir.restore()
@@ -302,4 +303,4 @@ class ProcessingThread(QThread):
         # 本当はここでプロジェクトにレイヤーを追加したい
         # しかし別スレッドでプロジェクトに追加されたレイヤーはUIで認識できない
         # なのでメインスレッドでレイヤーを追加するため、処理結果をメインスレッドに渡す
-        self.processFinished.emit(output_rlayers_dict)
+        self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))

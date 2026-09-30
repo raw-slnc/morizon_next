@@ -8,7 +8,28 @@ from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
 
-from ...settings_manager import SettingsManager
+from ...settings_manager import SettingsManager, OutputLayerStyleManager
+
+
+def output_blend_mode_value() -> int:
+    return 6 if OutputLayerStyleManager().load_apply_multiply() else 0
+
+
+def _qt_composition_mode(enum_name: str, legacy_name: str):
+    composition_mode = getattr(QPainter, "CompositionMode", None)
+    if composition_mode is not None:
+        return getattr(composition_mode, enum_name)
+    return getattr(QPainter, legacy_name)
+
+
+def output_blend_mode():
+    if OutputLayerStyleManager().load_apply_multiply():
+        return _qt_composition_mode("CompositionMode_Multiply", "CompositionMode_Multiply")
+    return _qt_composition_mode("CompositionMode_SourceOver", "CompositionMode_SourceOver")
+
+
+def apply_output_blend_mode(rlayer):
+    rlayer.setBlendMode(output_blend_mode())
 
 
 def get_quantile_renderer(rlayer: QgsRasterLayer, colors=[[255, 255, 255], [255, 0, 0]]):
@@ -83,7 +104,7 @@ def __make_qml_str_with(items_str: str) -> str:
     <rasterresampler maxOversampling="2"/>
     <resamplingStage>resamplingFilter</resamplingStage>
   </pipe>
-  <blendMode>0</blendMode>
+  <blendMode>{output_blend_mode_value()}</blendMode>
 </qgis>
     """
 

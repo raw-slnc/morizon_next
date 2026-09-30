@@ -95,6 +95,30 @@ class SettingsManager:
         return self.__settings
 
 
+class OutputLayerStyleManager:
+    """
+    MORIZON出力レイヤーの描画合成設定。
+
+    通常は不透明度だけで描画し、乗算合成は明示的に有効化された場合だけ使う。
+    """
+
+    SETTING_GROUP = '/MORIZON/output_layer_style'
+    APPLY_MULTIPLY_KEY = 'apply_multiply_output'
+
+    def load_apply_multiply(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.APPLY_MULTIPLY_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_apply_multiply(self, apply_multiply: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.APPLY_MULTIPLY_KEY, bool(apply_multiply))
+        qsettings.endGroup()
+
+
 class FgdCredentialsManager:
     """
     基盤地図情報ダウンロードサービスのログインID・パスワードの保存。

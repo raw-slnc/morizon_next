@@ -10,6 +10,7 @@ from qgis.PyQt.QtGui import *
 from qgis.PyQt.QtWidgets import *
 from qgis.core import *
 from qgis.gui import *
+from qgis.PyQt import sip
 import processing
 
 from ..processes import raster_styler
@@ -184,9 +185,17 @@ def set_morizon_layer_scope(combobox: QgsMapLayerComboBox,
                             allowed_names=None,
                             allowed_extensions=None,
                             keep_current=True):
-    """QgsMapLayerComboBoxの候補をMORIZON管理フォルダ配下の成果物に限定する。"""
+    """QgsMapLayerComboBoxの候補をMORIZON管理フォルダ配下の成果物に限定する。
+    候補が無ければ空にする(現在の選択がMORIZON管理フォルダ配下でないなら、
+    選択を維持せず除外する)。"""
     project_layers = list(QgsProject.instance().mapLayers().values())
     current_layer = combobox.currentLayer() if keep_current else None
+    if current_layer is not None and not is_morizon_managed_layer(
+        current_layer,
+        allowed_names=allowed_names,
+        allowed_extensions=allowed_extensions,
+    ):
+        current_layer = None
     excepted_layers = [
         layer for layer in project_layers
         if layer is not current_layer
@@ -221,6 +230,85 @@ def _layer_source_path(layer: QgsMapLayer) -> str:
     if "|" in source:
         source = source.split("|", 1)[0]
     return os.path.abspath(source) if source else ""
+
+
+def move_output_layers_to_main_thread(layers_dict: dict) -> dict:
+    """
+    処理スレッドで作成した出力レイヤーを、スレッドを抜ける前にメインスレッドへ移す。
+    必ず処理スレッド側（processFinished.emitの直前）で呼ぶ（moveToThreadは所属スレッドからしか行えない）。
+
+    移さないと、レイヤーは終了済みスレッドに属したままになり、
+    ・Windows環境で追加直後に描画されない（プロジェクトを開き直すと描画される）
+    ・削除してもファイルが開かれたまま残り、Windowsで次回の上書きが「アクセスが拒否されました」で失敗する
+    という問題が起きる。値はレイヤー単体またはレイヤーの配列。
+    """
+    main_thread = QCoreApplication.instance().thread()
+    for value in layers_dict.values():
+        layers = value if isinstance(value, (list, tuple)) else [value]
+        for layer in layers:
+            if layer is not None and layer.thread() is not main_thread:
+                layer.moveToThread(main_thread)
+    return layers_dict
+
+
+def is_under_dir(path: str, directory: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.normpath(path), directory]) == directory
+    except ValueError:
+        return False
+
+
+def _remove_layers_and_empty_groups(layers) -> int:
+    """
+    レイヤーをプロジェクトから外し、それによって空になったグループも取り除く。
+    読み込み中のファイルを上書き・削除できるよう、先にファイルの参照を解放する用途。
+    """
+    project = QgsProject.instance()
+    root = project.layerTreeRoot()
+    parent_groups = []
+    for layer in layers:
+        node = root.findLayer(layer.id())
+        if node is not None and node.parent() is not None:
+            parent_groups.append(node.parent())
+    project.removeMapLayers([layer.id() for layer in layers])
+
+    # 空になったグループを親方向へ順に取り除く（ルートは残す）。
+    # 同じグループが複数回積まれるため、削除済みのものは飛ばす
+    while parent_groups:
+        group = parent_groups.pop()
+        if sip.isdeleted(group) or group is root or group.children():
+            continue
+        parent = group.parent()
+        if parent is None:
+            continue
+        parent.removeChildNode(group)
+        parent_groups.append(parent)
+    return len(layers)
+
+
+def remove_project_layers_by_sources(filepaths) -> int:
+    """指定ファイルを読み込んでいるレイヤーをプロジェクトから外す。"""
+    targets = {os.path.normcase(os.path.abspath(path)) for path in filepaths}
+    layers = [
+        layer for layer in QgsProject.instance().mapLayers().values()
+        if os.path.normcase(_layer_source_path(layer)) in targets
+    ]
+    return _remove_layers_and_empty_groups(layers)
+
+
+def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
+    """指定フォルダ配下（除外フォルダを除く）のファイルを読み込んでいるレイヤーをプロジェクトから外す。"""
+    directory = os.path.normpath(directory)
+    excluded_dirs = [os.path.normpath(path) for path in excluded_dirs]
+    layers = []
+    for layer in QgsProject.instance().mapLayers().values():
+        source = _layer_source_path(layer)
+        if not source or not is_under_dir(source, directory):
+            continue
+        if any(is_under_dir(source, excluded) for excluded in excluded_dirs):
+            continue
+        layers.append(layer)
+    return _remove_layers_and_empty_groups(layers)
 
 
 def get_tiff_info(tiff_filepath: str) -> dict:
@@ -264,6 +352,12 @@ def is_valid_elements_layer(rlayer: QgsRasterLayer) -> bool:
     """
     ラスターレイヤーが有効な要素レイヤーかチェックする
     """
+    raster_layer_type = getattr(QgsMapLayer, "LayerType", QgsMapLayer).RasterLayer
+    if rlayer is None or rlayer.type() != raster_layer_type:
+        return False
+    provider = rlayer.dataProvider()
+    if provider is None or not hasattr(provider, "bandStatistics"):
+        return False
     stats = get_raster_stats(rlayer)
     return stats["MIN"] <= stats["MEAN"] and stats["MEAN"] <= stats["MAX"]
 

@@ -8,8 +8,10 @@ from qgis.core import *
 from qgis.gui import *
 
 from .utils import (
+    apply_output_blend_mode,
     get_quantile_renderer,
     hex_to_rgb,
+    output_blend_mode_value,
     replace_colorramp_labels,
     get_colorramp_label_prefixes,
     round_label_precision
@@ -50,7 +52,7 @@ def write_rawdata_qml(costcsv_filepath: str, output_dir: str) -> str:
     <provider>
       <resampling zoomedOutResamplingMethod="nearestNeighbour" enabled="false" zoomedInResamplingMethod="nearestNeighbour" maxOversampling="2"/>
     </provider>
-    <rasterrenderer alphaBand="-1" band="1" nodataColor="" type="paletted" opacity="0.8">
+    <rasterrenderer alphaBand="-1" band="1" nodataColor="" type="paletted" opacity="0.65">
       <rasterTransparency/>
       <minMaxOrigin>
         <limits>None</limits>
@@ -80,7 +82,7 @@ def write_rawdata_qml(costcsv_filepath: str, output_dir: str) -> str:
     <rasterresampler maxOversampling="2"/>
     <resamplingStage>resamplingFilter</resamplingStage>
   </pipe>
-  <blendMode>6</blendMode>
+  <blendMode>{output_blend_mode_value()}</blendMode>
 </qgis>
     """
 
@@ -96,9 +98,9 @@ def write_scoring_qml(cost_filepath: str, output_dir: str) -> str:
     rlayer = QgsRasterLayer(cost_filepath, '')
     colors = list(map(hex_to_rgb, SCORING_COLORS_COST))
     renderer = get_quantile_renderer(rlayer, colors)
-    renderer.setOpacity(0.8)
+    renderer.setOpacity(0.65)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 

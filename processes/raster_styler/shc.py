@@ -13,6 +13,7 @@ from ...constants import (
     RAWDATA_COLORS_SHC
 )
 from .utils import (
+    apply_output_blend_mode,
     get_quantile_renderer,
     hex_to_rgb,
     replace_colorramp_labels,
@@ -25,9 +26,9 @@ def write_rawdata_qml(shc_filepath: str, output_dir: str) -> str:
     rlayer = QgsRasterLayer(shc_filepath, '')
     colors = list(map(hex_to_rgb, RAWDATA_COLORS_SHC))
     renderer = get_quantile_renderer(rlayer, colors)
-    renderer.setOpacity(0.8)
+    renderer.setOpacity(0.65)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 
@@ -44,9 +45,9 @@ def write_scoring_qml(shc_filepath: str, output_dir: str) -> str:
     rlayer = QgsRasterLayer(shc_filepath, '')
     colors = list(map(hex_to_rgb, SCORING_COLORS_SHC))
     renderer = get_quantile_renderer(rlayer, colors)
-    renderer.setOpacity(0.8)
+    renderer.setOpacity(0.65)
     rlayer.setRenderer(renderer)
-    rlayer.setBlendMode(QPainter.CompositionMode.CompositionMode_Multiply)
+    apply_output_blend_mode(rlayer)
     rlayer.setContrastEnhancement(QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
                                   QgsRasterMinMaxOrigin.Limits.MinMax)
 

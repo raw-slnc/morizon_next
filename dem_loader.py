@@ -411,6 +411,86 @@ class GSITileDEMLoader:
         return f"{cols}×{rows} px  |  {src}  |  EPSG:3857  |  {px_m:.1f} m/px{fill}"
 
 
+def choose_local_crs_epsg(lon, lat):
+    """解析に使う投影座標系(EPSGコード)を経緯度から決める。
+    タイルのEPSG:3857は1m=実距離1mにならず(緯度35°で約0.82m)、傾斜・距離・面積が
+    すべて歪むため、実距離を保つ座標系へ変換する必要がある。
+    地位指数データ(ZoningKit)と同じ判定で平面直角座標系1〜13系を選び、
+    対象外の地域はUTM(国内はJGD2011、国外はWGS84)にする。"""
+    from .zoningkit_fetcher import ZONE_BOUNDS, find_zone_for_point
+
+    zone = find_zone_for_point(lon, lat)
+    if zone is not None:
+        return ZONE_BOUNDS[zone][0]
+    utm_zone = int((lon + 180) // 6) + 1
+    if 51 <= utm_zone <= 55 and 20 <= lat <= 46:
+        return 6688 + (utm_zone - 51)  # JGD2011 / UTM zone 51N〜55N
+    return (32600 if lat >= 0 else 32700) + utm_zone
+
+
+def nominal_resolution(cell_size_m):
+    """実距離のセルサイズを1m/5m/10mの整数解像度に丸める。
+    解析側(is_resampling_needed)は解像度の整数値で処理を切り替えるため。"""
+    if cell_size_m < 15:
+        return min((1, 5, 10), key=lambda res: abs(res - cell_size_m))
+    return max(1, round(cell_size_m))
+
+
+def reproject_geotiff(src_path, dst_path, dst_epsg, resolution):
+    """GeoTIFFを指定の投影座標系・解像度へ変換して保存する。
+    座標系の回転で生じる縁の空白(NoData)を解析に持ち込まないよう、
+    元データの内側に収まる矩形で出力する。(列数, 行数)を返す。"""
+    if not HAS_GDAL:
+        raise RuntimeError("GDAL is not available")
+
+    from osgeo import osr
+
+    src = gdal.Open(src_path)
+    gt = src.GetGeoTransform()
+    cols, rows = src.RasterXSize, src.RasterYSize
+    src_srs = osr.SpatialReference()
+    src_srs.ImportFromWkt(src.GetProjection())
+    dst_srs = osr.SpatialReference()
+    dst_srs.ImportFromEPSG(dst_epsg)
+    for srs in (src_srs, dst_srs):
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    transform = osr.CoordinateTransformation(src_srs, dst_srs)
+
+    def to_dst(px, py):
+        x = gt[0] + px * gt[1] + py * gt[2]
+        y = gt[3] + px * gt[4] + py * gt[5]
+        return transform.TransformPoint(x, y)[:2]
+
+    # 変換後は各辺がわずかに曲がるため、辺上の点を密に取って内接矩形を求める
+    steps = 32
+    left = [to_dst(0, rows * i / steps) for i in range(steps + 1)]
+    right = [to_dst(cols, rows * i / steps) for i in range(steps + 1)]
+    top = [to_dst(cols * i / steps, 0) for i in range(steps + 1)]
+    bottom = [to_dst(cols * i / steps, rows) for i in range(steps + 1)]
+    x_min = math.ceil(max(p[0] for p in left) / resolution) * resolution
+    x_max = math.floor(min(p[0] for p in right) / resolution) * resolution
+    y_min = math.ceil(max(p[1] for p in bottom) / resolution) * resolution
+    y_max = math.floor(min(p[1] for p in top) / resolution) * resolution
+    src = None
+    if x_max <= x_min or y_max <= y_min:
+        raise ValueError("DEMの取得範囲が小さすぎるため、座標変換後の範囲を確保できません")
+
+    ds = gdal.Warp(
+        dst_path, src_path,
+        dstSRS=f"EPSG:{dst_epsg}",
+        outputBounds=(x_min, y_min, x_max, y_max),
+        xRes=resolution, yRes=resolution,
+        resampleAlg="bilinear",
+        srcNodata=-9999.0, dstNodata=-9999.0,
+        creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"],
+    )
+    if ds is None:
+        raise RuntimeError("DEMの座標変換に失敗しました")
+    size = (ds.RasterXSize, ds.RasterYSize)
+    ds = None
+    return size
+
+
 def save_as_geotiff(loader, output_path):
     """GSITileDEMLoaderのdata/gt/crs_wktをGeoTIFFに保存する。
     出力先ディレクトリは事前に作成しておくこと。"""

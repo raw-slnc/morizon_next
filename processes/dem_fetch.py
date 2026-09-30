@@ -1,7 +1,12 @@
+import os
+import tempfile
+
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
-from ..dem_loader import GSITileDEMLoader, save_as_geotiff
+from ..dem_loader import (
+    GSITileDEMLoader, choose_local_crs_epsg, nominal_resolution, reproject_geotiff, save_as_geotiff,
+)
 
 
 class DemFetchThread(QThread):
@@ -64,12 +69,31 @@ class DemFetchThread(QThread):
                 )
                 return
 
-            info = loader.info_text()
-            self.postMessage.emit("GeoTIFFに保存中")
-            self.postDetail.emit(info)
-            self.addProgress.emit(1)
-            save_as_geotiff(loader, self.output_path)
+            # タイルはEPSG:3857で、そのままでは傾斜・距離・面積が緯度に応じて歪む。
+            # いったん保存してから実距離を保つ平面直角座標系へ変換する
+            center_lon = (self.lon_min + self.lon_max) / 2
+            center_lat = (self.lat_min + self.lat_max) / 2
+            epsg = choose_local_crs_epsg(center_lon, center_lat)
+            resolution = nominal_resolution(loader.cell_size)
 
+            self.postMessage.emit("平面直角座標系に変換して保存中")
+            self.postDetail.emit(f"EPSG:{epsg}・{resolution}m")
+            self.addProgress.emit(1)
+            output_dir = os.path.dirname(self.output_path) or None
+            fd, mercator_path = tempfile.mkstemp(suffix=".tif", dir=output_dir)
+            os.close(fd)
+            try:
+                save_as_geotiff(loader, mercator_path)
+                cols, rows = reproject_geotiff(mercator_path, self.output_path, epsg, resolution)
+            finally:
+                os.remove(mercator_path)
+
+            info = (
+                f"{cols}×{rows} px  |  {loader._used_source_label}  |  "
+                f"EPSG:{epsg}  |  {resolution} m/px"
+            )
+            if loader._filled_nodata_count:
+                info += f"  |  NoData補間 {loader._filled_nodata_count} px"
             self.processFinished.emit({"path": self.output_path, "info": info})
         except Exception as e:
             self.processFailed.emit(str(e))

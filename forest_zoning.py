@@ -8,9 +8,8 @@ from qgis.core import *
 from qgis.gui import *
 
 from .forest_zoning_main_dialog import ForestZoningMainDialog
-from .forest_zoning_main_dialog_elements import ForestZoningMainDialogElements
 
-PLUGIN_NAME = "MORIZON"
+PLUGIN_NAME = "Morizon Next"
 
 
 class ForestZoning:
@@ -22,7 +21,6 @@ class ForestZoning:
         self.menu = PLUGIN_NAME
 
         self.main_dialog = None
-        self._syncing_output_layer_tree = False
 
     def add_action(
         self,
@@ -57,7 +55,7 @@ class ForestZoning:
         # メニュー設定
         self.add_action(
             icon_path=icon_path,
-            text="ゾーニング",
+            text="Morizon Next",
             callback=self.show_main_dialog,
             parent=self.win,
         )
@@ -68,13 +66,9 @@ class ForestZoning:
         QgsProject.instance().layerTreeRoot().removedChildren.connect(
             self.onLayersChanged
         )
-        QgsProject.instance().layerTreeRoot().visibilityChanged.connect(
-            self.onLayersChanged
-        )
         self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
             self.onLayersChanged
         )  # nopep8
-        self._setup_output_layer_tree_visibility()
 
     def unload(self):
         for action in self.actions:
@@ -87,10 +81,6 @@ class ForestZoning:
         )
         self._safe_disconnect(
             QgsProject.instance().layerTreeRoot().removedChildren,
-            self.onLayersChanged,
-        )
-        self._safe_disconnect(
-            QgsProject.instance().layerTreeRoot().visibilityChanged,
             self.onLayersChanged,
         )
         self._safe_disconnect(
@@ -110,8 +100,6 @@ class ForestZoning:
             pass
 
     def onLayersChanged(self, *args):
-        self._setup_output_layer_tree_visibility()
-
         if not self.is_visible_main_dialog():
             return
 
@@ -122,17 +110,7 @@ class ForestZoning:
         self.main_dialog.printlayout.refresh_create_zoning_printlayout_ui()
         self.main_dialog.printlayout.refresh_create_aggregate_printlayout_ui()
 
-    def _setup_output_layer_tree_visibility(self):
-        if self._syncing_output_layer_tree:
-            return
-        self._syncing_output_layer_tree = True
-        try:
-            ForestZoningMainDialogElements.setup_output_layer_tree_visibility()
-        finally:
-            self._syncing_output_layer_tree = False
-
     def show_main_dialog(self):
-        self._setup_output_layer_tree_visibility()
         if self.main_dialog is None:
             self.main_dialog = ForestZoningMainDialog()
         self.main_dialog.show()

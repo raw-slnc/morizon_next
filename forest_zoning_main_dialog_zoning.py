@@ -10,6 +10,7 @@ from qgis.gui import *
 from qgis.utils import iface
 
 from .processes.raster_styler import (
+    apply_output_blend_mode,
     write_qml_deviding_by_threshold,
 )
 from . import processes
@@ -54,6 +55,16 @@ class ForestZoningMainDialogZoning:
         ):
             combobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
         self.update_zoning_layer_scope()
+
+        # 出力先未指定時は、プロジェクト内蔵のプラグイン管理フォルダをデフォルトにする
+        # (set_morizon_layer_scopeがこの管理フォルダ配下しか候補にしないため、
+        # 他タブと出力先を揃えておく必要がある)
+        if self.main.zoningOutputDirFileWidget.filePath() == "":
+            project_home = QgsProject.instance().homePath()
+            if project_home != "":
+                default_output_dir = os.path.join(project_home, "morizon_next", "zoning")
+                os.makedirs(default_output_dir, exist_ok=True)
+                self.main.zoningOutputDirFileWidget.setFilePath(default_output_dir)
 
         # UI入力時にステート更新
         self.main.zoningProfitLayerCombobox.layerChanged.connect(
@@ -113,11 +124,7 @@ class ForestZoningMainDialogZoning:
                 error_texts.append(f"有効な{name}ラスターを指定してください")
                 continue
 
-        # 出力レイヤーの存在確認
-        layers = QgsProject().instance().layerTreeRoot().findLayers()
-        layer_names = list(map(lambda l: l.name(), layers))
-        if OUTPUT_ZONING["DISPLAY_NAME"] in layer_names:
-            error_texts.append(f"プロジェクトにすでに「{OUTPUT_ZONING['DISPLAY_NAME']}」が存在します")
+        # 既存の出力は実行時の上書き確認で置き換えるため、ここでは止めない
 
         if self.main.zoningOutputDirFileWidget.filePath() == "":
             error_texts.append("出力先フォルダを指定してください")
@@ -189,6 +196,7 @@ class ForestZoningMainDialogZoning:
 
         target_layer.loadNamedStyle(qml_filepath)
         target_layer.renderer().setOpacity(opacity)
+        apply_output_blend_mode(target_layer)
         iface.layerTreeView().refreshLayerSymbology(target_layer.id())  # レイヤー一覧の凡例を更新
         target_layer.triggerRepaint()  # キャンバス上の見た目を更新
 
@@ -216,12 +224,17 @@ class ForestZoningMainDialogZoning:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
+                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
+            output_dir = self.main.zoningOutputDirFileWidget.filePath()
+            utils.remove_project_layers_by_sources(
+                [os.path.join(output_dir, filename) for filename in existing_filenames]
+            )
 
         input_layers_dict = {
             "profit": self.main.zoningProfitLayerCombobox.currentLayer(),
@@ -264,9 +277,10 @@ class ForestZoningMainDialogZoning:
         処理結果をプロジェクトに追加
         """
         for rlayer in rlayers_dict.values():
+            apply_output_blend_mode(rlayer)
             # プロジェクトのレイヤー一覧の一番上にレイヤーを追加
             QgsProject.instance().addMapLayer(rlayer, False)
-            root = QgsProject().instance().layerTreeRoot()
+            root = QgsProject.instance().layerTreeRoot()
             root.insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()
