@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MORIZON NEXT 操作マニュアル</title>
+<style>
+:root {
+  --bg: #fbfaf7;
+  --fg: #22251f;
+  --muted: #5f655a;
+  --line: #d9ddd2;
+  --panel: #f1f3ec;
+  --accent: #2f6b3a;
+  --accent-soft: #e3efe2;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1dc;
+  --risk: #9b3b3b;
+  --profit: #2f6b3a;
+  --data: #3d5f8a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1d19;
+    --fg: #e6e8e1;
+    --muted: #a3a99c;
+    --line: #3a3e35;
+    --panel: #24271f;
+    --accent: #8fc79a;
+    --accent-soft: #26352a;
+    --warn: #e5b45c;
+    --warn-soft: #362d1c;
+    --risk: #e39a9a;
+    --profit: #8fc79a;
+    --data: #9bb8e0;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.layout { display: flex; max-width: 1480px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: 0; align-self: flex-start;
+  width: 260px; flex: none; height: 100vh; overflow-y: auto;
+  padding: 28px 16px 40px 20px; border-right: 1px solid var(--line);
+  font-size: 14px; line-height: 1.6;
+}
+nav.toc .brand { font-weight: 700; font-size: 16px; margin-bottom: 18px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc li { margin: 4px 0; }
+nav.toc ol ol { padding-left: 14px; margin: 4px 0 10px; }
+nav.toc a { color: var(--fg); text-decoration: none; }
+nav.toc a:hover { color: var(--accent); }
+nav.toc .todo { color: var(--muted); }
+main { flex: 1; min-width: 0; padding: 32px 48px 80px; max-width: 1180px; }
+h1 { font-size: 28px; margin: 0 0 6px; }
+h2 { font-size: 22px; margin: 64px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+h3 { font-size: 18px; margin: 44px 0 8px; }
+h4 { font-size: 16px; margin: 24px 0 4px; }
+p { margin: 10px 0; }
+.lead { color: var(--muted); margin-bottom: 28px; }
+a { color: var(--accent); }
+code, .path { font-family: "Source Code Pro", Consolas, monospace; font-size: 0.9em; background: var(--panel); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+.why {
+  border-left: 4px solid var(--accent); background: var(--accent-soft);
+  padding: 10px 16px; margin: 14px 0; border-radius: 0 6px 6px 0;
+}
+.why > .label, .note > .label, .how > .label { font-weight: 700; display: block; margin-bottom: 2px; }
+.note {
+  border-left: 4px solid var(--warn); background: var(--warn-soft);
+  padding: 10px 16px; margin: 14px 0; border-radius: 0 6px 6px 0;
+}
+.how {
+  border: 1px solid var(--line); background: var(--panel);
+  padding: 10px 16px; margin: 14px 0; border-radius: 6px;
+}
+.how ol, .how ul { margin: 4px 0; padding-left: 22px; }
+.ref { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.ref::before { content: "手引 "; font-weight: 700; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14.5px; line-height: 1.6; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 700; }
+.table-wrap { overflow-x: auto; }
+.tag { display: inline-block; font-size: 12px; padding: 0 7px; border-radius: 10px; border: 1px solid currentColor; margin-right: 4px; white-space: nowrap; }
+.tag.profit { color: var(--profit); }
+.tag.risk { color: var(--risk); }
+figure { margin: 18px 0; }
+figure svg { display: block; max-width: 960px; margin: 0 auto; }
+figcaption { font-size: 13px; color: var(--muted); text-align: center; margin-top: 4px; }
+svg text { font-family: inherit; }
+.placeholder { color: var(--muted); border: 1px dashed var(--line); padding: 14px 16px; border-radius: 6px; }
+ul, ol { padding-left: 24px; }
+li { margin: 3px 0; }
+.check li { list-style: none; position: relative; }
+.check li::before { content: "□"; position: absolute; left: -20px; color: var(--accent); }
+@media (max-width: 860px) {
+  .layout { display: block; }
+  nav.toc { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 16px; }
+  main { padding: 20px 16px 60px; }
+}
+@media print {
+  nav.toc { display: none; }
+  main { max-width: none; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="brand">MORIZON NEXT<br>操作マニュアル</div>
+  <ol>
+    <li><a href="#intro">はじめに</a></li>
+    <li><a href="#data">1. データの準備</a>
+      <ol>
+        <li><a href="#data-overview">1.1 何のためのデータか</a></li>
+        <li><a href="#data-area">1.2 範囲と保存場所</a></li>
+        <li><a href="#data-dem">1.3 DEM（標高）</a></li>
+        <li><a href="#data-siteindex">1.4 地位データ</a></li>
+        <li><a href="#data-building">1.5 建物</a></li>
+        <li><a href="#data-road">1.6 道路</a></li>
+        <li><a href="#data-costcsv">1.7 作業システム</a></li>
+        <li><a href="#data-own">1.8 自分でデータを用意する場合</a></li>
+        <li><a href="#data-check">1.9 実行前の確認</a></li>
+        <li><a href="#data-credit">1.10 出典と利用条件</a></li>
+      </ol>
+    </li>
+    <li class="todo">2. 操作（準備中）</li>
+    <li class="todo">3. パラメータとしきい値（準備中）</li>
+    <li class="todo">4. 凡例の見方（準備中）</li>
+    <li class="todo">5. 結果の使い方と注意点（準備中）</li>
+    <li class="todo">付録 手引との対応表（準備中）</li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>MORIZON NEXT 操作マニュアル</h1>
+<p class="lead">収益性と災害リスクから森林をゾーニングする QGIS プラグイン</p>
+
+<section id="intro">
+<h2>はじめに</h2>
+<p>MORIZON NEXT は、林野庁の森林ゾーニング支援ツール「もりぞん（MORIZON）」を改良したプラグインです。ゾーニングの考え方と計算方法は原版をそのまま受け継いでいます。改良したのは、解析に必要なオープンデータをプラグインが自動で取得するようにした点です。</p>
+<p>原版では、解析に入る前に、DEM の変換・結合、建物や道路のダウンロードと座標変換、作業システム表の Excel 編集などをすべて手作業で行う必要がありました。MORIZON NEXT では、QGIS の地図で範囲を表示してボタンを押せば、これらのデータがそろいます。</p>
+<p>このマニュアルは、原版の「収益性と災害リスクを考慮した森林ゾーニングの手引き」（令和8年3月、以下「手引」）を置き換えるものではありません。操作に必要なことと、判断に必要な考え方に絞って書いています。詳しい背景を知りたいところには、手引の該当ページを <span class="ref" style="display:inline;margin:0">p.00</span> の形で示しました。</p>
+<p>最初の章は<strong>データの準備</strong>です。データごとに「なぜこのデータが必要なのか」を説明しながら進めるので、読み終えるころには、この解析が何を計算しているのかもつかめるはずです。</p>
+</section>
+
+<section id="data">
+<h2>1. データの準備</h2>
+
+<section id="data-overview">
+<h3>1.1 何のためのデータか</h3>
+<p>最終的に作るのは、森林を次の4つに色分けした<strong>ゾーニング図</strong>です。</p>
+<div class="table-wrap">
+<table>
+  <tr><th></th><th>災害リスクが低い</th><th>災害リスクが高い</th></tr>
+  <tr><th>収益性が高い</th><td>林業に向いている</td><td>収益は見込めるが、施業に配慮が必要</td></tr>
+  <tr><th>収益性が低い</th><td>災害の心配は少ないが、収益は見込みにくい</td><td>林業生産には向かない</td></tr>
+</table>
+</div>
+<p>「収益性」と「災害リスク」は、それぞれ3つの<strong>要素</strong>の点数（1〜3点）を合計して求めます。要素は全部で6つです。</p>
+
+<div class="table-wrap">
+<table>
+  <tr><th>軸</th><th>要素</th><th>何を表すか</th><th>元になるデータ</th></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>地位</td><td>その土地で木がどれだけよく育つか</td><td>地位データ（NPP・SRAD・VTEX）</td></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>集材作業効率</td><td>その地形で使える機械と作業のしやすさ</td><td>DEM ＋ 作業システム</td></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>地利</td><td>道からの近さ（運び出しやすさ）</td><td>道路 ＋ DEM</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>傾斜</td><td>斜面の急さ</td><td>DEM</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>地形の複雑さ</td><td>尾根や谷の入り組み具合（崩れやすさの目安）</td><td>DEM</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>保全対象を含む流域</td><td>崩れたとき、下流に人家があるか</td><td>DEM ＋ 建物</td></tr>
+</table>
+</div>
+
+<figure>
+<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="データから要素、軸、ゾーニング図への流れ">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+  <g font-size="13" fill="var(--fg)">
+    <text x="70" y="18" text-anchor="middle" fill="var(--muted)" font-size="12">データ</text>
+    <text x="330" y="18" text-anchor="middle" fill="var(--muted)" font-size="12">要素</text>
+    <text x="560" y="18" text-anchor="middle" fill="var(--muted)" font-size="12">軸</text>
+    <text x="700" y="18" text-anchor="middle" fill="var(--muted)" font-size="12">結果</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.2" fill="none" marker-end="url(#arr)">
+    <!-- 地位データ -->
+    <path d="M130,50 L262,50"/>
+    <!-- DEM -->
+    <path d="M130,150 C200,150 200,95 262,95"/>
+    <path d="M130,150 C200,150 200,140 262,140"/>
+    <path d="M130,150 C200,150 200,190 262,190"/>
+    <path d="M130,150 C200,150 200,235 262,235"/>
+    <path d="M130,150 C200,150 200,280 262,280"/>
+    <!-- 作業システム -->
+    <path d="M130,205 C200,205 200,100 262,100"/>
+    <!-- 道路 -->
+    <path d="M130,255 C210,255 200,145 262,145"/>
+    <!-- 建物 -->
+    <path d="M130,305 C200,305 200,285 262,285"/>
+    <!-- 要素→軸 -->
+    <path d="M398,50 C450,50 450,95 502,95"/>
+    <path d="M398,97 L502,97"/>
+    <path d="M398,142 C450,142 450,100 502,100"/>
+    <path d="M398,190 C450,190 450,235 502,235"/>
+    <path d="M398,235 L502,237"/>
+    <path d="M398,282 C450,282 450,240 502,240"/>
+    <path d="M618,97 C650,97 640,166 658,166"/>
+    <path d="M618,237 C650,237 640,170 658,170"/>
+  </g>
+  <g font-size="13">
+    <rect x="10" y="34" width="120" height="32" rx="6" fill="var(--panel)" stroke="var(--data)"/>
+    <text x="70" y="55" text-anchor="middle" fill="var(--fg)">地位データ</text>
+    <rect x="10" y="130" width="120" height="40" rx="6" fill="var(--panel)" stroke="var(--data)" stroke-width="2.5"/>
+    <text x="70" y="155" text-anchor="middle" fill="var(--fg)" font-weight="700">DEM（標高）</text>
+    <rect x="10" y="189" width="120" height="32" rx="6" fill="var(--panel)" stroke="var(--data)"/>
+    <text x="70" y="210" text-anchor="middle" fill="var(--fg)">作業システム</text>
+    <rect x="10" y="239" width="120" height="32" rx="6" fill="var(--panel)" stroke="var(--data)"/>
+    <text x="70" y="260" text-anchor="middle" fill="var(--fg)">道路</text>
+    <rect x="10" y="289" width="120" height="32" rx="6" fill="var(--panel)" stroke="var(--data)"/>
+    <text x="70" y="310" text-anchor="middle" fill="var(--fg)">建物</text>
+
+    <g fill="var(--accent-soft)" stroke="var(--profit)">
+      <rect x="264" y="34" width="134" height="32" rx="6"/>
+      <rect x="264" y="81" width="134" height="32" rx="6"/>
+      <rect x="264" y="126" width="134" height="32" rx="6"/>
+    </g>
+    <g fill="var(--panel)" stroke="var(--risk)">
+      <rect x="264" y="174" width="134" height="32" rx="6"/>
+      <rect x="264" y="219" width="134" height="32" rx="6"/>
+      <rect x="264" y="266" width="134" height="32" rx="6"/>
+    </g>
+    <g fill="var(--fg)" text-anchor="middle">
+      <text x="331" y="55">地位</text>
+      <text x="331" y="102">集材作業効率</text>
+      <text x="331" y="147">地利</text>
+      <text x="331" y="195">傾斜</text>
+      <text x="331" y="240">地形の複雑さ</text>
+      <text x="331" y="287">保全対象を含む流域</text>
+    </g>
+    <rect x="504" y="80" width="114" height="36" rx="6" fill="var(--accent-soft)" stroke="var(--profit)" stroke-width="2"/>
+    <text x="561" y="103" text-anchor="middle" fill="var(--profit)" font-weight="700">収益性</text>
+    <rect x="504" y="220" width="114" height="36" rx="6" fill="var(--panel)" stroke="var(--risk)" stroke-width="2"/>
+    <text x="561" y="243" text-anchor="middle" fill="var(--risk)" font-weight="700">災害リスク</text>
+    <rect x="660" y="146" width="92" height="44" rx="6" fill="var(--panel)" stroke="var(--fg)"/>
+    <text x="706" y="165" text-anchor="middle" fill="var(--fg)">ゾーニング</text>
+    <text x="706" y="182" text-anchor="middle" fill="var(--fg)">図（4区分）</text>
+  </g>
+</svg>
+<figcaption>5種類のデータから6つの要素を計算し、収益性と災害リスクの2軸にまとめる</figcaption>
+</figure>
+
+<p>ここから2つのことがわかります。</p>
+<ul>
+  <li><strong>用意するデータは5種類だけです。</strong>DEM、地位データ、建物、道路、作業システムです。</li>
+  <li><strong>DEM は6つの要素すべてに関わります。</strong>DEM の質と範囲が、結果全体の質を決めます。</li>
+</ul>
+
+<div class="note"><span class="label">地図にできないものは入っていません</span>
+この解析に入るのは、地図上で数値として計算できるものだけです。材の質、所有者の意向、法令による規制、土砂災害警戒区域、過去の災害履歴などは含まれません。ゾーニング図は結論ではなく、関係者が話し合うための<strong>たたき台</strong>です。
+<div class="ref">2.1.2 要素の選定・算出 p.12、3.5.1 表3-1 p.43</div>
+</div>
+</section>
+
+<section id="data-area">
+<h3>1.2 準備の前に：範囲と保存場所を決める</h3>
+
+<h4>QGIS プロジェクトを先に保存する</h4>
+<p>自動取得したデータは、すべて <strong>QGIS プロジェクトファイルと同じフォルダの中</strong>の <span class="path">morizon_next</span> フォルダに保存されます。そのため、データを取得する前にプロジェクトを一度保存してください。保存していないと、取得を始めたときに案内が出ます。</p>
+<div class="why"><span class="label">なぜプロジェクトフォルダに置くのか</span>
+データがプロジェクトと一緒にまとまっていれば、フォルダごと別の PC に持っていくだけで作業を続けられます。システムの一時フォルダや、プロジェクトと無関係な場所にデータが散らばることもありません。フォルダ名やユーザー名に日本語が含まれていても問題ありません。
+</div>
+
+<p>取得が終わると、フォルダの中は次のようになります。</p>
+<pre class="how" style="font-family:Consolas,monospace;font-size:13.5px;line-height:1.6;white-space:pre;overflow-x:auto">(プロジェクトフォルダ)/
+├─ ○○.qgz                 … QGIS プロジェクト
+└─ morizon_next/
+    ├─ DEM/                dem_fetched.tif
+    ├─ SiteIndex/
+    │   ├─ NPP/            npp_clipped.tif
+    │   ├─ SRAD/           srad_clipped.tif
+    │   └─ VTEX/           vtex_clipped.tif
+    ├─ TATEMONO/           building.shp
+    ├─ ROAD/               road_edge.shp
+    ├─ SAGYO-SYSTEM_CSV/   costcsv.csv
+    └─ shared/             … 再取得を省くための控え（触らなくてよい）</pre>
+<p>この構成は原版の「ZoningKit」の DATA フォルダと同じです。後日「フォルダから一括読み込み」で <span class="path">morizon_next</span> フォルダを選べば、すべての入力をまとめて設定し直せます。</p>
+
+<div class="note"><span class="label">別の範囲を取得すると上書きされます（現バージョン）</span>
+同じプロジェクトで範囲を変えてもう一度取得すると、上のファイルは新しい範囲のデータに置き換わります。複数の地区を解析する場合は、<strong>地区ごとに QGIS プロジェクトを分けて</strong>ください。
+</div>
+
+<h4>範囲は「QGIS の地図に表示している範囲」</h4>
+<p>「DEMブラウザから開始する」を押すと、<strong>その時点で QGIS の地図に表示されている範囲</strong>がデータの取得範囲になります。計画図や市町村界などのレイヤを表示し、対象地が画面に収まるように拡大・縮小してから始めてください。</p>
+<div class="why"><span class="label">なぜ対象地より一回り広く表示するのか</span>
+いくつかの要素は、そのセルの周りの地形を使って計算します。
+<ul>
+  <li>起伏量と地形の複雑さは、周囲約 490m 四方の標高を使います。</li>
+  <li>保全対象を含む流域は、水が流れ下る先まで追いかけて計算します。</li>
+  <li>地利は、範囲の外にある道のほうが近いこともあります。</li>
+</ul>
+範囲の縁では周りのデータが足りないため、値が正しく出ません。<strong>対象地の外側に 1km 程度の余白</strong>を取って表示してください。なお、建物と道路については、プラグインが自動で表示範囲より広め（地図1区画分）を取得します。
+<div class="ref">3.5.1「DEM は穴が無いように整備しましょう」p.42、5.1 p.94</div>
+</div>
+
+<h4>広さと解像度の目安</h4>
+<p>手引が想定しているのは、<strong>市町村全域を 10m 解像度</strong>で解析する使い方です。</p>
+<ul>
+  <li>5m の DEM は、解析のときに自動で 10m に変換されます。</li>
+  <li>1m の DEM は、約 2,500 万画素（5km 四方程度）を超えると 10m に変換されます。1m のまま解析できるのは、施業団地程度の狭い範囲に限られます。</li>
+</ul>
+<div class="why"><span class="label">なぜ 10m で十分なのか</span>
+市町村単位のゾーニングで知りたいのは「この一帯は林業に向くか」という傾向で、1本1本の沢の位置ではありません。細かいデータで広い範囲を計算すると、処理時間がかかるわりに、画面や印刷ではその細かさが見えません。一方、施業団地で路網を検討するような場面では、1m の細かさが意味を持ちます。
+<div class="ref">2.1.1 目的、対象範囲の検討 p.10–11</div>
+</div>
+</section>
+
+<section id="data-dem">
+<h3>1.3 DEM（標高）</h3>
+<div class="why"><span class="label">なぜ必要か</span>
+DEM（数値標高モデル）は、地面の高さを格子状に並べたデータです。この解析では、地形がすべての出発点になります。
+<ul>
+  <li><strong>傾斜</strong>：急な斜面ほど崩れやすく、作業もしにくくなります。</li>
+  <li><strong>地形の複雑さ</strong>：尾根と谷が細かく入り組んだ場所は、侵食が進んでいて崩れやすい傾向があります。</li>
+  <li><strong>起伏量</strong>：周囲の最高点と最低点の差です。傾斜と組み合わせて、使える作業システムを決めます。</li>
+  <li><strong>流域</strong>：雨水や崩れた土砂がどこへ流れ下るかを求めます。</li>
+</ul>
+道路や地位データも、最終的には DEM の格子に合わせて計算されます。
+<div class="ref">2.3.1 (1) 地形傾斜 p.20、3.7.2 p.70–75</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+<ol>
+  <li>QGIS プロジェクトを保存し、対象地を余白付きで地図に表示します。</li>
+  <li>「要素計算」タブの <strong>「DEMブラウザから開始する」</strong>を押します。</li>
+  <li>取得元を選んで OK を押します。通常は「国土地理院 DEM1A/5A/10B」を選んでください。</li>
+  <li>取得が終わると、解像度と座標系が表示され、DEM 欄が「設定済」になります。そのまま地位データの取得に進みます（<a href="#data-siteindex">1.4</a>）。</li>
+</ol>
+</div>
+
+<h4>解像度はプラグインが選びます</h4>
+<p>国土地理院の DEM には 1m（航空レーザ測量、一部地域のみ）、5m、10m（全国）があります。プラグインは取得前に、表示範囲の<strong>全体を同じ解像度でカバーできるか</strong>を調べます。</p>
+<ul>
+  <li>全体をカバーできる解像度が1つだけなら、その解像度で取得します。</li>
+  <li>複数あれば、どれを使うかを選べます。市町村規模なら 5m か 10m で十分です。</li>
+</ul>
+<div class="why"><span class="label">なぜ解像度を混ぜないのか</span>
+解像度が違うデータをつなぎ合わせると、つなぎ目で傾斜や地形の複雑さの値が不自然に変わり、実際にはない「境界線」がゾーニング図に現れてしまいます。
+</div>
+
+<h4>座標系も自動で揃えます</h4>
+<p>取得した DEM は、その地域の<strong>平面直角座標系</strong>（例：静岡県なら第8系）に変換してから保存されます。</p>
+<div class="why"><span class="label">なぜ変換するのか</span>
+Web 地図のタイルは、そのままでは 1m が実際の 1m になりません（北へ行くほどずれます）。変換しないと傾斜が数度緩く出て、道からの距離や面積も実際と違ってしまいます。「35度」「400m」といったしきい値を地域で話し合って決める以上、値は実際の長さ・角度で計算されている必要があります。
+</div>
+
+<div class="note"><span class="label">AWS Terrarium について</span>
+取得元の「AWS Terrarium」は、国土地理院のデータが使えない地域のための予備です。国内では国土地理院のデータを使ってください。
+</div>
+</section>
+
+<section id="data-siteindex">
+<h3>1.4 地位データ（NPP・SRAD・VTEX）</h3>
+<div class="why"><span class="label">なぜ必要か</span>
+収益性の土台になるのは<strong>地位</strong>、つまり「その土地で木がどれだけよく育つか」です。地位は 40 年生のときの上層木の樹高（地位指数）で表します。今の蓄積量は間伐などの手入れで大きく変わりますが、地位は土地そのものの力なので、施業ではほとんど変わりません。今は若い林でも、将来よく育つ土地を正しく評価できます。
+<p>ただし、全域の樹高を実際に測ることはできません。そこで、全国の森林調査データから作られた推定式を使い、次の3つのデータからスギ・ヒノキ・カラマツの地位指数を計算します。</p>
+<ul>
+  <li><strong>NPP</strong>（純一次生産力）：気候から見た、植物が育つ力</li>
+  <li><strong>SRAD</strong>（日射係数）：斜面の向きや地形による日当たり</li>
+  <li><strong>VTEX</strong>（凹凸度）：谷か尾根か。谷は水が集まり、木がよく育つ傾向があります</li>
+</ul>
+<div class="ref">2.2.1 (1) 地位指数 p.16、3.7.2 (2) 地位 p.68–70</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+DEM の取得が終わると、続けて自動で取得が始まります。操作は不要です。
+<ul>
+  <li>取得元は、林野庁がもりぞん用に公開している「ZoningKit」（G空間情報センター）です。登録は不要です。</li>
+  <li>表示範囲の中心がどの座標系の地域にあるかを判定し、必要な部分だけを取り出します。</li>
+  <li>一度取得した地域のデータは <span class="path">morizon_next/shared</span> に控えが残り、同じプロジェクトで取り直すときにはダウンロードを省きます。</li>
+</ul>
+</div>
+
+<div class="note"><span class="label">地位の値は「相対的な目安」として扱ってください</span>
+NPP・SRAD・VTEX は、もともと 1km 格子の気候データと 50m 格子の標高から作られた全国一律のデータです。DEM が 10m でも、地位の細かさは実質的に 50m〜1km 程度で、格子状の段差が見えることがあります。「地位指数 18 なら 40 年で 18m になる」と<strong>絶対値で読むのではなく、地域の中で相対的に良い／悪い</strong>を見る目安にしてください。航空レーザ測量から独自に作った地位指数マップがあれば、そちらを使うほうが精度は上がります。
+<div class="ref">3.7.2 (1) 表3-8 p.66、(2) p.69</div>
+</div>
+
+<div class="note"><span class="label">対応していない地域</span>
+ZoningKit は平面直角座標系の第1〜13系の地域だけで提供されています。第14〜19系（沖縄の一部、小笠原など）では自動取得できません。取得できない場合はその旨が表示されるので、手元のデータを指定してください（<a href="#data-own">1.8</a>）。
+</div>
+</section>
+
+<section id="data-building">
+<h3>1.5 建物（保全対象）</h3>
+<div class="why"><span class="label">なぜ必要か</span>
+同じように崩れやすい斜面でも、奥山で崩れるのと、下流に人家がある場所で崩れるのとでは、被害の大きさがまったく違います。崩れた土砂は土石流となって 2km 以上流れることもあります。
+<p>そこでこの解析では、DEM から<strong>流域</strong>（雨水が同じところへ集まる範囲）を求め、その中に建物があるかどうかで点数を付けます。これが「保全対象を含む流域」です。</p>
+<div class="ref">2.3.2 保全対象との関係 p.23、3.7.2 (7) p.75</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+<ol>
+  <li>地位データの取得が終わると、「続けて建物ポリゴン・道路縁データも自動取得しますか？」と聞かれます。「はい」を選びます。</li>
+  <li>基盤地図情報ダウンロードサービスのログイン画面が出るので、ID とパスワードを入力します。</li>
+  <li>国土地理院の基盤地図情報「建築物の外周線」を取得し、DEM と同じ座標系に変換して保存します。</li>
+</ol>
+</div>
+<div class="note"><span class="label">事前に利用者登録が必要です</span>
+基盤地図情報ダウンロードサービスの利用には、国土地理院のサイトでの利用者登録（無料）が必要です。登録した ID とパスワードをそのまま使います。
+</div>
+
+<div class="why"><span class="label">なぜ表示範囲より広く取るのか</span>
+流域は表示範囲の外まで広がっていることがあります。範囲のすぐ外にある建物も、流域の判定には影響します。そのため、建物と道路は表示範囲の周りを地図1区画分（2次メッシュ、約 10km 四方）余分に取得します。
+</div>
+
+<div class="note"><span class="label">この要素でわからないこと</span>
+<ul>
+  <li>対象にしているのは<strong>建物だけ</strong>です。道路、鉄道、農地、取水施設など、ほかの保全対象は含まれません。</li>
+  <li>「流域に建物があるか」を見ているだけで、土石流が実際に届くかどうかは計算していません。</li>
+  <li>流域は約 5ha 以上のまとまりで区切っています。</li>
+</ul>
+結果は、土砂災害警戒区域などの情報と見比べて確かめてください。
+<div class="ref">3.7.2 (7) p.75</div>
+</div>
+</section>
+
+<section id="data-road">
+<h3>1.6 道路</h3>
+<div class="why"><span class="label">なぜ必要か</span>
+伐った木は、道まで運び出さなければ売れません。道から遠いほど集材に手間と費用がかかり、収益性は下がります。この解析では、各地点から<strong>最寄りの道までの水平距離</strong>を「地利」として計算します。6つの要素の中で、地利だけは<strong>値が小さいほど収益性が高い</strong>ことに注意してください。
+<div class="ref">2.2.1 (4) 路網からの距離 p.18、3.7.2 (4) 地利 p.71–72</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+建物と同じ手順で、基盤地図情報の「道路縁」が自動で取得されます（<a href="#data-building">1.5</a>）。
+</div>
+
+<div class="note"><span class="label">基盤地図情報の道路をそのまま使うときの注意</span>
+<ul>
+  <li><strong>林道や森林作業道は十分に含まれていません。</strong>山の中では、実際より道から遠く計算されがちです。手引でも、林道データは自分で用意するデータとされています。</li>
+  <li>逆に、高速道路や国道など、搬出には使えない道も含まれています。</li>
+  <li>距離は地図上の直線距離です。傾斜や、川を渡れないことは考慮していません。</li>
+</ul>
+都道府県や市町村の林道データがあれば、道路データと結合して使うことで、実態にずっと近い地利になります（<a href="#data-own">1.8</a>）。
+<div class="ref">3.7.2 (4) p.72、5.4 p.100</div>
+</div>
+</section>
+
+<section id="data-costcsv">
+<h3>1.7 作業システム</h3>
+<div class="why"><span class="label">なぜ必要か</span>
+同じようによく育つ森でも、緩やかな斜面ならハーベスタとフォワーダで効率よく出せますが、急斜面ではスイングヤーダやタワーヤーダ、架線が必要になり、コストが上がります。どの地形でどの機械を使えるかは、<strong>傾斜</strong>と<strong>起伏量</strong>（周囲約 490m 四方の最高点と最低点の差）でおおむね決まります。
+<p>この対応表は、5種類のデータの中で唯一、<strong>地域の人が判断して決める</strong>ものです。地域で実際に使われている機械と合っていなければ、集材作業効率は現実とずれます。</p>
+<div class="ref">2.2.1 (3) 作業システム p.17、3.7.2 (3) p.70–71、5.5 p.105</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+「要素計算」タブの <strong>「作業システム設定」</strong>で行います。原版のように Excel を編集する必要はありません。
+<ul>
+  <li><strong>色分布パネル</strong>（右）：横軸が傾斜、縦軸が起伏量です。色が、その地形に割り当てる機械を表します。初期値は実際の作業データに基づく標準パターンです。</li>
+  <li><strong>機材名の一覧</strong>（左）：色と機械の対応です。数字が大きい機械ほど作業効率が高い扱いになります。<strong>色の四角をクリックすると「保有していない機械」</strong>になり、その機械が割り当てられていた地形は「該当なし」（最も効率が低い）になります。</li>
+  <li><strong>マージン</strong>：プラス側にすると、斜面を実際より最大5度緩いものとみなし、同じ地形でもより効率のよい機械を割り当てます（強気）。マイナス側はその逆（慎重）です。緩斜面と、機械の限界を超える急斜面の割り当ては動きません。</li>
+  <li><strong>「CSVとして書き出す」</strong>を押すと <span class="path">morizon_next/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
+</ul>
+</div>
+<div class="note"><span class="label">現バージョンの制限</span>
+機材名の欄は書き換えられますが、書き換えても割り当てのパターンは変わりません。名前は凡例の表示に使われるだけです。地域独自の機材構成は、「保有していない機械」の指定とマージンで調整してください。
+</div>
+<p>素材生産事業体の意見を聞きながら決めるのが理想です。まずは初期値のまま解析を一度通し、結果を見てから調整しても構いません。</p>
+</section>
+
+<section id="data-own">
+<h3>1.8 自分でデータを用意する場合</h3>
+<p>航空レーザの DEM、独自の地位指数、林道データなど、手元により良いデータがあれば、各入力欄の右端「…」から個別に指定できます。</p>
+
+<h4>守ってほしいこと</h4>
+<ul>
+  <li><strong>DEM は平面直角座標系（単位 m）の GeoTIFF にしてください。</strong>ほかのデータはすべて DEM の座標系に合わせて変換されるため、DEM の座標系が解析全体の基準になります。緯度経度や Web メルカトルの DEM では、傾斜・距離・面積が正しく計算されません。</li>
+  <li><strong>DEM に穴を開けないでください。</strong>民有林だけ、5条森林だけといった切り抜き方をした DEM は縁が多くなり、流域などが正しく計算できません。対象地より広い範囲を、隙間なく覆ってください。</li>
+  <li><strong>海や湖の標高値は取り除いてください。</strong>水面の平らな値が、傾斜などの統計を歪めます。</li>
+  <li>建物と道路は Shapefile（.shp）で指定します。座標系が DEM と違っても自動で変換されます。</li>
+</ul>
+<div class="ref">3.5.1 p.42–43、5.1 p.90–95</div>
+
+<h4>林道データを道路に加える</h4>
+<p>既設路網ライン欄に指定できるのは1ファイルだけです。基盤地図情報の道路縁と林道データを両方使うときは、先に QGIS で1つにまとめます。</p>
+<div class="how">
+<ol>
+  <li>QGIS メニュー「ベクタ」→「データ管理ツール」→「ベクタレイヤのマージ」を開きます。</li>
+  <li><span class="path">road_edge.shp</span> と林道データを選び、出力先の座標系には DEM と同じものを指定して、Shapefile として保存します。</li>
+  <li>保存したファイルを既設路網ライン欄に指定します。</li>
+</ol>
+使えない道（通行不能の林道、高速道路など）をあらかじめ削っておくと、地利はさらに実態に近づきます。
+</div>
+
+<h4>フォルダから一括読み込み</h4>
+<p>原版の ZoningKit の <span class="path">DATA</span> フォルダや、MORIZON NEXT が作った <span class="path">morizon_next</span> フォルダを選ぶと、中のサブフォルダ（DEM、SiteIndex/NPP など）から入力ファイルをまとめて設定します。</p>
+<div class="note"><span class="label">各サブフォルダにはファイルを1つだけ置いてください</span>
+同じフォルダに候補が複数あると、どれが選ばれるかは決まっていません。古いファイルは別の場所に移しておいてください。
+</div>
+</section>
+
+<section id="data-check">
+<h3>1.9 実行前の確認</h3>
+<p>各入力欄の右端に状態が表示されます。</p>
+<ul>
+  <li><strong style="color:#188038">設定済</strong>：ファイルが指定されています。</li>
+  <li><strong style="color:#d00">未設定</strong>：計算にチェックが入った要素に必要なのに、まだ指定されていません。</li>
+  <li><strong style="color:#666">任意</strong>：チェックが外れた要素だけに使うので、なくても実行できます。</li>
+</ul>
+<p>「計算する要素を選択」のチェックは、必要なデータが揃った要素だけ選べるようになり、揃った時点で自動的にチェックが入ります。</p>
+<ul class="check">
+  <li>DEM は対象地より広く、穴がないか</li>
+  <li>地位データ・建物・道路が「設定済」になっているか</li>
+  <li>作業システムは地域の機械に合わせたか（初期値のままでもよいが、そのことを覚えておく）</li>
+  <li>林道データを加えるかどうか決めたか</li>
+  <li>出力先フォルダを指定したか</li>
+</ul>
+<p>すべて揃うと「実行」ボタンが押せるようになります。操作の続きは「2. 操作」で説明します（準備中）。</p>
+</section>
+
+<section id="data-credit">
+<h3>1.10 出典と利用条件</h3>
+<p>自動取得するデータの出典は次のとおりです。成果を資料にするときは出典を明記してください。</p>
+<div class="table-wrap">
+<table>
+  <tr><th>データ</th><th>出典</th></tr>
+  <tr><td>DEM</td><td>国土地理院（地理院タイル 標高タイル DEM1A / DEM5A / DEM10B）</td></tr>
+  <tr><td>建物・道路縁</td><td>国土地理院 基盤地図情報（建築物の外周線、道路縁）</td></tr>
+  <tr><td>NPP・SRAD・VTEX</td><td>林野庁「森林ゾーニング支援ツール もりぞん」ZoningKit（G空間情報センター）。地位指数の推定式は光田靖・北原文章（2017）による</td></tr>
+  <tr><td>DEM（予備）</td><td>AWS Terrain Tiles（Mapzen Terrarium）</td></tr>
+</table>
+</div>
+<p>ゾーニング図を印刷して配布する場合など、使い方によっては国土地理院への利用手続きが必要になることがあります。事前に国土地理院の案内で確認することをお勧めします。</p>
+<div class="ref">4.5 地図利用手続きの必要性の確認 p.86</div>
+</section>
+
+</section>
+
+<section id="ops">
+<h2>2. 操作</h2>
+<p class="placeholder">準備中：要素計算・スコアリング・ゾーニング・集計・印刷の操作</p>
+</section>
+<section id="params">
+<h2>3. パラメータとしきい値</h2>
+<p class="placeholder">準備中</p>
+</section>
+<section id="legend">
+<h2>4. 凡例の見方</h2>
+<p class="placeholder">準備中</p>
+</section>
+<section id="usage">
+<h2>5. 結果の使い方と注意点</h2>
+<p class="placeholder">準備中</p>
+</section>
+<section id="index">
+<h2>付録 手引との対応表</h2>
+<p class="placeholder">準備中</p>
+</section>
+
+</main>
+</div>
+</body>
+</html>
