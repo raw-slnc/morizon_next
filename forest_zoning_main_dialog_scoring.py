@@ -1,5 +1,6 @@
 import os
 import json
+import gc
 
 # QGIS-API
 from qgis.PyQt.QtCore import *
@@ -151,6 +152,8 @@ class ForestZoningMainDialogScoring:
                 self.scoring_objs_dict.values(),
             )
         )
+        self.main.scoringSaveareaLayerCombobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
+        self.update_scoring_layer_scope()
         # 初期値セット
         list(
             map(
@@ -312,10 +315,9 @@ class ForestZoningMainDialogScoring:
 
     def set_scoring_layer_combobox(self):
         """
-        プロジェクトのレイヤー名を検索し、スコアリングタブの各コンボボックスに対応するレイヤーをセットする
+        MORIZON管理フォルダ内のレイヤーを検索し、スコアリングタブの各コンボボックスに対応するレイヤーをセットする
         """
-        layers = list(QgsProject.instance().mapLayers().values())
-        layer_names = list(map(lambda layer: layer.name(), layers))
+        self.update_scoring_layer_scope()
         name_suffix = "[スコアリング]"
 
         # "<DISPLAY_NAME>name_suffix"と一致するレイヤー名が存在する場合対応するコンボボックスにセットする
@@ -353,11 +355,13 @@ class ForestZoningMainDialogScoring:
                 self.main.scoringSaveareaLayerCombobox,
             ),
         ):
-            idx = utils.find(layer_names, name)
-            if idx > -1:
-                combobox.setLayer(layers[idx])
+            layer = utils.find_morizon_layer_by_name(name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                combobox.setLayer(layer)
 
     def refresh_scoring_ui(self):
+        self.update_scoring_layer_scope()
+
         # 入力内容のエラーチェック
         error_texts = self.get_scoring_error_texts()
         self.main.scoringErrorLabel.setText("\n".join(error_texts))
@@ -420,6 +424,32 @@ class ForestZoningMainDialogScoring:
                 init_button.setEnabled(is_valid)
             if len(obj.threshold_history_list) > 1:
                 undo_button.setEnabled(True)
+
+    def update_scoring_layer_scope(self):
+        name_suffix = "[スコアリング]"
+        allowed_names = {
+            OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_COST["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_DISTANCE["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_SLOPE["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_SHC["DISPLAY_NAME"] + name_suffix,
+            OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix,
+        }
+        for combobox in (
+            self.main.scoringSiteidxLayerCombobox,
+            self.main.scoringCostLayerCombobox,
+            self.main.scoringDistanceLayerCombobox,
+            self.main.scoringSlopeLayerCombobox,
+            self.main.scoringShcLayerCombobox,
+            self.main.scoringSaveareaLayerCombobox,
+        ):
+            utils.set_morizon_layer_scope(
+                combobox,
+                allowed_names=allowed_names,
+                allowed_extensions={".tif", ".tiff"},
+            )
 
     def set_scoring_raster_style(self, scoring_obj: ScoringObject):
         scores = scoring_obj.get_scores()
@@ -751,6 +781,8 @@ class ForestZoningMainDialogScoring:
             QgsProject.instance().addMapLayer(rlayer, False)
             group_node.addLayer(rlayer)
         ForestZoningMainDialogScoring._set_mutually_exclusive_group(group_node, initial_child_index=None)
+        rlayers_dict.clear()
+        gc.collect()
 
     @staticmethod
     def _set_mutually_exclusive_group(group, initial_child_index=None):

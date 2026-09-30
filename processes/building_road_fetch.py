@@ -18,7 +18,7 @@ class BuildingRoadFetchThread(QThread):
 
     def __init__(self, session, mesh_codes: list, cache_dir: str, output_dir: str,
                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
-                 dem_filepath: str = None):
+                 dem_filepath: str = None, clip_to_extent=True):
         super().__init__()
         self.session = session
         self.mesh_codes = mesh_codes
@@ -29,6 +29,7 @@ class BuildingRoadFetchThread(QThread):
         self.lon_max = lon_max
         self.lat_max = lat_max
         self.dem_filepath = dem_filepath
+        self.clip_to_extent = clip_to_extent
         self._dem_crs = None
         self._dem_crs_resolved = False
 
@@ -75,6 +76,7 @@ class BuildingRoadFetchThread(QThread):
             include_layer_names=include_layer_names,
             driver_format="ESRI Shapefile",
             dst_crs=self._get_dem_crs(),
+            clip_to_extent=self.clip_to_extent,
         )
         self.addProgress.emit(1)
         return output_path if ok else None

@@ -1,4 +1,8 @@
 # QGIS-API
+import os
+import shutil
+import tempfile
+
 from qgis.PyQt.QtCore import *
 from qgis.PyQt.QtGui import *
 from qgis.PyQt.QtWidgets import *
@@ -30,16 +34,25 @@ class ProcessingThread(QThread):
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
 
-    def __init__(self, input_files_dict: dict, target_elements_dict: dict, output_dir: str):
+    def __init__(self, input_files_dict: dict, target_elements_dict: dict, output_dir: str,
+                 final_extent_wgs84=None):
         super().__init__()
         self.input_files_dict = input_files_dict
         self.target_elements_dict = target_elements_dict
         self.output_dir = output_dir
+        self.final_extent_wgs84 = final_extent_wgs84
 
         self.abort_flag = False
 
     def set_abort_flag(self, flag=True):
         self.abort_flag = flag
+
+    def _clip_final_output(self, filepath: str) -> str:
+        if filepath and self.final_extent_wgs84 is not None:
+            return raster_writer.replace_with_clipped_wgs84_extent(
+                filepath, self.final_extent_wgs84
+            )
+        return filepath
 
     def run(self):
         """
@@ -60,6 +73,7 @@ class ProcessingThread(QThread):
         # 処理の内部でだけ半角安全な別名パス・一時フォルダに差し替える
         ascii_tmpdir = AsciiSafeProcessingTmpdir()
         ascii_tmpdir.enter()
+        intermediate_dir = tempfile.mkdtemp()
 
         self.input_files_dict = {
             key: (get_ascii_safe_alias(path) if path else path)
@@ -81,8 +95,11 @@ class ProcessingThread(QThread):
                 self.addProgress.emit(1)
                 progress_counter += 1
                 self.postMessage.emit('DEMをリサンプリング中')
+                resampled_dem_filepath = os.path.join(intermediate_dir, "dem_resampled_10m.tif")
                 dem_for_processes = raster_writer.resampling(
-                    self.input_files_dict["dem"], 10)
+                    self.input_files_dict["dem"], 10, output_filepath=resampled_dem_filepath)
+                if not os.path.exists(dem_for_processes):
+                    raise RuntimeError(f"リサンプリング後のDEMを作成できませんでした: {dem_for_processes}")
 
                 if self.abort_flag:
                     self.processFinished.emit({})
@@ -99,6 +116,9 @@ class ProcessingThread(QThread):
                                                                    self.input_files_dict["srad"],
                                                                    self.input_files_dict["vtex"],
                                                                    self.output_dir)
+                siteidx_filepaths = [
+                    self._clip_final_output(path) for path in siteidx_filepaths
+                ]
                 display_names = [
                     OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"],
                     OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"],
@@ -135,6 +155,7 @@ class ProcessingThread(QThread):
                 cost_filepath = raster_writer.cost.generate(dem_for_processes,
                                                             self.input_files_dict["costcsv"],
                                                             self.output_dir)
+                cost_filepath = self._clip_final_output(cost_filepath)
                 cost_rawdata_qml_filepath = raster_styler.cost.write_rawdata_qml(self.input_files_dict["costcsv"],
                                                                                  self.output_dir)
                 cost_scoring_qml_filepath = raster_styler.cost.write_scoring_qml(cost_filepath,
@@ -166,6 +187,7 @@ class ProcessingThread(QThread):
                     self.postMessage.emit(
                         f'{OUTPUT_DISTANCE["DISPLAY_NAME"]}: 対象範囲に道路データが無いためスキップしました')
                 else:
+                    distance_filepath = self._clip_final_output(distance_filepath)
                     distance_rawdata_qml_filepath = raster_styler.distance.write_rawdata_qml(
                         self.output_dir)
                     distance_scoring_qml_filepath = raster_styler.distance.write_scoring_qml(distance_filepath,
@@ -193,6 +215,7 @@ class ProcessingThread(QThread):
 
                 shc_filepath = raster_writer.shc.generate(dem_for_processes,
                                                           self.output_dir)
+                shc_filepath = self._clip_final_output(shc_filepath)
                 shc_rawdata_qml_filepath = raster_styler.shc.write_rawdata_qml(shc_filepath,
                                                                                self.output_dir)
                 shc_scoring_qml_filepath = raster_styler.shc.write_scoring_qml(shc_filepath,
@@ -218,6 +241,7 @@ class ProcessingThread(QThread):
 
                 slope_filepath = raster_writer.slope.generate(dem_for_processes,
                                                               self.output_dir)
+                slope_filepath = self._clip_final_output(slope_filepath)
                 slope_rawdata_qml_filepath = raster_styler.slope.write_rawdata_qml(
                     self.output_dir)
                 slope_scoring_qml_filepath = raster_styler.slope.write_scoring_qml(
@@ -248,6 +272,7 @@ class ProcessingThread(QThread):
                     self.postMessage.emit(
                         f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 対象範囲に建物データが無いためスキップしました')
                 else:
+                    savearea_filepath = self._clip_final_output(savearea_filepath)
                     savearea_rawdata_qml_filepath = raster_styler.savearea.write_rawdata_qml(
                         self.output_dir)
                     savearea_scoring_qml_filepath = raster_styler.savearea.write_scoring_qml(
@@ -270,6 +295,7 @@ class ProcessingThread(QThread):
             return
         finally:
             ascii_tmpdir.restore()
+            shutil.rmtree(intermediate_dir, ignore_errors=True)
 
         self.postMessage.emit('終了処理中')
 

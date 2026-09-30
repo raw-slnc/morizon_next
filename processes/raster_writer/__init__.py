@@ -11,4 +11,4 @@ from . import (
     aggregate
 )
 
-from .utils import resampling
+from .utils import replace_with_clipped_wgs84_extent, resampling

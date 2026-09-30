@@ -1,6 +1,8 @@
 import os
 import glob
 import re
+import gc
+import uuid
 
 # QGIS-API
 from qgis.PyQt.QtCore import *
@@ -37,13 +39,15 @@ from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
 from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget
-from .utils import get_tiff_info
 
 
 class ForestZoningMainDialogElements:
     """
     メイン画面の「要素計算」タブの処理を実装するクラス
     """
+    _OUTPUT_VISIBILITY_PROPERTY_KEY = "morizon_next/output_visibility_rules_token"
+    _OUTPUT_VISIBILITY_TOKEN = uuid.uuid4().hex
+    _output_visibility_rule_slots = []
 
     def __init__(self, main):
         self.main = main
@@ -330,8 +334,10 @@ class ForestZoningMainDialogElements:
         sources = self._resolve_dem_sources(dlg, extent_wgs84)
         if sources is None:
             return
-        # DEM取得完了後、続けて同じ範囲で地位指数データも取得するため保持しておく
+        # DEMブラウザで指定した可視範囲は、最終成果物の表示・解析範囲として保持する。
+        # DEMや道路などの途中データは周辺情報を失わないよう、ここでは切り捨てない。
         self._pending_extent_wgs84 = extent_wgs84
+        self._pending_final_extent_wgs84 = extent_wgs84
 
         # データの実体は必ずプロジェクトフォルダ配下に保存する（ユーザーの保存場所を変えない）。
         # 全角パスでも構わない。ASCII安全な別名への変換は、実際にSAGA/GRASS等へ渡す直前
@@ -436,37 +442,19 @@ class ForestZoningMainDialogElements:
         # （processes/elements.pyのProcessingThread.run）でだけ行う
         dem_path = result["path"]
         self.main.elementsDemFileWidget.setFilePath(dem_path)
-        dem_extent = self._get_dem_extent_wgs84(dem_path)
-        if dem_extent is not None:
-            self._pending_extent_wgs84 = dem_extent
+        self._dem_browser_dem_path = dem_path
         QMessageBox.information(
             self.main, "完了",
             f"DEMを取得しプロジェクトフォルダに保存しました。\n{result['info']}\n"
             f"保存先：{dem_path}"
         )
 
-        # 続けてDEM実範囲で地位指数データ(NPP/SRAD/VTEX)を取得する。
-        # DEM実範囲を読めなかった場合だけ、取得要求時のキャンバス範囲へフォールバックする。
+        # 続けて可視範囲で地位指数データ(NPP/SRAD/VTEX)を取得する。
+        # 地位指数は距離計算のような範囲外依存を持たないため、最終範囲で十分。
         extent = getattr(self, "_pending_extent_wgs84", None)
         if extent is None:
             return
         self.start_siteindex_fetch(extent)
-
-    @staticmethod
-    def _get_dem_extent_wgs84(dem_path):
-        try:
-            dem_info = get_tiff_info(dem_path)
-            dem_extent = dem_info["extent"]
-            dem_crs = dem_info["crs"]
-            extent_rect = QgsRectangle(
-                dem_extent[0], dem_extent[2],
-                dem_extent[1], dem_extent[3],
-            )
-            wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-            transform = QgsCoordinateTransform(dem_crs, wgs84_crs, QgsProject.instance())
-            return transform.transformBoundingBox(extent_rect)
-        except Exception:
-            return None
 
     def start_siteindex_fetch(self, extent_wgs84):
         center_lon = (extent_wgs84.xMinimum() + extent_wgs84.xMaximum()) / 2
@@ -543,9 +531,10 @@ class ForestZoningMainDialogElements:
             session = login_dlg.get_session()
             self._fgd_session = session
 
+        fetch_extent_wgs84 = self._expand_extent_for_fgd_fetch(extent_wgs84)
         mesh_codes = fgd_fetcher.mesh_codes_for_extent(
-            extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
-            extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
+            fetch_extent_wgs84.xMinimum(), fetch_extent_wgs84.yMinimum(),
+            fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
         )
 
         project_home = QgsProject.instance().homePath()
@@ -555,9 +544,10 @@ class ForestZoningMainDialogElements:
 
         thread = processes.building_road_fetch.BuildingRoadFetchThread(
             session, mesh_codes, cache_dir, output_dir,
-            extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
-            extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
+            fetch_extent_wgs84.xMinimum(), fetch_extent_wgs84.yMinimum(),
+            fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
             dem_filepath=self.main.elementsDemFileWidget.filePath(),
+            clip_to_extent=True,
         )
         progress_dialog = ProgressDialog(thread.set_abort_flag)
         thread.processStarted.connect(progress_dialog.set_sum_of_processes)
@@ -576,11 +566,39 @@ class ForestZoningMainDialogElements:
         thread.start()
         progress_dialog.exec()
 
+    @staticmethod
+    def _expand_extent_for_fgd_fetch(extent_wgs84):
+        # 基盤地図情報は2次メッシュ単位。可視範囲外すぐの道路・建物が距離/流域に効くため、
+        # 1メッシュ分だけ周辺も取得し、切り捨ては最終ラスター側で行う。
+        lon_margin = 0.125
+        lat_margin = 5 / 60
+        return QgsRectangle(
+            extent_wgs84.xMinimum() - lon_margin,
+            extent_wgs84.yMinimum() - lat_margin,
+            extent_wgs84.xMaximum() + lon_margin,
+            extent_wgs84.yMaximum() + lat_margin,
+        )
+
     def set_building_road_filepaths(self, result: dict):
+        missing = []
         if result.get("building"):
             self.main.elementsBuildingFileWidget.setFilePath(result["building"])
+        else:
+            missing.append("建物ポリゴン")
         if result.get("road"):
             self.main.elementsNetworkFileWidget.setFilePath(result["road"])
+        else:
+            missing.append("道路縁")
+        self.refresh_elements_ui()
+        if missing:
+            QMessageBox.warning(
+                self.main,
+                "一部取得できませんでした",
+                "次のデータを取得・反映できませんでした。\n"
+                + "\n".join(missing)
+                + "\n\n対象範囲に有効なジオメトリが無いか、基盤地図情報の変換に失敗しています。",
+            )
+            return
         QMessageBox.information(
             self.main, "完了", "建物ポリゴン・道路縁データを取得しました。"
         )
@@ -617,6 +635,9 @@ class ForestZoningMainDialogElements:
             self.main.elementsSaveareaCheckbox,
         ):
             checkbox.setChecked(False)
+        self._dem_browser_dem_path = None
+        self._pending_extent_wgs84 = None
+        self._pending_final_extent_wgs84 = None
 
     def elements_get_existing_filenames(self) -> list:
         """
@@ -690,6 +711,7 @@ class ForestZoningMainDialogElements:
             input_files_dict,
             target_elements_dict,
             self.main.elementsOutputDirFileWidget.filePath(),
+            final_extent_wgs84=self._get_final_extent_for_current_dem(),
         )
         progress_dialog = ProgressDialog(thread.set_abort_flag)
         thread.processStarted.connect(progress_dialog.set_sum_of_processes)
@@ -714,6 +736,18 @@ class ForestZoningMainDialogElements:
 
         self.main.show()
 
+    def _get_final_extent_for_current_dem(self):
+        dem_path = self.main.elementsDemFileWidget.filePath()
+        if dem_path != getattr(self, "_dem_browser_dem_path", None):
+            return None
+        extent = getattr(self, "_pending_final_extent_wgs84", None)
+        if extent is None:
+            return None
+        return (
+            extent.xMinimum(), extent.yMinimum(),
+            extent.xMaximum(), extent.yMaximum(),
+        )
+
     @staticmethod
     def add_elements_layer_to_project(output_rlayers_dict):
         """
@@ -731,13 +765,23 @@ class ForestZoningMainDialogElements:
         """
         root = QgsProject().instance().layerTreeRoot()
         group_cache = {}
-        exclusive_groups = []
+        layer_items = list(reversed(list(output_rlayers_dict.items())))
+        if not layer_items:
+            return
 
-        def append_exclusive_group(group):
-            if not any(group is existing for existing in exclusive_groups):
-                exclusive_groups.append(group)
+        progress_dialog = QProgressDialog("出力レイヤーを追加します...", None, 0, len(layer_items))
+        progress_dialog.setWindowTitle("レイヤー追加中...")
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setCancelButton(None)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
 
-        for display_name, rlayers in reversed(list(output_rlayers_dict.items())):
+        for step, (display_name, rlayers) in enumerate(layer_items, start=1):
+            progress_dialog.setLabelText(f"{display_name}を追加します")
+            progress_dialog.setValue(step - 1)
+            QCoreApplication.processEvents()
+
             parts = display_name.split("/")
             *category_parts, short_name = parts
 
@@ -758,11 +802,11 @@ class ForestZoningMainDialogElements:
                 target_group = parent_group.insertGroup(0, short_name)
                 group_cache[path_key + (short_name,)] = target_group
                 target_group.setExpanded(True)
-                append_exclusive_group(target_group)
+                target_group.setItemVisibilityChecked(False)
             else:
                 # 3階層以上: 葉グループを作らず、手前のグループへ直接レイヤーをまとめる
                 target_group = parent_group
-                append_exclusive_group(target_group)
+                target_group.setItemVisibilityChecked(False)
 
             for i, rlayer in enumerate(rlayers):
                 # QMLでの定義がQGISの不具合で反映されないのでコードでも設定する
@@ -770,6 +814,7 @@ class ForestZoningMainDialogElements:
 
                 QgsProject.instance().addMapLayer(rlayer, False)
                 layer_node = target_group.addLayer(rlayer)
+                layer_node.setItemVisibilityChecked(False)
                 # シンボロジ（凡例の展開）は閉じておく
                 layer_node.setExpanded(False)
                 if i == 0:
@@ -777,96 +822,157 @@ class ForestZoningMainDialogElements:
                     layer_node.setName(short_name)
                 # スコアリング側はタブ間検索に使われる名前そのままを表示する
 
-        profit_group = group_cache.get(("収益性",))
-        if profit_group is not None:
-            append_exclusive_group(profit_group)
+            progress_dialog.setValue(step)
+            QCoreApplication.processEvents()
+            ForestZoningMainDialogElements._wait_for_layer_add_step()
 
-        for group in exclusive_groups:
-            ForestZoningMainDialogElements._set_mutually_exclusive_group(group, initial_child_index=None)
-
-        risk_group = group_cache.get(("災害リスク",))
-        if profit_group is not None and risk_group is not None:
-            ForestZoningMainDialogElements._connect_axis_exclusive_groups(
-                profit_group, risk_group
-            )
-        slope_group = group_cache.get(("災害リスク", "傾斜"))
-        shc_group = group_cache.get(("災害リスク", "地形の複雑さ"))
-        if slope_group is not None and shc_group is not None:
-            ForestZoningMainDialogElements._connect_axis_exclusive_groups(
-                slope_group, shc_group
-            )
+        ForestZoningMainDialogElements.setup_output_layer_tree_visibility()
+        progress_dialog.setValue(len(layer_items))
+        progress_dialog.close()
+        output_rlayers_dict.clear()
+        gc.collect()
 
     @staticmethod
-    def _set_mutually_exclusive_group(group, initial_child_index=None):
+    def _wait_for_layer_add_step(milliseconds=250):
+        loop = QEventLoop()
+        QTimer.singleShot(milliseconds, loop.quit)
+        loop.exec()
+
+    @staticmethod
+    def setup_output_layer_tree_visibility(root=None):
+        root = root or QgsProject.instance().layerTreeRoot()
+        profit_group = ForestZoningMainDialogElements._find_direct_group(root, "収益性")
+        risk_group = ForestZoningMainDialogElements._find_direct_group(root, "災害リスク")
+        axis_groups = [group for group in (profit_group, risk_group) if group is not None]
+        if not axis_groups:
+            return
+
+        for axis_group in axis_groups:
+            ForestZoningMainDialogElements._set_mutually_exclusive_group(
+                axis_group,
+                reset_children=False,
+            )
+            for child in axis_group.children():
+                if isinstance(child, QgsLayerTreeGroup):
+                    ForestZoningMainDialogElements._set_mutually_exclusive_group(
+                        child,
+                        reset_children=False,
+                    )
+
+        if len(axis_groups) >= 2:
+            ForestZoningMainDialogElements._connect_output_visibility_rules(axis_groups)
+
+    @staticmethod
+    def _find_direct_group(parent, name):
+        for child in parent.children():
+            if isinstance(child, QgsLayerTreeGroup) and child.name() == name:
+                return child
+        return None
+
+    @staticmethod
+    def _activate_output_node(node, axis_groups):
+        active_axis_group = ForestZoningMainDialogElements._axis_group_for_node(
+            node,
+            axis_groups,
+        )
+        if active_axis_group is None:
+            return
+
+        current = node
+        while current is not None:
+            parent = current.parent()
+            if parent is None:
+                break
+
+            if current is active_axis_group:
+                for axis_group in axis_groups:
+                    if axis_group is not active_axis_group:
+                        axis_group.setItemVisibilityChecked(False)
+                current.setItemVisibilityChecked(True)
+                break
+
+            if isinstance(parent, QgsLayerTreeGroup):
+                for sibling in parent.children():
+                    if sibling is current:
+                        continue
+                    if isinstance(current, QgsLayerTreeGroup) and isinstance(sibling, QgsLayerTreeGroup):
+                        sibling.setItemVisibilityChecked(False)
+                    elif not isinstance(current, QgsLayerTreeGroup) and not isinstance(sibling, QgsLayerTreeGroup):
+                        sibling.setItemVisibilityChecked(False)
+
+            current.setItemVisibilityChecked(True)
+            if parent is not QgsProject.instance().layerTreeRoot():
+                parent.setItemVisibilityChecked(True)
+            current = parent
+
+    @staticmethod
+    def _axis_group_for_node(node, axis_groups):
+        current = node
+        while current is not None:
+            for axis_group in axis_groups:
+                if current is axis_group:
+                    return axis_group
+            current = current.parent()
+        return None
+
+    @staticmethod
+    def _set_mutually_exclusive_group(group, initial_child_index=None, reset_children=True):
         children = group.children()
         if not children:
             return
-        group.setItemVisibilityChecked(False)
-        for idx, child in enumerate(children):
-            child.setItemVisibilityChecked(
-                initial_child_index is not None and idx == initial_child_index
-            )
+        if reset_children:
+            group.setItemVisibilityChecked(False)
+            for idx, child in enumerate(children):
+                child.setItemVisibilityChecked(
+                    initial_child_index is not None and idx == initial_child_index
+                )
         if hasattr(group, "setIsMutuallyExclusive"):
             try:
-                if initial_child_index is None:
-                    group.setIsMutuallyExclusive(True)
-                else:
-                    initial_child_index = max(0, min(initial_child_index, len(children) - 1))
-                    group.setIsMutuallyExclusive(True, initial_child_index)
+                group.setIsMutuallyExclusive(False)
             except TypeError:
-                group.setIsMutuallyExclusive(True)
+                pass
 
     @staticmethod
-    def _connect_axis_exclusive_groups(profit_group, risk_group):
+    def _connect_output_visibility_rules(axis_groups):
+        token = ForestZoningMainDialogElements._OUTPUT_VISIBILITY_TOKEN
+        property_key = ForestZoningMainDialogElements._OUTPUT_VISIBILITY_PROPERTY_KEY
         syncing = {"active": False}
-
-        def group_for_node(node):
-            current = node
-            while current is not None:
-                if current is profit_group:
-                    return profit_group
-                if current is risk_group:
-                    return risk_group
-                current = current.parent()
-            return None
-
-        def set_ancestors_checked(node, stop_group):
-            current = node
-            while current is not None:
-                current.setItemVisibilityChecked(True)
-                if current is stop_group:
-                    break
-                current = current.parent()
-
-        def set_group_unchecked(group):
-            if hasattr(group, "setItemVisibilityCheckedRecursive"):
-                group.setItemVisibilityCheckedRecursive(False)
-            else:
-                group.setItemVisibilityChecked(False)
-                for child in group.children():
-                    child.setItemVisibilityChecked(False)
+        connected_any = {"value": False}
 
         def on_visibility_changed(node):
             if syncing["active"] or not node.itemVisibilityChecked():
                 return
-            active_group = group_for_node(node)
-            if active_group is None:
+            if ForestZoningMainDialogElements._axis_group_for_node(node, axis_groups) is None:
                 return
-            inactive_group = risk_group if active_group is profit_group else profit_group
             syncing["active"] = True
             try:
-                set_ancestors_checked(node, active_group)
-                set_group_unchecked(inactive_group)
+                ForestZoningMainDialogElements._activate_output_node(
+                    node,
+                    axis_groups,
+                )
             finally:
                 syncing["active"] = False
 
         def connect_node(node):
-            try:
-                node.visibilityChanged.connect(on_visibility_changed)
-            except (AttributeError, TypeError):
-                pass
+            existing_token = node.customProperty(property_key, "")
+            if existing_token != token:
+                if existing_token:
+                    try:
+                        node.visibilityChanged.disconnect()
+                    except (AttributeError, TypeError):
+                        pass
+                try:
+                    node.visibilityChanged.connect(on_visibility_changed)
+                    node.setCustomProperty(property_key, token)
+                    connected_any["value"] = True
+                except (AttributeError, TypeError):
+                    pass
             for child in node.children():
                 connect_node(child)
 
-        connect_node(profit_group)
-        connect_node(risk_group)
+        for axis_group in axis_groups:
+            connect_node(axis_group)
+        if connected_any["value"]:
+            ForestZoningMainDialogElements._output_visibility_rule_slots.append(
+                on_visibility_changed
+            )

@@ -8,6 +8,7 @@ from qgis.core import *
 from qgis.gui import *
 
 from .forest_zoning_main_dialog import ForestZoningMainDialog
+from .forest_zoning_main_dialog_elements import ForestZoningMainDialogElements
 
 PLUGIN_NAME = "MORIZON"
 
@@ -21,6 +22,7 @@ class ForestZoning:
         self.menu = PLUGIN_NAME
 
         self.main_dialog = None
+        self._syncing_output_layer_tree = False
 
     def add_action(
         self,
@@ -66,37 +68,76 @@ class ForestZoning:
         QgsProject.instance().layerTreeRoot().removedChildren.connect(
             self.onLayersChanged
         )
+        QgsProject.instance().layerTreeRoot().visibilityChanged.connect(
+            self.onLayersChanged
+        )
         self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
             self.onLayersChanged
         )  # nopep8
+        self._setup_output_layer_tree_visibility()
 
     def unload(self):
         for action in self.actions:
             self.iface.removePluginRasterMenu(self.menu, action)
             self.iface.removeRasterToolBarIcon(action)
 
-        QgsProject.instance().layerTreeRoot().addedChildren.disconnect(
-            self.onLayersChanged
+        self._safe_disconnect(
+            QgsProject.instance().layerTreeRoot().addedChildren,
+            self.onLayersChanged,
         )
-        QgsProject.instance().layerTreeRoot().removedChildren.disconnect(
-            self.onLayersChanged
+        self._safe_disconnect(
+            QgsProject.instance().layerTreeRoot().removedChildren,
+            self.onLayersChanged,
         )
-        self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
-            self.onLayersChanged
-        )  # nopep8
+        self._safe_disconnect(
+            QgsProject.instance().layerTreeRoot().visibilityChanged,
+            self.onLayersChanged,
+        )
+        self._safe_disconnect(
+            self.iface.layerTreeView().layerTreeModel().dataChanged,
+            self.onLayersChanged,
+        )
+        if self.main_dialog is not None:
+            self.main_dialog.close()
+            self.main_dialog.deleteLater()
+            self.main_dialog = None
 
-    def onLayersChanged(self):
+    @staticmethod
+    def _safe_disconnect(signal, slot):
+        try:
+            signal.disconnect(slot)
+        except (TypeError, RuntimeError):
+            pass
+
+    def onLayersChanged(self, *args):
+        self._setup_output_layer_tree_visibility()
+
         if not self.is_visible_main_dialog():
             return
 
         self.main_dialog.elements.refresh_elements_ui()
         self.main_dialog.scoring.refresh_scoring_ui()
         self.main_dialog.zoning.refresh_zoning_ui()
+        self.main_dialog.aggregate.refresh_aggregate_ui()
+        self.main_dialog.printlayout.refresh_create_zoning_printlayout_ui()
+        self.main_dialog.printlayout.refresh_create_aggregate_printlayout_ui()
+
+    def _setup_output_layer_tree_visibility(self):
+        if self._syncing_output_layer_tree:
+            return
+        self._syncing_output_layer_tree = True
+        try:
+            ForestZoningMainDialogElements.setup_output_layer_tree_visibility()
+        finally:
+            self._syncing_output_layer_tree = False
 
     def show_main_dialog(self):
+        self._setup_output_layer_tree_visibility()
         if self.main_dialog is None:
             self.main_dialog = ForestZoningMainDialog()
         self.main_dialog.show()
+        self.main_dialog.raise_()
+        self.main_dialog.activateWindow()
 
     def is_visible_main_dialog(self):
         if self.main_dialog is None:

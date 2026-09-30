@@ -1,4 +1,5 @@
 import os
+import gc
 
 # QGIS-API
 from qgis.PyQt.QtCore import *
@@ -52,6 +53,7 @@ class ForestZoningMainDialogZoning:
             self.main.zoningRiskLayerCombobox,
         ):
             combobox.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
+        self.update_zoning_layer_scope()
 
         # UI入力時にステート更新
         self.main.zoningProfitLayerCombobox.layerChanged.connect(
@@ -77,6 +79,7 @@ class ForestZoningMainDialogZoning:
         """
         UIの変更の都度発火してUIの状態を更新する関数
         """
+        self.update_zoning_layer_scope()
 
         error_texts = self.get_zoning_error_texts()
         has_no_error = len(error_texts) == 0
@@ -123,18 +126,32 @@ class ForestZoningMainDialogZoning:
 
     def set_zoning_layer_combobox(self):
         """
-        プロジェクトのレイヤー名を検索し、ゾーニングタブの各コンボボックスに対応するレイヤーをセットする
+        MORIZON管理フォルダ内のレイヤーを検索し、ゾーニングタブの各コンボボックスに対応するレイヤーをセットする
         """
-        layers = list(QgsProject.instance().mapLayers().values())
-        layer_names = list(map(lambda layer: layer.name(), layers))
+        self.update_zoning_layer_scope()
 
         for name, combobox in (
             (OUTPUT_PROFIT["DISPLAY_NAME"], self.main.zoningProfitLayerCombobox),
             (OUTPUT_RISK["DISPLAY_NAME"], self.main.zoningRiskLayerCombobox),
         ):
-            idx = utils.find(layer_names, name)
-            if idx > -1:
-                combobox.setLayer(layers[idx])
+            layer = utils.find_morizon_layer_by_name(name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                combobox.setLayer(layer)
+
+    def update_zoning_layer_scope(self):
+        allowed_names = {
+            OUTPUT_PROFIT["DISPLAY_NAME"],
+            OUTPUT_RISK["DISPLAY_NAME"],
+        }
+        for combobox in (
+            self.main.zoningProfitLayerCombobox,
+            self.main.zoningRiskLayerCombobox,
+        ):
+            utils.set_morizon_layer_scope(
+                combobox,
+                allowed_names=allowed_names,
+                allowed_extensions={".tif", ".tiff"},
+            )
 
     def set_zoning_thresholds(self):
         """
@@ -251,3 +268,5 @@ class ForestZoningMainDialogZoning:
             QgsProject.instance().addMapLayer(rlayer, False)
             root = QgsProject().instance().layerTreeRoot()
             root.insertLayer(0, rlayer)
+        rlayers_dict.clear()
+        gc.collect()

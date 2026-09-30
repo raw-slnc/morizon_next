@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 
 from qgis.PyQt.QtCore import *
 from qgis.PyQt.QtGui import *
@@ -26,143 +27,165 @@ def generate(basis_dem_filepath: str,
     if building_vlayer.featureCount() == 0:
         return None
 
-    fixed_basin_vlayer = create_basin_polygon(basis_dem_filepath)
-    basis_deminfo = get_tiff_info(basis_dem_filepath)
+    temp_dir = tempfile.mkdtemp()
+    try:
+        fixed_basin_vlayer = create_basin_polygon(basis_dem_filepath, temp_dir)
+        basis_deminfo = get_tiff_info(basis_dem_filepath)
+        target_extent = f'{basis_deminfo["extent"][0]},{basis_deminfo["extent"][1]},{basis_deminfo["extent"][2]},{basis_deminfo["extent"][3]}'
 
-    # すべての流域を焼きこんだラスター
-    basin_rasiterized_filepath = processing.run("gdal:rasterize", {
-        'INPUT': fixed_basin_vlayer,
-        'BURN': 1,
-        'DATA_TYPE': 5,  # Float32
-        'EXTENT': f'{basis_deminfo["extent"][0]},{basis_deminfo["extent"][1]},{basis_deminfo["extent"][2]},{basis_deminfo["extent"][3]}',
-        'EXTRA': '',
-        'FIELD': '',
-        'INIT': None,
-        'INVERT': False,
-        'NODATA': None,
-        'OPTIONS': '',
-        'UNITS': 1,  # 地理単位
-        'HEIGHT': basis_deminfo["resolution"],
-        'WIDTH': basis_deminfo["resolution"],
-        'OUTPUT': "TEMPORARY_OUTPUT",
-    })["OUTPUT"]
+        # すべての流域を焼きこんだラスター
+        basin_rasiterized_filepath = os.path.join(temp_dir, "basin_all.tif")
+        processing.run("gdal:rasterize", {
+            'INPUT': fixed_basin_vlayer,
+            'BURN': 1,
+            'DATA_TYPE': 5,  # Float32
+            'EXTENT': target_extent,
+            'EXTRA': '',
+            'FIELD': '',
+            'INIT': None,
+            'INVERT': False,
+            'NODATA': None,
+            'OPTIONS': '',
+            'UNITS': 1,  # 地理単位
+            'HEIGHT': basis_deminfo["resolution"],
+            'WIDTH': basis_deminfo["resolution"],
+            'OUTPUT': basin_rasiterized_filepath,
+        })
+        _assert_raster_ready(basin_rasiterized_filepath, "流域ラスタ")
 
-    fixed_building_vlayer = processing.run("native:fixgeometries", {
-        "INPUT": building_filepath,
-        "OUTPUT": "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
+        fixed_building_vlayer = processing.run("native:fixgeometries", {
+            "INPUT": building_filepath,
+            "OUTPUT": "TEMPORARY_OUTPUT"
+        })["OUTPUT"]
 
-    overlap_calculated_polygon_vlayer = processing.run("qgis:calculatevectoroverlaps", {
-        "INPUT": fixed_basin_vlayer,
-        "LAYERS": [fixed_building_vlayer],
-        "OUTPUT": "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
+        overlap_calculated_polygon_vlayer = processing.run("qgis:calculatevectoroverlaps", {
+            "INPUT": fixed_basin_vlayer,
+            "LAYERS": [fixed_building_vlayer],
+            "OUTPUT": "TEMPORARY_OUTPUT"
+        })["OUTPUT"]
 
-    filtered_polygon_vlayer = processing.run("qgis:extractbyexpression", {
-        "INPUT": overlap_calculated_polygon_vlayer,
-        "EXPRESSION": f'\"{fixed_building_vlayer.name()}_area\" > 0',
-        "OUTPUT": "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
+        filtered_polygon_vlayer = processing.run("qgis:extractbyexpression", {
+            "INPUT": overlap_calculated_polygon_vlayer,
+            "EXPRESSION": f'\"{fixed_building_vlayer.name()}_area\" > 0',
+            "OUTPUT": "TEMPORARY_OUTPUT"
+        })["OUTPUT"]
 
-    # 建物ポリゴンを含む流域だけを焼きこんだラスター
-    filtered_rasterized_filepath = processing.run("gdal:rasterize", {
-        'INPUT': filtered_polygon_vlayer,
-        'BURN': 1,
-        'DATA_TYPE': 5,  # Float32
-        'EXTENT': f'{basis_deminfo["extent"][0]},{basis_deminfo["extent"][1]},{basis_deminfo["extent"][2]},{basis_deminfo["extent"][3]}',
-        'EXTRA': '',
-        'FIELD': '',
-        'INIT': None,
-        'INVERT': False,
-        'NODATA': None,
-        'OPTIONS': '',
-        'UNITS': 1,  # 地理単位
-        'HEIGHT': basis_deminfo["resolution"],
-        'WIDTH': basis_deminfo["resolution"],
-        'OUTPUT': "TEMPORARY_OUTPUT",
-    })["OUTPUT"]
+        # 建物ポリゴンを含む流域だけを焼きこんだラスター
+        filtered_rasterized_filepath = os.path.join(temp_dir, "basin_with_building.tif")
+        processing.run("gdal:rasterize", {
+            'INPUT': filtered_polygon_vlayer,
+            'BURN': 1,
+            'DATA_TYPE': 5,  # Float32
+            'EXTENT': target_extent,
+            'EXTRA': '',
+            'FIELD': '',
+            'INIT': None,
+            'INVERT': False,
+            'NODATA': None,
+            'OPTIONS': '',
+            'UNITS': 1,  # 地理単位
+            'HEIGHT': basis_deminfo["resolution"],
+            'WIDTH': basis_deminfo["resolution"],
+            'OUTPUT': filtered_rasterized_filepath,
+        })
+        _assert_raster_ready(filtered_rasterized_filepath, "建物流域ラスタ")
 
-    output_filepath = os.path.join(
-        output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
+        output_filepath = os.path.join(
+            output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
 
-    # ラスター計算のためにEntry生成
-    basin_rasterized_rlayer = QgsRasterLayer(basin_rasiterized_filepath)
-    basin_rasterized_entry = QgsRasterCalculatorEntry()
-    basin_rasterized_entry.ref = "basin_rasterized@1"
-    basin_rasterized_entry.raster = basin_rasterized_rlayer
-    basin_rasterized_entry.bandNumber = 1
+        # ラスター計算のためにEntry生成
+        basin_rasterized_rlayer = _make_raster_layer(basin_rasiterized_filepath, "流域ラスタ")
+        basin_rasterized_entry = QgsRasterCalculatorEntry()
+        basin_rasterized_entry.ref = "basin_rasterized@1"
+        basin_rasterized_entry.raster = basin_rasterized_rlayer
+        basin_rasterized_entry.bandNumber = 1
 
-    filtered_rasterized_rlayer = QgsRasterLayer(filtered_rasterized_filepath)
-    filtered_rasterized_entry = QgsRasterCalculatorEntry()
-    filtered_rasterized_entry.ref = "filtered_rasterized@1"
-    filtered_rasterized_entry.raster = filtered_rasterized_rlayer
-    filtered_rasterized_entry.bandNumber = 1
+        filtered_rasterized_rlayer = _make_raster_layer(filtered_rasterized_filepath, "建物流域ラスタ")
+        filtered_rasterized_entry = QgsRasterCalculatorEntry()
+        filtered_rasterized_entry.ref = "filtered_rasterized@1"
+        filtered_rasterized_entry.raster = filtered_rasterized_rlayer
+        filtered_rasterized_entry.bandNumber = 1
 
-    """
-    判定パターン
-    流域ポリゴンが存在しないエリア = No-data
-    流域ポリゴンの存在するエリアで、かつ、そのポリゴンが建物ポリゴンを含まないエリア = 0
-    建物を含む流域ポリゴンの存在するエリア = 1
-    """
-    NODATA_VALUE = "-3.40282347e+38"
-    calc = QgsRasterCalculator(
-        f"""{NODATA_VALUE} * ({basin_rasterized_entry.ref} != 1 AND {filtered_rasterized_entry.ref} != 1) \
-                                + 0 * ({basin_rasterized_entry.ref} = 1 AND {filtered_rasterized_entry.ref} != 1) \
-                                + 1 * ({filtered_rasterized_entry.ref} = 1) \
-                                """,
-        output_filepath,
-        "GTiff",
-        basin_rasterized_rlayer.extent(),
-        basin_rasterized_rlayer.width(),
-        basin_rasterized_rlayer.height(),
-        (basin_rasterized_entry, filtered_rasterized_entry))
-    calc.processCalculation()
+        """
+        判定パターン
+        流域ポリゴンが存在しないエリア = No-data
+        流域ポリゴンの存在するエリアで、かつ、そのポリゴンが建物ポリゴンを含まないエリア = 0
+        建物を含む流域ポリゴンの存在するエリア = 1
+        """
+        NODATA_VALUE = "-3.40282347e+38"
+        calc = QgsRasterCalculator(
+            f"""{NODATA_VALUE} * ({basin_rasterized_entry.ref} != 1 AND {filtered_rasterized_entry.ref} != 1) \
+                                    + 0 * ({basin_rasterized_entry.ref} = 1 AND {filtered_rasterized_entry.ref} != 1) \
+                                    + 1 * ({filtered_rasterized_entry.ref} = 1) \
+                                    """,
+            output_filepath,
+            "GTiff",
+            basin_rasterized_rlayer.extent(),
+            basin_rasterized_rlayer.width(),
+            basin_rasterized_rlayer.height(),
+            (basin_rasterized_entry, filtered_rasterized_entry))
+        result = calc.processCalculation()
+        if not _is_raster_calculator_success(result):
+            raise RuntimeError(f"保全対象ラスターの計算に失敗しました: {result}")
+        _assert_raster_ready(output_filepath, OUTPUT_SAVEAREA["DISPLAY_NAME"])
 
-    return output_filepath
+        return output_filepath
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def create_basin_polygon(basis_dem_filepath):
+def create_basin_polygon(basis_dem_filepath, temp_dir=None):
     """DEMを利用して流域ポリゴンを生成する。必要ならジオメトリの修復を試みる。"""
-    basin_filepath = processing.run(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
-        'elevation': basis_dem_filepath,
-        '-4': False,
-        '-a': False,
-        '-b': False,
-        '-m': False,
-        '-s': False,
-        'GRASS_RASTER_FORMAT_META': '',
-        'GRASS_RASTER_FORMAT_OPT': '',
-        'GRASS_REGION_CELLSIZE_PARAMETER': 0,
-        'GRASS_REGION_PARAMETER': None,
-        'accumulation': None,
-        'basin': 'TEMPORARY_OUTPUT',
-        'blocking': None,
-        'convergence': 5,
-        'depression': None,
-        'disturbed_land': None,
-        'drainage': None,
-        'flow': None,
-        'half_basin': None,
-        'length_slope': None,
-        'max_slope_length': None,
-        'memory': 300,
-        'slope_steepness': None,
-        'spi': None,
-        'stream': None,
-        'tci': None,
-        'threshold': 500
-    })['basin']
+    owns_temp_dir = temp_dir is None
+    if temp_dir is None:
+        temp_dir = tempfile.mkdtemp()
+    try:
+        basin_filepath = os.path.join(temp_dir, "basin.tif")
+        processing.run(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
+            'elevation': basis_dem_filepath,
+            '-4': False,
+            '-a': False,
+            '-b': False,
+            '-m': False,
+            '-s': False,
+            'GRASS_RASTER_FORMAT_META': '',
+            'GRASS_RASTER_FORMAT_OPT': '',
+            'GRASS_REGION_CELLSIZE_PARAMETER': 0,
+            'GRASS_REGION_PARAMETER': None,
+            'accumulation': None,
+            'basin': basin_filepath,
+            'blocking': None,
+            'convergence': 5,
+            'depression': None,
+            'disturbed_land': None,
+            'drainage': None,
+            'flow': None,
+            'half_basin': None,
+            'length_slope': None,
+            'max_slope_length': None,
+            'memory': 300,
+            'slope_steepness': None,
+            'spi': None,
+            'stream': None,
+            'tci': None,
+            'threshold': 500
+        })
+        _assert_raster_ready(basin_filepath, "流域")
 
-    vectorized_basin_filepath = processing.run("gdal:polygonize", {
-        "INPUT": basin_filepath,
-        "BAND": 1,
-        "OUTPUT": "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
-    fixed_basin_vlayer = processing.run("native:fixgeometries", {
-        "INPUT": vectorized_basin_filepath,
-        "OUTPUT": "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
-    return fixed_basin_vlayer
+        vectorized_basin_filepath = os.path.join(temp_dir, "basin.gpkg")
+        processing.run("gdal:polygonize", {
+            "INPUT": basin_filepath,
+            "BAND": 1,
+            "OUTPUT": vectorized_basin_filepath
+        })
+        fixed_basin_vlayer = processing.run("native:fixgeometries", {
+            "INPUT": vectorized_basin_filepath,
+            "OUTPUT": "TEMPORARY_OUTPUT"
+        })["OUTPUT"]
+        return fixed_basin_vlayer
+    finally:
+        if owns_temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def dissolve_basin_vlayer(basin_vlayer_filepath):
@@ -172,3 +195,23 @@ def dissolve_basin_vlayer(basin_vlayer_filepath):
         'INPUT': basin_vlayer_filepath,
         'OUTPUT': 'TEMPORARY_OUTPUT'
     })["OUTPUT"]
+
+
+def _assert_raster_ready(filepath: str, label: str):
+    if not filepath or not os.path.exists(filepath):
+        raise RuntimeError(f"{label}を作成できませんでした: {filepath}")
+    if os.path.getsize(filepath) == 0:
+        raise RuntimeError(f"{label}が空です: {filepath}")
+
+
+def _make_raster_layer(filepath: str, label: str) -> QgsRasterLayer:
+    _assert_raster_ready(filepath, label)
+    layer = QgsRasterLayer(filepath)
+    if not layer.isValid():
+        raise RuntimeError(f"{label}を読み込めませんでした: {filepath}")
+    return layer
+
+
+def _is_raster_calculator_success(result) -> bool:
+    success = getattr(getattr(QgsRasterCalculator, "Result", QgsRasterCalculator), "Success", 0)
+    return result == success or str(result) in ("0", "Result.Success", "Success")

@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 
 import requests
 
@@ -127,7 +129,8 @@ def fetch_meshes(session: requests.Session, type_code: str, mesh_codes: list, ca
 def merge_layers(zip_paths: list, output_path: str,
                   lon_min: float, lat_min: float, lon_max: float, lat_max: float,
                   include_layer_names=None, driver_format="ESRI Shapefile",
-                  output_layer=None, dst_crs="EPSG:4326") -> bool:
+                  output_layer=None, dst_crs="EPSG:4326",
+                  clip_to_extent=True) -> bool:
     """複数ZIP内のGMLレイヤーを1つのベクタファイルへ範囲クリップしつつ統合する。
     include_layer_names未指定の場合はZIP内の全レイヤーを対象にする。
     driver_formatは"ESRI Shapefile"（既存のフォルダ読み込み規約=INPUT_BUILDING/INPUT_NETWORKに合わせる）
@@ -167,19 +170,42 @@ def merge_layers(zip_paths: list, output_path: str,
                     format=driver_format,
                     layers=[name],
                     accessMode="overwrite" if first else "append",
-                    spatFilter=(lon_min, lat_min, lon_max, lat_max),
-                    spatSRS="EPSG:4326",
                     dstSRS=dst_crs,
                     reproject=True,
+                    skipFailures=True,
                 )
+                if clip_to_extent:
+                    kwargs["spatFilter"] = (lon_min, lat_min, lon_max, lat_max)
+                    kwargs["spatSRS"] = "EPSG:4326"
                 if driver_format == "GPKG" and output_layer:
                     kwargs["layerName"] = output_layer
                 if driver_format == "ESRI Shapefile":
                     # DBFの既定エンコーディング(ISO-8859-1)では日本語属性が文字化けするため明示指定
                     kwargs["layerCreationOptions"] = ["ENCODING=UTF-8"]
-                gdal.VectorTranslate(output_path, src, **kwargs)
-                first = False
-    return not first
+                translated = _translate_layer(
+                    src,
+                    output_path,
+                    name,
+                    kwargs,
+                    driver_format,
+                    output_layer,
+                    first,
+                    clip_to_extent,
+                    (lon_min, lat_min, lon_max, lat_max),
+                    dst_crs,
+                )
+                if translated is not None:
+                    translated = None
+                    first = False
+
+    if first:
+        return False
+
+    valid_count = _count_non_empty_geometries(output_path)
+    if valid_count == 0:
+        _remove_shapefile_dataset(output_path)
+        return False
+    return True
 
 
 def _zip_member_names(zip_path: str) -> list:
@@ -208,3 +234,76 @@ def _remove_shapefile_dataset(output_path: str):
         path = stem + ext
         if os.path.exists(path):
             os.remove(path)
+
+
+def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
+                     driver_format: str, output_layer: str, first: bool,
+                     clip_to_extent: bool, extent_wgs84: tuple, dst_crs: str):
+    ogr2ogr = shutil.which("ogr2ogr")
+    if ogr2ogr:
+        return _translate_layer_with_ogr2ogr(
+            ogr2ogr, src, output_path, layer_name, driver_format, output_layer,
+            first, clip_to_extent, extent_wgs84, dst_crs,
+        )
+
+    from osgeo import gdal
+    return gdal.VectorTranslate(output_path, src, **kwargs)
+
+
+def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
+                                  layer_name: str, driver_format: str,
+                                  output_layer: str, first: bool,
+                                  clip_to_extent: bool, extent_wgs84: tuple,
+                                  dst_crs: str):
+    target_layer = output_layer or os.path.splitext(os.path.basename(output_path))[0]
+    cmd = [ogr2ogr, "-f", driver_format]
+    if not first:
+        cmd.extend(["-update", "-append"])
+    if clip_to_extent:
+        lon_min, lat_min, lon_max, lat_max = extent_wgs84
+        cmd.extend([
+            "-spat", str(lon_min), str(lat_min), str(lon_max), str(lat_max),
+            "-spat_srs", "EPSG:4326",
+        ])
+    if dst_crs:
+        cmd.extend(["-t_srs", dst_crs])
+    cmd.append("-skipfailures")
+    if target_layer:
+        cmd.extend(["-nln", target_layer])
+    if driver_format == "ESRI Shapefile":
+        cmd.extend(["-lco", "ENCODING=UTF-8"])
+    cmd.extend([output_path, src, layer_name])
+
+    completed = subprocess.run(
+        cmd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "基盤地図情報の変換に失敗しました。\n"
+            + (completed.stderr.strip() or completed.stdout.strip())
+        )
+    return True
+
+
+def _count_non_empty_geometries(vector_path: str) -> int:
+    from osgeo import ogr
+
+    ds = ogr.Open(vector_path)
+    if ds is None:
+        return 0
+    count = 0
+    for layer_idx in range(ds.GetLayerCount()):
+        layer = ds.GetLayer(layer_idx)
+        if layer is None:
+            continue
+        layer.ResetReading()
+        for feature in layer:
+            geometry = feature.GetGeometryRef()
+            if geometry is not None and not geometry.IsEmpty():
+                count += 1
+    ds = None
+    return count

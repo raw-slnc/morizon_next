@@ -326,9 +326,6 @@ class GSITileDEMLoader:
         x_origin = -WORLD_M + x0 * tile_m
         y_origin = WORLD_M - y0 * tile_m
         gt = (x_origin, px_m, 0.0, y_origin, 0.0, -px_m)
-        total_arr, gt = self._crop_to_requested_extent(
-            total_arr, gt, lon_min, lat_min, lon_max, lat_max
-        )
         total_arr, self._filled_nodata_count = self._fill_nodata(total_arr)
 
         try:

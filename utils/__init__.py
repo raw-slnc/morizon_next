@@ -150,6 +150,79 @@ def find(l: list, x) -> int:
     return l.index(x) if x in l else -1
 
 
+def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
+                             allowed_extensions=None) -> bool:
+    """
+    MORIZON NEXTがプロジェクトフォルダ配下で管理する成果物レイヤーか判定する。
+    外部レイヤーを広く走査しないため、タブ内の候補絞り込みと自動設定で使う。
+    """
+    if layer is None:
+        return False
+    if allowed_names is not None and layer.name() not in allowed_names:
+        return False
+    source = _layer_source_path(layer)
+    if not source:
+        return False
+    normalized_source = os.path.normpath(source)
+    managed_dir = get_morizon_managed_dir()
+    try:
+        in_managed_dir = os.path.commonpath(
+            [normalized_source, managed_dir]
+        ) == managed_dir
+    except ValueError:
+        in_managed_dir = False
+    if not in_managed_dir:
+        return False
+    if allowed_extensions is None:
+        return True
+    return os.path.splitext(normalized_source)[1].lower() in {
+        ext.lower() for ext in allowed_extensions
+    }
+
+
+def set_morizon_layer_scope(combobox: QgsMapLayerComboBox,
+                            allowed_names=None,
+                            allowed_extensions=None,
+                            keep_current=True):
+    """QgsMapLayerComboBoxの候補をMORIZON管理フォルダ配下の成果物に限定する。"""
+    project_layers = list(QgsProject.instance().mapLayers().values())
+    current_layer = combobox.currentLayer() if keep_current else None
+    excepted_layers = [
+        layer for layer in project_layers
+        if layer is not current_layer
+        if not is_morizon_managed_layer(
+            layer,
+            allowed_names=allowed_names,
+            allowed_extensions=allowed_extensions,
+        )
+    ]
+    combobox.setExceptedLayerList(excepted_layers)
+
+
+def find_morizon_layer_by_name(layer_name: str, allowed_extensions=None):
+    """MORIZON管理フォルダ配下から、指定名のレイヤーを返す。"""
+    for layer in QgsProject.instance().mapLayers().values():
+        if is_morizon_managed_layer(
+            layer,
+            allowed_names={layer_name},
+            allowed_extensions=allowed_extensions,
+        ):
+            return layer
+    return None
+
+
+def get_morizon_managed_dir() -> str:
+    project_home = QgsProject.instance().homePath() or os.path.expanduser("~")
+    return os.path.normpath(os.path.join(project_home, "morizon_next"))
+
+
+def _layer_source_path(layer: QgsMapLayer) -> str:
+    source = layer.source()
+    if "|" in source:
+        source = source.split("|", 1)[0]
+    return os.path.abspath(source) if source else ""
+
+
 def get_tiff_info(tiff_filepath: str) -> dict:
     """
     DEMの各種情報をgdalinfoを用いて取得する

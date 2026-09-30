@@ -3,7 +3,20 @@ import shutil
 import tempfile
 
 import processing
-from qgis.core import QgsApplication
+from qgis.core import (
+    QgsApplication,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsProject,
+    QgsRectangle,
+)
+
+try:
+    from osgeo import gdal
+    gdal.UseExceptions()
+    HAS_GDAL = True
+except ImportError:
+    HAS_GDAL = False
 
 from ...utils import (
     get_tiff_info
@@ -81,6 +94,50 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
             resampling_alg_name=resampling_alg_name,
         )
         os.replace(adjusted_filepath, target_tiff_filepath)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    return target_tiff_filepath
+
+
+def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
+                                      extent_wgs84) -> str:
+    """
+    ラスターをWGS84指定範囲でピクセル単位に切り出して置き換える。
+    解析途中ではなく、最終成果物を表示・後段入力の範囲へ揃える用途。
+    """
+    if extent_wgs84 is None:
+        return target_tiff_filepath
+    if not HAS_GDAL:
+        raise RuntimeError("GDAL is not available")
+
+    lon_min, lat_min, lon_max, lat_max = extent_wgs84
+    target_info = get_tiff_info(target_tiff_filepath)
+    target_crs = target_info["crs"]
+    wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+    transform = QgsCoordinateTransform(wgs84_crs, target_crs, QgsProject.instance())
+    target_rect = transform.transformBoundingBox(
+        QgsRectangle(lon_min, lat_min, lon_max, lat_max)
+    )
+
+    target_dir = os.path.dirname(target_tiff_filepath) or None
+    temp_dir = tempfile.mkdtemp(dir=target_dir)
+    temp_filepath = os.path.join(temp_dir, "clipped.tif")
+    try:
+        ds = gdal.Translate(
+            temp_filepath,
+            target_tiff_filepath,
+            projWin=[
+                target_rect.xMinimum(),
+                target_rect.yMaximum(),
+                target_rect.xMaximum(),
+                target_rect.yMinimum(),
+            ],
+            creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"],
+        )
+        if ds is None:
+            raise RuntimeError("最終範囲でのラスター切り出しに失敗しました")
+        ds = None
+        os.replace(temp_filepath, target_tiff_filepath)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
     return target_tiff_filepath

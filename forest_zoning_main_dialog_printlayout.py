@@ -6,6 +6,7 @@ from qgis.core import *
 from qgis.gui import *
 
 from . import processes
+from . import utils
 from .constants import (
     OUTPUT_ZONING,
     OUTPUT_AGGREGATE,
@@ -45,6 +46,7 @@ class ForestZoningMainDialogPrintlayout:
         self.main.printlayoutAggregateLayerCombobox.setFilters(
             QgsMapLayerProxyModel.Filter.VectorLayer
         )
+        self.update_printlayout_layer_scope()
 
         self.main.printlayoutBackgroundLayerCombobox.layerChanged.connect(
             self.refresh_create_zoning_printlayout_ui
@@ -62,6 +64,7 @@ class ForestZoningMainDialogPrintlayout:
         self.refresh_create_aggregate_printlayout_ui()
 
     def refresh_create_zoning_printlayout_ui(self):
+        self.update_printlayout_layer_scope()
         error_texts = self.get_create_zoning_printlayout_error()
         has_no_error = len(error_texts) == 0
         self.main.createZoningPrintlayoutErrorLabel.setText("\n".join(error_texts))
@@ -76,6 +79,7 @@ class ForestZoningMainDialogPrintlayout:
         return error_texts
 
     def refresh_create_aggregate_printlayout_ui(self):
+        self.update_printlayout_layer_scope()
         error_texts = self.get_create_aggregate_printlayout_error()
         has_no_error = len(error_texts) == 0
         self.main.createAggregatePrintlayoutErrorLabel.setText("\n".join(error_texts))
@@ -90,26 +94,40 @@ class ForestZoningMainDialogPrintlayout:
         return error_texts
 
     def set_zoning_layer_printlayout_combobox(self):
-        zoning_rlayers = QgsProject.instance().mapLayersByName(
-            OUTPUT_ZONING.get("DISPLAY_NAME")
+        self.update_printlayout_layer_scope()
+        zoning_layer = utils.find_morizon_layer_by_name(
+            OUTPUT_ZONING.get("DISPLAY_NAME"),
+            allowed_extensions={".tif", ".tiff"},
         )
-        if len(zoning_rlayers) > 0:
-            zoning_layer = zoning_rlayers[0]
+        if zoning_layer is not None:
             self.main.printlayoutZoningLayerCombobox.setLayer(zoning_layer)
         else:
             QMessageBox.information(self.main, "エラー", "ゾーニング図を作成してください。")
             return
 
     def set_aggregate_layer_printlayout_combobox(self):
-        aggregate_layers = QgsProject.instance().mapLayersByName(
-            OUTPUT_AGGREGATE.get("DISPLAY_NAME")
+        self.update_printlayout_layer_scope()
+        aggregate_layer = utils.find_morizon_layer_by_name(
+            OUTPUT_AGGREGATE.get("DISPLAY_NAME"),
+            allowed_extensions={".shp", ".gpkg"},
         )
-        if len(aggregate_layers) > 0:
-            aggregate_layer = aggregate_layers[0]
+        if aggregate_layer is not None:
             self.main.printlayoutAggregateLayerCombobox.setLayer(aggregate_layer)
         else:
             QMessageBox.information(self.main, "エラー", "ゾーン統計量を作成してください。")
             return
+
+    def update_printlayout_layer_scope(self):
+        utils.set_morizon_layer_scope(
+            self.main.printlayoutZoningLayerCombobox,
+            allowed_names={OUTPUT_ZONING.get("DISPLAY_NAME")},
+            allowed_extensions={".tif", ".tiff"},
+        )
+        utils.set_morizon_layer_scope(
+            self.main.printlayoutAggregateLayerCombobox,
+            allowed_names={OUTPUT_AGGREGATE.get("DISPLAY_NAME")},
+            allowed_extensions={".shp", ".gpkg"},
+        )
 
     def run_printlayout(self, target_name):
         project = QgsProject.instance()

@@ -1,5 +1,6 @@
 import os
 import glob
+import gc
 
 # QGIS-API
 from qgis.PyQt.QtCore import *
@@ -9,6 +10,7 @@ from qgis.core import *
 from qgis.gui import *
 
 from . import processes
+from . import utils
 from .constants import OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import ProgressDialog
 
@@ -30,6 +32,7 @@ class ForestZoningMainDialogAggregate:
         self.main.aggregateZoningLayerCombobox.setFilters(
             QgsMapLayerProxyModel.Filter.RasterLayer
         )
+        self.update_aggregate_layer_scope()
         self.main.aggregatePolygonLayerCommbobox.setFilters(
             QgsMapLayerProxyModel.Filter.VectorLayer
         )
@@ -58,15 +61,23 @@ class ForestZoningMainDialogAggregate:
         self.refresh_aggregate_ui()
 
     def set_aggregate_layer_combobox(self):
-        zoning_rlayers = QgsProject.instance().mapLayersByName(
-            OUTPUT_ZONING.get("DISPLAY_NAME")
+        self.update_aggregate_layer_scope()
+        zoning_layer = utils.find_morizon_layer_by_name(
+            OUTPUT_ZONING.get("DISPLAY_NAME"),
+            allowed_extensions={".tif", ".tiff"},
         )
-        if len(zoning_rlayers) > 0:
-            zoning_layer = zoning_rlayers[0]
+        if zoning_layer is not None:
             self.main.aggregateZoningLayerCombobox.setLayer(zoning_layer)
         else:
             QMessageBox.information(self.main, "エラー", "ゾーニング図を作成してください。")
             return
+
+    def update_aggregate_layer_scope(self):
+        utils.set_morizon_layer_scope(
+            self.main.aggregateZoningLayerCombobox,
+            allowed_names={OUTPUT_ZONING.get("DISPLAY_NAME")},
+            allowed_extensions={".tif", ".tiff"},
+        )
 
     def load_aggregate_dem_path(self):
         selected_dir = QFileDialog.getExistingDirectory(self.main, "データフォルダを選択")
@@ -149,6 +160,8 @@ class ForestZoningMainDialogAggregate:
         QMessageBox.information(self.main, "完了", "処理が完了しました。")
 
     def refresh_aggregate_ui(self):
+        self.update_aggregate_layer_scope()
+
         # ラジオボタンの状態に応じてUIを有効化・無効化
         self.main.aggregatePolygonLayerCommbobox.setEnabled(
             self.main.radioButtonPolygon.isChecked()
@@ -194,3 +207,5 @@ class ForestZoningMainDialogAggregate:
             QgsProject.instance().addMapLayer(rlayer, False)
             root = QgsProject().instance().layerTreeRoot()
             root.insertLayer(0, rlayer)
+        rlayers_dict.clear()
+        gc.collect()

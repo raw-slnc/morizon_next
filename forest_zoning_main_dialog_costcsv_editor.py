@@ -1,7 +1,7 @@
 import csv
 import os
 
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider
@@ -64,6 +64,9 @@ class CostCsvEditorWidget(QWidget):
     GUTTER_LEFT = 38
     GUTTER_RIGHT = 14
     GUTTER_BOTTOM = 16
+    SETTINGS_GROUP = "/MORIZON/costcsv_editor"
+    SETTINGS_DISABLED_CODES = "disabled_codes"
+    SETTINGS_MARGIN = "margin"
 
     def __init__(self, parent=None, on_export=None):
         super().__init__(parent)
@@ -145,16 +148,20 @@ class CostCsvEditorWidget(QWidget):
 
         button_row = QHBoxLayout()
         self.loadDefaultButton = QPushButton("初期値を読み込む")
-        self.loadDefaultButton.clicked.connect(self.load_defaults)
+        self.loadDefaultButton.clicked.connect(lambda: self.load_defaults())
         button_row.addWidget(self.loadDefaultButton)
         self.exportButton = QPushButton("CSVとして書き出す")
         self.exportButton.clicked.connect(self._on_export_clicked)
         button_row.addWidget(self.exportButton)
         layout.addLayout(button_row)
 
-        self.load_defaults()
+        self.load_defaults(persist=False)
+        self._disabled_codes = self._load_disabled_codes()
+        self.marginSlider.setValue(self._load_margin())
+        self._update_legend_visuals()
+        self._redraw_panel()
 
-    def load_defaults(self):
+    def load_defaults(self, persist=True):
         self._base_scores = [row[:] for row in DEFAULT_SCORES_ASCENDING]
         self._margin = 0
         self._disabled_codes = set()
@@ -166,12 +173,64 @@ class CostCsvEditorWidget(QWidget):
 
         self._update_legend_visuals()
         self._redraw_panel()
+        if persist:
+            self._store_disabled_codes()
+            self._store_margin()
+
+    def _load_disabled_codes(self) -> set:
+        settings = QSettings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+        raw_value = settings.value(self.SETTINGS_DISABLED_CODES, "")
+        settings.endGroup()
+
+        if isinstance(raw_value, (list, tuple)):
+            raw_codes = raw_value
+        else:
+            raw_codes = str(raw_value).split(",")
+
+        valid_codes = {code for code in self._legend_codes if code > 0}
+        disabled_codes = set()
+        for raw_code in raw_codes:
+            try:
+                code = int(str(raw_code).strip())
+            except (TypeError, ValueError):
+                continue
+            if code in valid_codes:
+                disabled_codes.add(code)
+        return disabled_codes
+
+    def _store_disabled_codes(self):
+        settings = QSettings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+        settings.setValue(
+            self.SETTINGS_DISABLED_CODES,
+            ",".join(str(code) for code in sorted(self._disabled_codes)),
+        )
+        settings.endGroup()
+
+    def _load_margin(self) -> int:
+        settings = QSettings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+        raw_value = settings.value(self.SETTINGS_MARGIN, 0)
+        settings.endGroup()
+        try:
+            margin = int(raw_value)
+        except (TypeError, ValueError):
+            margin = 0
+        return max(-MARGIN_DEGREES_MAX, min(MARGIN_DEGREES_MAX, margin))
+
+    def _store_margin(self):
+        settings = QSettings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+        settings.setValue(self.SETTINGS_MARGIN, int(self._margin))
+        settings.endGroup()
 
     def _toggle_code(self, code: int):
         if code in self._disabled_codes:
             self._disabled_codes.discard(code)
         else:
             self._disabled_codes.add(code)
+        self._store_disabled_codes()
         self._update_legend_visuals()
         self._redraw_panel()
 
@@ -244,6 +303,7 @@ class CostCsvEditorWidget(QWidget):
     def _on_margin_changed(self, raw_value):
         self._margin = raw_value
         self.marginValueLabel.setText(f"{self._margin:+d}°")
+        self._store_margin()
         self._redraw_panel()
 
     def _redraw_panel(self, *_args):
