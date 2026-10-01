@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 DEMブラウザで選べるDEM取得元。1ソース=1モジュールで、メイン機能（ブラウザ・取得スレッド）からは
 base.DemSource のメソッド（coverage_problem / estimate / fetch）だけを使う。

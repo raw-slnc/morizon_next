@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 長野県 林務部 0.5mメッシュDEM（2013〜2014年度 航空レーザ測量）
 （forestry_operations_lite の nagano_rinmu.py より移植。FOL本体とは実行時の依存を持たない）

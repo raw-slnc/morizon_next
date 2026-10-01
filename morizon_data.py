@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 MORIZONデータ（ZoningKit形式のフォルダ・保存ZIP）の構成を扱う部品。
 画面（QGIS/Qt）には依存せず、フォルダの判定・入力ファイルの検索・取り込み・説明ファイルの作成だけを行う。

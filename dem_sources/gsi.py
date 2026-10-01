@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 国土地理院 標高タイル（DEM1A/5A/10B）と AWS Terrarium（全球）。
 タイルの取得・組み立ては dem_loader.GSITileDEMLoader が行い、ここでは

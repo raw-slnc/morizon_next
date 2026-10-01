@@ -1,26 +1,24 @@
 [general]
+# This file is part of MORIZON NEXT, modified from the original MORIZON (v2.1).
+# Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 name=Morizon Next
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
-about=Morizon Nextは、林野庁委託事業として開発された森林ゾーニング支援ツール「もりぞん（MORIZON）」を土台とする非公式の独自継続版です。
-    原版が採用する「林業の収益性」と「山地災害リスク」の両面から森林管理の方向性を検討する考え方と、基本的な処理体系を継承しています。
-    謝辞：原版は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc.がQGISプラグインとして実装したものです。
-    Morizon Nextは日本森林技術協会または林野庁による公式版ではありません。
-
-    Morizon Next is an independent, unofficial continuation of "MORIZON" (もりぞん), a forest zoning support tool originally developed through a project commissioned by the Forestry Agency of Japan.
-    It inherits the original's approach of examining forest management direction from two perspectives, forestry profitability and mountain disaster risk, along with its core processing framework.
-    Acknowledgements: The original MORIZON was developed through a project commissioned by the Forestry Agency of Japan, with the zoning workflow organized by the Japan Forest Technology Association and the QGIS plugin implemented by MIERUNE Inc.
-    Morizon Next is not an official release of the Japan Forest Technology Association or the Forestry Agency of Japan.
-description=林業の収益性と山地災害リスクの両面から森林管理の方向性を検討する森林ゾーニング支援プラグインです（もりぞん(MORIZON)の非公式独自継続版）。 / A forest zoning support plugin that examines forest management direction from both forestry profitability and mountain disaster risk (an independent, unofficial continuation of MORIZON / もりぞん).
+description=Forest zoning support plugin for Japan that examines forest management direction from both forestry profitability and mountain disaster risk. An independent, unofficial continuation of MORIZON (もりぞん).
 version=0.1.0-dev
-
-#Plugin main icon
-icon=imgs/icon.png
-
 author=Hideharu Masai
-email=
-homepage=https://github.com/raw-slnc/morizon_next
-tracker=https://github.com/raw-slnc/morizon_next/issues
-repository=https://github.com/raw-slnc/morizon_next
-tags=forest,forestry,zoning,DEM,terrain,Japan,林業,森林ゾーニング
+email=hideharumasai@void.mints.ne.jp
+about=Morizon Next is an independent, unofficial continuation of MORIZON (もりぞん), a forest zoning support tool originally developed through a project commissioned by the Forestry Agency of Japan. It inherits the original's approach of examining forest management direction from both forestry profitability and mountain disaster risk, together with its core processing framework, and adds automatic data acquisition (DEM, site index data, buildings and road edges), a work-system editor, and saving/resuming an analysis. This plugin is for Japan only; site index data is available only in zones I to XIII of the Japan Plane Rectangular Coordinate System. Automatic download of buildings and road edges requires a free user account for the GSI Fundamental Geospatial Data download service. Computing terrain complexity with SAGA (optional) requires the Processing Saga NextGen Provider plugin and SAGA 9.2.0 or later. Automatic data acquisition requires an internet connection. Acknowledgements: the original MORIZON was developed through a project commissioned by the Forestry Agency of Japan, with the zoning workflow organized by the Japan Forest Technology Association and the QGIS plugin implemented by MIERUNE Inc. Morizon Next is not an official release of the Japan Forest Technology Association or the Forestry Agency of Japan.
+about[ja]=Morizon Next は、林野庁委託事業として開発された森林ゾーニング支援ツール「もりぞん（MORIZON）」を土台とする非公式の独自継続版です。原版が採用する「林業の収益性」と「山地災害リスク」の両面から森林管理の方向性を検討する考え方と、基本的な処理体系を継承し、データ（DEM・地位データ・建物・道路縁）の自動取得、作業システムの設定画面、解析の保存と再開を加えています。本プラグインは日本国内専用です。地位データは平面直角座標系の第1〜13系の地域だけで提供されています。建物・道路縁の自動取得には、国土地理院「基盤地図情報ダウンロードサービス」の利用者登録（無料）が必要です。地形の複雑さを SAGA で計算する場合（任意）は、プラグイン Processing Saga NextGen Provider と SAGA 9.2.0 以上が必要です。データの自動取得にはインターネット接続が必要です。謝辞：原版は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc. が QGIS プラグインとして実装したものです。Morizon Next は日本森林技術協会または林野庁による公式版ではありません。
+changelog=
 category=Raster
+tags=python,forest,forestry,zoning,dem,terrain,raster,japan
+repository=https://github.com/raw-slnc/morizon_next
+tracker=https://github.com/raw-slnc/morizon_next/issues
+homepage=https://github.com/raw-slnc/morizon_next
+icon=imgs/icon.png
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+server=False

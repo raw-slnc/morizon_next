@@ -227,6 +227,10 @@ Morizon Next
 
 GNU General Public License v3（[LICENSE](LICENSE)）。原版もりぞんのライセンス（GPL v3）を継承しています。
 
+本プラグインは GPL v3 に基づき**無保証**で提供します（GPL v3 第15条・第16条）。利用に伴って生じたいかなる結果についても、原版の作者（林野庁・日本森林技術協会・MIERUNE Inc.）と改変者は責任を負いません。
+
+原版から改変したファイルには、改変した旨を冒頭に記しています。改変は 2026-09-29（原版 v2.1 の取り込み）から行っており、変更の内容と日時は GitHub のコミット履歴で確認できます。
+
 原版「もりぞん」は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc. が QGIS プラグインとして実装したものです（Copyright (C) 2021 MIERUNE Inc.）。原版は [G空間情報センター](https://www.geospatial.jp/ckan/dataset/rinya-morizon-dateset) で配布されています。
 
 MORIZON NEXT は日本森林技術協会または林野庁による公式版ではなく、両者による保証・サポートの対象でもありません。著作権と帰属の詳細は [NOTICE](NOTICE) を参照してください。

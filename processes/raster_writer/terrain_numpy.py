@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 地形の複雑さの前半（DEMの平滑化・平面曲率）を GDAL と numpy だけで計算する。
 SAGA（Processing Saga NextGen Provider）が無くても計算でき、原版の設計どおりの値を出す。

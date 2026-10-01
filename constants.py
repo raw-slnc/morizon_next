@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT, modified from the original MORIZON (v2.1).
+# Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 ### MORIZON管理フォルダの構成 ###
 # プロジェクトフォルダ内の作業場所。原版の『ZoningKit_○○』（手引 図3-13）と同じ構成にし、
 # 「保存ファイル出力」のZIPも同じ構成で書き出す（そのまま展開・読み直しできるように）

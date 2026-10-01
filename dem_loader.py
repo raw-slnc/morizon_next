@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 DEM取得ユーティリティ（forestry_operations_lite の terrain/dem_loader.py より移植）
 

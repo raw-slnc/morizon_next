@@ -26,11 +26,17 @@ been changed (to ASCII).
 
 2. MORIZON NEXT modifications
 
-Modifications for QGIS 3.x/4.x dual compatibility, bug fixes, and the
-MORIZON NEXT identity are undertaken as an independent technical
+Modifications for QGIS 3.x/4.x dual compatibility, bug fixes, new
+features (such as automatic data acquisition and saving/resuming an
+analysis), and the MORIZON NEXT identity are undertaken as an independent technical
 initiative by:
 
   Copyright (C) 2026 Hideharu Masai
+
+The modifications began on 2026-09-29, when the original MORIZON v2.1
+source was imported. Each modified file carries a notice stating that it
+was modified. The changes and their dates are recorded in the Git history
+of the repository (https://github.com/raw-slnc/morizon_next).
 
 MORIZON NEXT is independently maintained. It is not an official
 modification or release of, nor guaranteed or supported by, the Japan
@@ -46,3 +52,13 @@ on the official Forestry Agency distribution page at:
   https://www.geospatial.jp/ckan/dataset/rinya-morizon-dateset
 
 See LICENSE for the complete license text.
+
+4. No warranty
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See sections 15 and 16 of the GNU
+General Public License version 3 for details. Neither the original authors
+(the Forestry Agency of Japan, the Japan Forest Technology Association and
+MIERUNE Inc.) nor the author of the modifications accept any liability
+arising from the use of this program.

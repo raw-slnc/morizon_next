@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 静岡県「VIRTUAL SHIZUOKA」航空レーザ測量 LP/Grid（0.5m DTM）
 （forestry_operations_lite の vs_lp.py のうち DTM 取得部分を移植。点群・DSMは扱わない。

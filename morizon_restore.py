@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 保存データの出力ファイルから、各タブの処理直後と同じレイヤーを作り直す部品。
 レイヤーの追加（グループ分け等）は各タブの add_*_to_project をそのまま使うため、ここではレイヤーを作るだけ。

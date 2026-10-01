@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 もりぞんZoningKit（NPP/SRAD/VTEX等の地位指数算出用データ）取得ユーティリティ。
 

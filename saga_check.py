@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 「地形の複雑さ」を SAGA で計算する（設定タブの SAGA ON）ための前提を確かめる。
 

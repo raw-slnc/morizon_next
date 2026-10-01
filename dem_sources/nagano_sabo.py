@@ -1,3 +1,7 @@
+# This file is part of MORIZON NEXT.
+# Copyright (C) 2026 Hideharu Masai
+# Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
+
 """
 長野県 建設部砂防課 0.5mメッシュDEM（令和3〜7年度 航空レーザ測量）
 （forestry_operations_lite の nagano_sabo.py より移植。FOL本体とは実行時の依存を持たない）
