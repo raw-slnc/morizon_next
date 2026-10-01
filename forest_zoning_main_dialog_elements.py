@@ -135,20 +135,28 @@ class ForestZoningMainDialogElements:
             manager.load_apply_multiply()
         )
         self.main.morizonMultiplyOutputCheckbox.blockSignals(False)
+        self.main.morizonMultiplyOutputCheckbox.setToolTip(self.MULTIPLY_OFF_NOTICE)
         self.main.morizonMultiplyOutputCheckbox.toggled.connect(
             self.handle_output_blend_option_toggled
         )
 
+    # 乗算をオフにするときの案内（チェックボックスのツールチップにも同じ文章を出す）
+    MULTIPLY_OFF_NOTICE = (
+        "乗算をオフにすると、表示が軽くなる場合があります。<br>"
+        "その代わり、上に重ねたレイヤーが下のレイヤーを隠すため、"
+        "重ねて見るときはレイヤーの順番と不透明度の調整が必要になります。<br><br>"
+        "PCの性能に余裕があるなら、乗算での出力が MORIZON 本来の使い方に忠実です。"
+    )
+
     def handle_output_blend_option_toggled(self, checked: bool):
         OutputLayerStyleManager().store_apply_multiply(checked)
-        if checked:
-            QMessageBox.warning(
-                self.main,
-                "描画負荷の警告",
-                "Morizon Next 乗算出力を有効にすると、出力レイヤーを下の地図と合成して描画します。\n\n"
-                "多数の乗算レイヤーや広い範囲では多くの処理能力を要求し、"
-                "QGISの描画や操作が重くなる場合があります。必要な場合だけ有効にしてください。",
-            )
+        if not checked:
+            box = QMessageBox(self.main)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setWindowTitle("乗算出力をオフにします")
+            box.setTextFormat(Qt.TextFormat.RichText)
+            box.setText(self.MULTIPLY_OFF_NOTICE)
+            box.exec()
 
     def open_costcsv_template(self):
         """原版の作業システムExcelを DATA/SAGYO-SYSTEM_CSV に置き、既定のアプリで開く。
@@ -814,6 +822,12 @@ class ForestZoningMainDialogElements:
             extent.xMaximum(), extent.yMaximum(),
         )
 
+    # グループをONにしたとき最初にスコアリング表示にする要素（地利のみ）。
+    # それ以外の要素（災害リスクの3要素を含む）は生データ表示にする
+    SCORING_CHECKED_ELEMENTS = {
+        OUTPUT_DISTANCE["DISPLAY_NAME"],
+    }
+
     @staticmethod
     def add_elements_layer_to_project(output_rlayers_dict):
         """
@@ -863,20 +877,26 @@ class ForestZoningMainDialogElements:
                 # 2階層まで: short_name専用の葉グループを作りその中にレイヤーを格納する
                 target_group = parent_group.insertGroup(0, short_name)
                 group_cache[path_key + (short_name,)] = target_group
-                target_group.setExpanded(True)
+                # 要素ごとの子グループ（生データ／スコアリング）は閉じておく
+                target_group.setExpanded(False)
                 target_group.setItemVisibilityChecked(False)
             else:
                 # 3階層以上: 葉グループを作らず、手前のグループへ直接レイヤーをまとめる
                 target_group = parent_group
                 target_group.setItemVisibilityChecked(False)
 
-            for rlayer in rlayers:
+            # 要素ごとに最初に見せたい方（生データ／スコアリング）にチェックを入れておく。
+            # グループはOFFのままなので、グループをONにしたときにその表示になる
+            checked_index = (
+                1 if display_name in ForestZoningMainDialogElements.SCORING_CHECKED_ELEMENTS else 0
+            ) if len(parts) <= 2 else None
+            for index, rlayer in enumerate(rlayers):
                 # QML側の指定が環境によって反映されない場合があるため、追加時にも明示する
                 apply_output_blend_mode(rlayer)
 
                 QgsProject.instance().addMapLayer(rlayer, False)
                 layer_node = target_group.addLayer(rlayer)
-                layer_node.setItemVisibilityChecked(False)
+                layer_node.setItemVisibilityChecked(index == checked_index)
                 # シンボロジ（凡例の展開）は閉じておく
                 layer_node.setExpanded(False)
 
@@ -903,11 +923,16 @@ class ForestZoningMainDialogElements:
         設定はプロジェクトに保存されるため、プラグインの起動有無に関係なく有効。
         """
         root = root or QgsProject.instance().layerTreeRoot()
-        for axis_name in ("収益性", "災害リスク"):
+        # 災害リスクは傾斜をベースに地形の複雑さ・保全対象を含む流域を重ねて見るため、
+        # 要素どうしは排他にしない（各要素内の生データ／スコアリングだけ排他）。収益性は要素どうしも排他
+        for axis_name, exclusive_between_elements in (("収益性", True), ("災害リスク", False)):
             axis_group = ForestZoningMainDialogElements._find_direct_group(root, axis_name)
             if axis_group is None:
                 continue
-            ForestZoningMainDialogElements._set_mutually_exclusive_group(axis_group)
+            if exclusive_between_elements:
+                ForestZoningMainDialogElements._set_mutually_exclusive_group(axis_group)
+            else:
+                axis_group.setIsMutuallyExclusive(False)
             for child in axis_group.children():
                 if isinstance(child, QgsLayerTreeGroup):
                     ForestZoningMainDialogElements._set_mutually_exclusive_group(child)

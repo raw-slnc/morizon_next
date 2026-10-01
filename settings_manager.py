@@ -99,7 +99,8 @@ class OutputLayerStyleManager:
     """
     MORIZON出力レイヤーの描画合成設定。
 
-    通常は不透明度だけで描画し、乗算合成は明示的に有効化された場合だけ使う。
+    原版と同じく乗算合成を初期値とする（重ね順に関係なく、要素を重ねて目視確認できるように）。
+    チェックを外した場合だけ、不透明度だけの通常の重ね方にする。
     """
 
     SETTING_GROUP = '/MORIZON/output_layer_style'
@@ -108,7 +109,7 @@ class OutputLayerStyleManager:
     def load_apply_multiply(self) -> bool:
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
-        value = qsettings.value(self.APPLY_MULTIPLY_KEY, False, type=bool)
+        value = qsettings.value(self.APPLY_MULTIPLY_KEY, True, type=bool)
         qsettings.endGroup()
         return bool(value)
 
