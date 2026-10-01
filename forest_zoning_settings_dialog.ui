@@ -971,89 +971,141 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="fgdCredentialsGroupBox">
+    <widget class="QGroupBox" name="morizonNextSettingsGroupBox">
      <property name="title">
-      <string>基盤地図情報ダウンロードサービス ログイン情報</string>
+      <string>Morizon Next 設定</string>
      </property>
-     <layout class="QVBoxLayout" name="verticalLayout_fgd">
+     <layout class="QHBoxLayout" name="horizontalLayout_mnx" stretch="1,1">
       <item>
-       <widget class="QLabel" name="fgdCredentialsWarningLabel">
-        <property name="styleSheet">
-         <string notr="true">color:#c00;</string>
+          <widget class="QGroupBox" name="fgdCredentialsGroupBox">
+           <property name="title">
+            <string>基盤地図情報ダウンロードサービス ログイン情報</string>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout_fgd">
+            <item>
+             <widget class="QLabel" name="fgdCredentialsWarningLabel">
+              <property name="styleSheet">
+               <string notr="true">color:#c00;</string>
+              </property>
+              <property name="text">
+               <string>※パスワードは暗号化せず設定に保存されます。共有PCでは推奨しません。</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_fgd1">
+              <item>
+               <widget class="QLabel" name="label_fgd_username">
+                <property name="text">
+                 <string>ログインID</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="fgdUsernameLineEdit"/>
+              </item>
+              <item>
+               <widget class="QLabel" name="label_fgd_password">
+                <property name="text">
+                 <string>パスワード</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="fgdPasswordLineEdit">
+                <property name="echoMode">
+                 <enum>QLineEdit::Password</enum>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_fgd2">
+              <item>
+               <widget class="QCheckBox" name="fgdAutoFillCheckbox">
+                <property name="text">
+                 <string>ログイン画面に自動入力する</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_fgd">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="fgdCredentialsSaveButton">
+                <property name="text">
+                 <string>保存</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="fgdCredentialsClearButton">
+                <property name="text">
+                 <string>削除</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="shcMethodGroupBox">
+        <property name="title">
+         <string>地形の複雑さの計算</string>
         </property>
-        <property name="text">
-         <string>※パスワードは暗号化せずQGISの設定に保存されます。共有PC等では利用しないでください。</string>
-        </property>
-        <property name="wordWrap">
-         <bool>true</bool>
-        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_shc">
+         <item>
+          <widget class="QLabel" name="shcMethodDescriptionLabel">
+           <property name="text">
+            <string>計算形式：</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_shc">
+           <item>
+            <spacer name="horizontalSpacer_shc">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="shcMethodButton">
+             <property name="text">
+              <string>SAGA OFF</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
        </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_fgd1">
-        <item>
-         <widget class="QLabel" name="label_fgd_username">
-          <property name="text">
-           <string>ログインID</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLineEdit" name="fgdUsernameLineEdit"/>
-        </item>
-        <item>
-         <widget class="QLabel" name="label_fgd_password">
-          <property name="text">
-           <string>パスワード</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLineEdit" name="fgdPasswordLineEdit">
-          <property name="echoMode">
-           <enum>QLineEdit::Password</enum>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_fgd2">
-        <item>
-         <widget class="QCheckBox" name="fgdAutoFillCheckbox">
-          <property name="text">
-           <string>ログイン画面に自動入力する</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer_fgd">
-          <property name="orientation">
-           <enum>Qt::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-        <item>
-         <widget class="QPushButton" name="fgdCredentialsSaveButton">
-          <property name="text">
-           <string>保存</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="fgdCredentialsClearButton">
-          <property name="text">
-           <string>削除</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
       </item>
      </layout>
     </widget>

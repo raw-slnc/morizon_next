@@ -151,3 +151,28 @@ class FgdCredentialsManager:
 
     def clear(self):
         self.store('', '', False)
+
+
+class ShcMethodManager:
+    """
+    地形の複雑さの前半（DEMの平滑化・平面曲率）の計算方法。
+    既定はプラグイン内の計算（processes/raster_writer/terrain_numpy.py）。
+    「SAGA ON」にした場合だけ、従来どおり SAGA（Processing Saga NextGen Provider）を使う。
+    環境ごとの選択なので settings.json（解析の設定）には含めず、QGISの設定に保存する
+    """
+
+    SETTING_GROUP = '/MORIZON/shc_method'
+    USE_SAGA_KEY = 'use_saga'
+
+    def load_use_saga(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.USE_SAGA_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_use_saga(self, use_saga: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.USE_SAGA_KEY, bool(use_saga))
+        qsettings.endGroup()

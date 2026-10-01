@@ -10,10 +10,11 @@ from qgis.gui import *
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 
-from ...settings_manager import SettingsManager
+from ...settings_manager import SettingsManager, ShcMethodManager
 from ...utils import get_raster_stats
 from ...constants import OUTPUT_SHC
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
+from . import terrain_numpy
 
 
 def generate(dem_filepath: str, output_dir: str) -> str:
@@ -22,38 +23,13 @@ def generate(dem_filepath: str, output_dir: str) -> str:
     """
     temp_dir = tempfile.mkdtemp()
     try:
-        smoothed_filepath = os.path.join(temp_dir, "smoothed.tif")
-        processing.run(resolve_algorithm_id("sagang:gaussianfilter", "saga:gaussianfilter"), {
-            "INPUT": dem_filepath,
-            "MODE": 1,
-            "RADIUS": 12,
-            "SIGMA": 3,
-            "RESULT": smoothed_filepath
-        })
-        _assert_raster_ready(smoothed_filepath, "平滑化DEM")
-
-        curvature_outputs = {
-            'ASPECT': os.path.join(temp_dir, "aspect.tif"),
-            'C_CROS': os.path.join(temp_dir, "curvature_cross_sectional.tif"),
-            'C_GENE': os.path.join(temp_dir, "curvature_general.tif"),
-            'C_LONG': os.path.join(temp_dir, "curvature_longitudinal.tif"),
-            'C_MAXI': os.path.join(temp_dir, "curvature_maximal.tif"),
-            'C_MINI': os.path.join(temp_dir, "curvature_minimal.tif"),
-            'C_PLAN': os.path.join(temp_dir, "curvature_plan.tif"),
-            'C_PROF': os.path.join(temp_dir, "curvature_profile.tif"),
-            'C_ROTO': os.path.join(temp_dir, "curvature_rotor.tif"),
-            'C_TANG': os.path.join(temp_dir, "curvature_tangential.tif"),
-            'C_TOTA': os.path.join(temp_dir, "curvature_total.tif"),
-            'SLOPE': os.path.join(temp_dir, "slope.tif"),
-        }
-        processing.run(resolve_algorithm_id("sagang:slopeaspectcurvature", "saga:slopeaspectcurvature"), {
-            'ELEVATION': smoothed_filepath,
-            **curvature_outputs,
-            'METHOD': 6,
-            'UNIT_ASPECT': 1,
-            'UNIT_SLOPE': 1
-        })
-        curvature_filepath = curvature_outputs["C_PLAN"]
+        if ShcMethodManager().load_use_saga():
+            curvature_filepath = _plan_curvature_by_saga(dem_filepath, temp_dir)
+        else:
+            # 原版の設計どおりの平滑化（σ=3, 半径12セル）と平面曲率をプラグイン内で計算する
+            curvature_filepath = terrain_numpy.write_plan_curvature(
+                dem_filepath, os.path.join(temp_dir, "curvature_plan.tif")
+            )
         _assert_raster_ready(curvature_filepath, "平面曲率")
 
         # ラスター計算のためにEntry生成
@@ -104,6 +80,46 @@ def generate(dem_filepath: str, output_dir: str) -> str:
         return replace_with_adjusted_extent_and_resolution(dem_filepath, output_filepath)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str) -> str:
+    """従来の SAGA による平滑化・平面曲率（設定タブの「SAGA ON」のときだけ使う）。
+    注意: NextGen プロバイダー（SAGA 9）では GaussianFilter のパラメータ名が KERNEL_RADIUS / SIGMA に
+    変わっており、ここで渡す MODE / RADIUS は使われない（原版の SAGA 2.3 向けの指定のまま残している）"""
+    smoothed_filepath = os.path.join(temp_dir, "smoothed.tif")
+    processing.run(resolve_algorithm_id("sagang:gaussianfilter", "saga:gaussianfilter"), {
+        "INPUT": dem_filepath,
+        "MODE": 1,
+        "RADIUS": 12,
+        "SIGMA": 3,
+        "RESULT": smoothed_filepath
+    })
+    _assert_raster_ready(smoothed_filepath, "平滑化DEM")
+
+    curvature_outputs = {
+        'ASPECT': os.path.join(temp_dir, "aspect.tif"),
+        'C_CROS': os.path.join(temp_dir, "curvature_cross_sectional.tif"),
+        'C_GENE': os.path.join(temp_dir, "curvature_general.tif"),
+        'C_LONG': os.path.join(temp_dir, "curvature_longitudinal.tif"),
+        'C_MAXI': os.path.join(temp_dir, "curvature_maximal.tif"),
+        'C_MINI': os.path.join(temp_dir, "curvature_minimal.tif"),
+        'C_PLAN': os.path.join(temp_dir, "curvature_plan.tif"),
+        'C_PROF': os.path.join(temp_dir, "curvature_profile.tif"),
+        'C_ROTO': os.path.join(temp_dir, "curvature_rotor.tif"),
+        'C_TANG': os.path.join(temp_dir, "curvature_tangential.tif"),
+        'C_TOTA': os.path.join(temp_dir, "curvature_total.tif"),
+        'SLOPE': os.path.join(temp_dir, "slope.tif"),
+    }
+    processing.run(resolve_algorithm_id("sagang:slopeaspectcurvature", "saga:slopeaspectcurvature"), {
+        'ELEVATION': smoothed_filepath,
+        **curvature_outputs,
+        'METHOD': 6,
+        'UNIT_ASPECT': 1,
+        'UNIT_SLOPE': 1
+    })
+    curvature_filepath = curvature_outputs["C_PLAN"]
+    _assert_raster_ready(curvature_filepath, "平面曲率")
+    return curvature_filepath
 
 
 def _assert_raster_ready(filepath: str, label: str):

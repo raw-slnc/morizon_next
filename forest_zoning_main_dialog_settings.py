@@ -2,7 +2,7 @@ import json
 
 from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 
-from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager
+from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
 
 
 class ForestZoningMainDialogSettings:
@@ -26,6 +26,17 @@ class ForestZoningMainDialogSettings:
 
         self.widget.fgdCredentialsSaveButton.clicked.connect(self.store_fgd_credentials)
         self.widget.fgdCredentialsClearButton.clicked.connect(self.clear_fgd_credentials)
+
+        # 地形の複雑さの計算方法（SAGA ON / OFF）。「Morizon Next 設定」の右の枠のボタンに
+        # 現在のモードを出し、押すたびに ON と OFF が入れ替わる
+        self.widget.shcMethodButton.setToolTip(
+            "地形の複雑さの平滑化・平面曲率の計算方法です。押すと切り替わります。\n"
+            "SAGA OFF（既定）：MORIZON v2.1 の結果に合うよう、プラグイン内で計算します（σ=3・半径12セル）。\n"
+            "SAGA ON：MORIZON v2.1 の指定のまま SAGA（Processing Saga NextGen Provider）に渡します。"
+            "現行の SAGA はこの指定に対応していないため、v2.1 の結果と相違が大きく出ます。"
+        )
+        self.widget.shcMethodButton.clicked.connect(self.toggle_shc_method)
+        self.update_shc_method_button()
         self.set_fgd_credentials_ui_values()
 
         self.widget.settingsRuggednessSpinbox.valueChanged.connect(
@@ -34,6 +45,22 @@ class ForestZoningMainDialogSettings:
             lambda: self.force_odd(self.widget.settingsShcSpinbox))
 
         self.set_values_from_stored_settings()
+
+    # ボタンの状態ごとの計算形式の説明（折り返しは決めた位置の改行だけにする）
+    SHC_METHOD_DESCRIPTIONS = {
+        False: "計算形式：\nMORIZON v2.1 の結果に沿うよう、プラグイン内で計算します。",
+        True: "計算形式：\nMORIZON v2.1 の指定のまま SAGA に渡します。\nv2.1 の結果と相違が大きく出ます。",
+    }
+
+    def update_shc_method_button(self):
+        use_saga = ShcMethodManager().load_use_saga()
+        self.widget.shcMethodButton.setText("SAGA ON" if use_saga else "SAGA OFF")
+        self.widget.shcMethodDescriptionLabel.setText(self.SHC_METHOD_DESCRIPTIONS[use_saga])
+
+    def toggle_shc_method(self, *_args):
+        manager = ShcMethodManager()
+        manager.store_use_saga(not manager.load_use_saga())
+        self.update_shc_method_button()
 
     @staticmethod
     def force_odd(spinbox):
