@@ -238,22 +238,20 @@ class ForestZoningMainDialogZoning:
         return existing_filenames
 
     def run_zoning(self):
+        # ゾーニング図のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
+        utils.remove_output_layers(utils.STAGE_ZONING)
+
         existing_filenames = self.get_existing_filenames()
         if len(existing_filenames) > 0:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
-                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
-            output_dir = self.main.zoningOutputDirFileWidget.filePath()
-            utils.remove_project_layers_by_sources(
-                [os.path.join(output_dir, filename) for filename in existing_filenames]
-            )
 
         input_layers_dict = {
             "profit": self.main.zoningProfitLayerCombobox.currentLayer(),
@@ -295,8 +293,9 @@ class ForestZoningMainDialogZoning:
         """
         処理結果をプロジェクトに追加
         """
-        for rlayer in rlayers_dict.values():
+        for key, rlayer in rlayers_dict.items():
             apply_output_blend_mode(rlayer)
+            utils.tag_output_layer(rlayer, utils.STAGE_ZONING, key)
             QgsProject.instance().addMapLayer(rlayer, False)
             # 出力レイヤーは「Morizon Next」グループの中の一番上に追加する
             utils.get_morizon_output_group().insertLayer(0, rlayer)

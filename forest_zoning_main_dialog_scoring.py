@@ -745,22 +745,25 @@ class ForestZoningMainDialogScoring:
         return existing_filenames
 
     def run_scoring(self):
+        # 作る軸のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
+        axis_names = set()
+        if self.main.scoringSiteidxLayerCombobox.parent().isChecked():
+            axis_names.add(OUTPUT_PROFIT["DISPLAY_NAME"])
+        if self.main.scoringSlopeLayerCombobox.parent().isChecked():
+            axis_names.add(OUTPUT_RISK["DISPLAY_NAME"])
+        utils.remove_output_layers(utils.STAGE_SCORING, axis_names)
+
         existing_filenames = self.scoring_get_existing_filenames()
         if len(existing_filenames) > 0:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
-                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
-            output_dir = self.main.scoringOutputDirFileWidget.filePath()
-            utils.remove_project_layers_by_sources(
-                [os.path.join(output_dir, filename) for filename in existing_filenames]
-            )
 
         input_layers_dict = {
             "siteidx": self.main.scoringSiteidxLayerCombobox.currentLayer(),
@@ -845,8 +848,9 @@ class ForestZoningMainDialogScoring:
 
         # 収益性と災害リスクを重ねて見られるよう、グループ内は排他にしない。初期状態はグループ・レイヤーともOFF
         group_node.setItemVisibilityChecked(False)
-        for rlayer in rlayers_dict.values():
+        for key, rlayer in rlayers_dict.items():
             apply_output_blend_mode(rlayer)
+            utils.tag_output_layer(rlayer, utils.STAGE_SCORING, key)
             QgsProject.instance().addMapLayer(rlayer, False)
             group_node.addLayer(rlayer).setItemVisibilityChecked(False)
         rlayers_dict.clear()

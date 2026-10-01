@@ -142,40 +142,27 @@ class ForestZoningMainDialog(QDialog):
         utils.write_project_workspace(root)
         self._after_workspace_changed()
 
-    # 作業場を切り替えるときは、前の作業場のレイヤーをプロジェクトから外す（ファイルは残す）。
-    # 残すと、新しい作業場の出力と同じ名前のグループ・レイヤーが並び、どちらが今の作業場のものか分からなくなる。
+    # 初期状態にする操作（DEMブラウザから開始・フォルダ選択から開始・設定をクリア・保存ファイルの読み込み）は、
+    # ボタンを押した（読み込みはメニューで選んだ）時点でレイヤーを初期化してから、それぞれの工程に入る。
+    # 初期状態にはプラグインのレイヤーは無いので、指しているファイルの場所に関係なくすべて外す（ファイルは残す）。
+    # データを消す・上書きするかは、それぞれの工程の中で別に判断する。
     # プロジェクトを開いたときの作業場の復元では外さない（そのプロジェクトのレイヤーなので）
 
-    def workspace_layers_to_leave(self, next_root):
-        """作業場を next_root（None ならプロジェクト内）に切り替えるときに外すレイヤーと、前の作業場の表示名。
-        切り替わらない・外すものが無ければ ([], "")"""
-        if not self.has_workspace():
-            return [], ""
-        current = utils.get_workspace_dir()
-        if next_root:
-            target = os.path.normpath(next_root)
-        elif QgsProject.instance().homePath():
-            target = utils.get_morizon_managed_dir()
-        else:
-            target = None
-        if target and os.path.normcase(current) == os.path.normcase(target):
-            return [], ""
-        external = utils.get_external_workspace()
-        label = f"外部 {os.path.basename(external) or external}" if external else "プロジェクト内"
-        return utils.project_layers_under_dir(current, [os.path.join(current, DIR_SHARED)]), label
-
-    @staticmethod
-    def leave_message(layers, label) -> str:
-        return (f"前の作業場（{label}）のレイヤー {len(layers)}件をプロジェクトから外します"
-                "（ファイルは残ります）。")
-
-    def confirm_leave_workspace(self, next_root) -> bool:
-        """作業場を切り替える前に、前の作業場のレイヤーを確認して外す。取りやめたら False"""
-        layers, label = self.workspace_layers_to_leave(next_root)
+    def initialize_layers(self) -> bool:
+        """「レイヤーを初期化します」と確かめて、プラグインのレイヤーをすべてプロジェクトから外す。
+        取りやめたら False（呼び出し側は何もせずに戻る）。外すレイヤーが無ければ確かめずに True"""
+        layers = utils.output_layers()
+        if self.has_workspace():
+            # 作業場のフォルダのファイルを、自分で追加したレイヤーも外す（共有キャッシュは除く）
+            current = utils.get_workspace_dir()
+            ids = {layer.id() for layer in layers}
+            layers += [layer for layer in utils.project_layers_under_dir(current, [os.path.join(current, DIR_SHARED)])
+                       if layer.id() not in ids]
         if not layers:
             return True
         answer = QMessageBox.question(
-            self, "作業場の切り替え", "作業場を切り替えます。\n" + self.leave_message(layers, label),
+            self, "レイヤーの初期化",
+            f"レイヤーを初期化します。\nMorizon Next のレイヤー {len(layers)}件をプロジェクトから外します（ファイルは残ります）。",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Ok,
         )

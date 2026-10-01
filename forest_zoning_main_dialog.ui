@@ -2250,7 +2250,7 @@
    <item>
     <widget class="QLabel" name="labelCredit">
      <property name="text">
-      <string notr="true">Based on MORIZON / Maintained by Avid Tree Work</string>
+      <string notr="true">Based on MORIZON</string>
      </property>
      <property name="alignment">
       <set>Qt::AlignCenter</set>

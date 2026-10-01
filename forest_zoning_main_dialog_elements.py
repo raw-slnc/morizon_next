@@ -412,6 +412,9 @@ class ForestZoningMainDialogElements:
         入力は DATA の中から探し、出力はそのフォルダの YOUSO/・ZONING/・AGGREGATE/ に書く（原版のキットと同じ使い方）。
         フォルダの中身は人がそろえたものなので、使うファイルの一覧を確かめてから始める
         """
+        # 初期状態から始める操作なので、最初にレイヤーを初期化する
+        if not self.main.initialize_layers():
+            return
         selected_dir = QFileDialog.getExistingDirectory(self.main, "フォルダを選択")
         if not selected_dir:
             return
@@ -445,21 +448,16 @@ class ForestZoningMainDialogElements:
                     f"（候補{len(candidates)}件のうち名前順で最初）"
                 )
         warning = "" if found["dem"] else "\n\nDEMがありません。要素計算にはDEMが必要です。"
-        leave_layers, leave_label = self.main.workspace_layers_to_leave(workspace_root)
-        leave = "\n" + self.main.leave_message(leave_layers, leave_label) if leave_layers else ""
         answer = QMessageBox.question(
             self.main, "フォルダ選択から開始する",
             f"次のフォルダを作業場（外部）にします。\n{os.path.basename(workspace_root)}\n\n"
             "使う入力：\n" + "\n".join(lines) + warning
-            + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。" + leave
-            + "\n開始しますか？",
+            + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。\n開始しますか？",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Ok,
         )
         if answer != QMessageBox.StandardButton.Ok:
             return
-        if leave_layers:
-            utils.remove_project_layers(leave_layers)
         self.main.use_external_workspace(workspace_root)
         self.main.set_inputs_from_data_dir(data_dir)
 
@@ -550,16 +548,17 @@ class ForestZoningMainDialogElements:
                 "先にQGISプロジェクトを保存してください（保存先フォルダにDEM等を格納します）。"
             )
             return
+        # 初期状態から始める操作なので、最初にレイヤーを初期化する
+        if not self.main.initialize_layers():
+            return
         # 取得したデータはプロジェクト内（morizon_next）に置くので、作業場をプロジェクト内にする。
-        # 外部の作業場のレイヤーを外すことと、前の解析の破棄は、押してすぐ1回にまとめて確かめ、
-        # 実行はDEMブラウザで範囲を決めてから行う（ブラウザで取りやめたときは何も変えない）
+        # 作業場の切り替えと前の解析の破棄（データの判断）は、押してすぐ1回にまとめて確かめ、
+        # 実行はDEMブラウザで範囲を決めてから行う（ブラウザで取りやめたときはデータを変えない）
         external = utils.get_external_workspace()
-        leave_layers, leave_label = self.main.workspace_layers_to_leave(None) if external else ([], "")
         discard = self.main.archive.has_previous_analysis()
         notes = []
         if external:
-            notes.append(f"作業場を外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。"
-                         + (self.main.leave_message(leave_layers, leave_label) if leave_layers else ""))
+            notes.append(f"作業場を外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。")
         if discard:
             notes.append(self.main.archive.DISCARD_MESSAGE)
         if notes:
@@ -586,7 +585,6 @@ class ForestZoningMainDialogElements:
 
         # ここから実行（確かめた内容）。外すレイヤーはブラウザの間に変わり得るので数え直す
         if external:
-            utils.remove_project_layers(self.main.workspace_layers_to_leave(None)[0])
             self.main.use_project_workspace(refill_inputs=True)
         if discard:
             self.main.archive.discard_previous_analysis()
@@ -858,21 +856,19 @@ class ForestZoningMainDialogElements:
         「設定をクリアする」ボタンの処理
         要素計算タブの入力ファイル・チェックボックスを初期状態に戻し、作業場をプロジェクト内に戻す
         """
+        # 初期状態に戻す操作なので、最初にレイヤーを初期化する
+        if not self.main.initialize_layers():
+            return
         message = "要素計算タブの入力設定をクリアしてよろしいですか？"
         external = utils.get_external_workspace()
-        leave_layers, leave_label = self.main.workspace_layers_to_leave(None)
         if external:
             message += f"\n\n作業場（外部 {os.path.basename(external) or external}）はプロジェクト内に戻ります。"
-        if leave_layers:
-            message += "\n" + self.main.leave_message(leave_layers, leave_label)
         answer = QMessageBox.question(
             self.main, "確認", message,
             QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.No:
             return
-        if leave_layers:
-            utils.remove_project_layers(leave_layers)
         self.reset_elements_inputs()
         self.main.use_project_workspace(refill_inputs=False)
 
@@ -938,28 +934,43 @@ class ForestZoningMainDialogElements:
 
         return existing_filenames
 
+    def selected_element_names(self) -> set:
+        """計算する要素（チェックの入った要素）の出力レイヤーの区別（表示名）"""
+        names = set()
+        if self.main.elementsSiteIdxCheckbox.isChecked():
+            names |= {OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"], OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"],
+                      OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"]}
+        for checkbox, output_def in (
+            (self.main.elementsCostCheckbox, OUTPUT_COST),
+            (self.main.elementsDistanceCheckbox, OUTPUT_DISTANCE),
+            (self.main.elementsShcCheckbox, OUTPUT_SHC),
+            (self.main.elementsSlopeCheckbox, OUTPUT_SLOPE),
+            (self.main.elementsSaveareaCheckbox, OUTPUT_SAVEAREA),
+        ):
+            if checkbox.isChecked():
+                names.add(output_def["DISPLAY_NAME"])
+        return names
+
     def run_elements(self):
         if not self._confirm_shc_method():
             return
         self.main.hide()
+
+        # 計算する要素のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
+        utils.remove_output_layers(utils.STAGE_ELEMENTS, self.selected_element_names())
 
         existing_filenames = self.elements_get_existing_filenames()
         if len(existing_filenames) > 0:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n"
-                "（プロジェクト上の既存の出力レイヤーは置き換えます）\n" + "\n".join(existing_filenames),
+                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 self.main.show()
                 return
-            output_dir = self.main.elementsOutputDirFileWidget.filePath()
-            utils.remove_project_layers_by_sources(
-                [os.path.join(output_dir, filename) for filename in existing_filenames]
-            )
 
         input_files_dict = {
             "dem": self.main.elementsDemFileWidget.filePath(),
@@ -1094,6 +1105,7 @@ class ForestZoningMainDialogElements:
             for index, rlayer in enumerate(rlayers):
                 # QML側の指定が環境によって反映されない場合があるため、追加時にも明示する
                 apply_output_blend_mode(rlayer)
+                utils.tag_output_layer(rlayer, utils.STAGE_ELEMENTS, display_name)
 
                 QgsProject.instance().addMapLayer(rlayer, False)
                 layer_node = target_group.addLayer(rlayer)

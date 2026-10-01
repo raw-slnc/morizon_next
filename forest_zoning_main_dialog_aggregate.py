@@ -130,14 +130,14 @@ class ForestZoningMainDialogAggregate:
             except:
                 return True
 
+        # ゾーン統計量のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
+        utils.remove_output_layers(utils.STAGE_AGGREGATE)
+
         # .shpがすでに存在している場合、同名の.shp/.dbf/.shx/.prjファイルを削除する
         if os.path.exists(output_path):
             folderpath = os.path.dirname(output_path)
             filename_no_extension = os.path.splitext(os.path.basename(output_path))[0]
             file_list = glob.glob(f"{folderpath}/{filename_no_extension}.*")
-
-            # 既存の出力レイヤーを置き換えるため、先にプロジェクトから外してファイルを解放する
-            utils.remove_project_layers_by_sources([output_path])
 
             # deletableを初期化
             deletable = True
@@ -229,7 +229,8 @@ class ForestZoningMainDialogAggregate:
         """
         処理結果をプロジェクトに追加
         """
-        for rlayer in rlayers_dict.values():
+        for key, rlayer in rlayers_dict.items():
+            utils.tag_output_layer(rlayer, utils.STAGE_AGGREGATE, key)
             QgsProject.instance().addMapLayer(rlayer, False)
             # 出力レイヤーは「Morizon Next」グループの中の一番上に追加する
             utils.get_morizon_output_group().insertLayer(0, rlayer)

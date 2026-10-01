@@ -280,6 +280,11 @@ def get_morizon_managed_dir(*subdirs) -> str:
     return os.path.normpath(os.path.join(project_home, MANAGED_DIR_NAME, *subdirs))
 
 
+def layer_source_path(layer: QgsMapLayer) -> str:
+    """レイヤーが読み込んでいるファイルのパス（ファイルでなければ空）"""
+    return _layer_source_path(layer)
+
+
 def _layer_source_path(layer: QgsMapLayer) -> str:
     source = layer.source()
     if "|" in source:
@@ -311,6 +316,77 @@ def is_under_dir(path: str, directory: str) -> bool:
         return os.path.commonpath([os.path.normpath(path), directory]) == directory
     except ValueError:
         return False
+
+
+# ── プラグインの出力レイヤーの印 ─────────────────────────────────
+# プラグインが作るレイヤーには、どの工程（と要素）のものかを印としてレイヤーに付ける（プロジェクトに保存される）。
+# 片付けはこの印で行い、レイヤーが指しているファイルの場所には頼らない。場所で見分けると、フォルダを移動して
+# 参照を直したレイヤーや、作業場の外を指すレイヤーを見失い、新しい出力と混ざって残るため
+OUTPUT_TAG_KEY = "morizon_next/output"
+STAGE_ELEMENTS = "elements"
+STAGE_SCORING = "scoring"
+STAGE_ZONING = "zoning"
+STAGE_AGGREGATE = "aggregate"
+
+
+def tag_output_layer(layer, stage: str, key: str = ""):
+    """出力レイヤーに印（工程と、要素などの区別）を付ける"""
+    layer.setCustomProperty(OUTPUT_TAG_KEY, f"{stage}|{key}")
+
+
+@lru_cache(maxsize=1)
+def _legacy_output_names() -> dict:
+    """印を付ける前に作られた出力レイヤーを、名前から (工程, 区別) に対応づける表"""
+    from .. import constants
+    names = {}
+    for value in vars(constants).values():
+        if not isinstance(value, dict) or "DISPLAY_NAME" not in value:
+            continue
+        display_name = value["DISPLAY_NAME"]
+        if "/" in display_name:  # 要素（「収益性/地利」など）。生データとスコアリングの2レイヤー
+            names[display_name] = (STAGE_ELEMENTS, display_name)
+            names[display_name + "[スコアリング]"] = (STAGE_ELEMENTS, display_name)
+    for output, stage in ((constants.OUTPUT_PROFIT, STAGE_SCORING), (constants.OUTPUT_RISK, STAGE_SCORING),
+                          (constants.OUTPUT_ZONING, STAGE_ZONING), (constants.OUTPUT_AGGREGATE, STAGE_AGGREGATE)):
+        names[output["DISPLAY_NAME"]] = (stage, output["DISPLAY_NAME"])
+    return names
+
+
+def _output_tag(layer, in_output_group: bool):
+    """レイヤーの (工程, 区別)。プラグインのレイヤーでなければ None。
+    印の無いもの（印を付ける前に作られたもの）は、「Morizon Next」グループの中にあり名前が出力の名前なら、そうとみなす"""
+    value = layer.customProperty(OUTPUT_TAG_KEY)
+    if value:
+        stage, _, key = str(value).partition("|")
+        return stage, key
+    if in_output_group:
+        return _legacy_output_names().get(layer.name())
+    return None
+
+
+def output_layers(stage: str = None, keys=None) -> list:
+    """プラグインの出力レイヤー（指しているファイルの場所に関係なく）。stage・keys で工程・区別を絞る"""
+    root = QgsProject.instance().layerTreeRoot()
+    group_layer_ids = set()
+    for child in root.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME:
+            group_layer_ids = {node.layerId() for node in child.findLayers()}
+    result = []
+    for layer in QgsProject.instance().mapLayers().values():
+        tag = _output_tag(layer, layer.id() in group_layer_ids)
+        if tag is None:
+            continue
+        if stage is not None and tag[0] != stage:
+            continue
+        if keys is not None and tag[1] not in keys:
+            continue
+        result.append(layer)
+    return result
+
+
+def remove_output_layers(stage: str = None, keys=None) -> int:
+    """プラグインの出力レイヤーをプロジェクトから外す（ファイルは消さない）"""
+    return _remove_layers_and_empty_groups(output_layers(stage, keys))
 
 
 def get_morizon_output_group():
@@ -350,7 +426,21 @@ def _remove_layers_and_empty_groups(layers) -> int:
             continue
         parent.removeChildNode(group)
         parent_groups.append(parent)
+    if layers:
+        _refresh_map_canvas()
     return len(layers)
+
+
+def _refresh_map_canvas():
+    """外したレイヤーの絵が地図に残らないよう、描画のキャッシュを消して描き直す。
+    地図はレイヤーごとの描画結果をキャッシュしていて、外した直後は前の絵が幽霊のように残ることがある"""
+    from qgis.utils import iface
+    canvas = iface.mapCanvas() if iface is not None else None
+    if canvas is None:
+        return
+    canvas.stopRendering()
+    canvas.clearCache()
+    canvas.refresh()
 
 
 def remove_project_layers_by_sources(filepaths) -> int:
