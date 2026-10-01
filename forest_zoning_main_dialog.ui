@@ -449,7 +449,7 @@
          <item>
           <widget class="QCheckBox" name="morizonMultiplyOutputCheckbox">
            <property name="text">
-            <string>Morizon Next 乗算出力を適用する</string>
+            <string>乗算出力を適用する</string>
            </property>
           </widget>
          </item>
