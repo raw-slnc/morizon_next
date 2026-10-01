@@ -223,6 +223,41 @@ class ForestZoningMainDialogArchive:
         )
         return morizon_data.clear_managed_dir(managed_dir)
 
+    @staticmethod
+    def _has_files(directory: str) -> bool:
+        return any(files for _, _, files in os.walk(directory))
+
+    # プロジェクト内で新しく解析を始める（DEMブラウザから開始する）ときに、前の解析が残っていれば破棄する。
+    # 同じ morizon_next に別の範囲のデータを上書きしていくと、やり直していない工程（ゾーニング・ゾーン統計量など）の
+    # 前の範囲の出力がレイヤーにもファイルにも残り、新しい範囲のものと混ざる。前の解析は完了まで進めて
+    # 「保存ファイル出力」で保存するのが本来の流れなので、保存されていない前の解析は破棄する。
+    # 破棄の範囲は「保存ファイル出力」の後片付けと同じ（共有キャッシュ以外の全部）
+    DISCARD_MESSAGE = (
+        "プロジェクト内に前の解析のデータがあります。新しく始めると、前の解析のデータ（入力・出力）と"
+        f"それを読み込んでいるレイヤーは破棄されます（{DIR_SHARED} フォルダのキャッシュは残ります）。\n"
+        "残したい場合は、キャンセルして先に「保存ファイル出力」で保存してください。"
+    )
+
+    def has_previous_analysis(self) -> bool:
+        """プロジェクト内に前の解析の出力（YOUSO・ZONING・AGGREGATE のファイル）があるか"""
+        managed_dir = utils.get_morizon_managed_dir()
+        return any(self._has_files(os.path.join(managed_dir, name))
+                   for name in (DIR_YOUSO, DIR_ZONING, DIR_AGGREGATE))
+
+    def discard_previous_analysis(self):
+        """プロジェクト内の前の解析を破棄する（確認は呼び出し側で行う）"""
+        managed_dir = utils.get_morizon_managed_dir()
+        failed = self._clear_managed_data(managed_dir)
+        with self.main.suppress_input_import():
+            self.main.elements.reset_elements_inputs()
+            self.main.aggregateDemFileWidget.setFilePath("")
+        self.recreate_output_dirs(managed_dir)
+        if failed:
+            QMessageBox.warning(
+                self.main, "新しく解析を始める",
+                "次のものは削除できませんでした（使用中の可能性があります）。\n" + "\n".join(failed),
+            )
+
     def run_archive(self, *args):
         project_home = QgsProject.instance().homePath()
         if project_home == "":
@@ -334,6 +369,9 @@ class ForestZoningMainDialogArchive:
                 f"読み直すデータがありません。\n{os.path.join(managed_dir, DIR_DATA)}"
             )
             return
+        # 作業場がプロジェクト内に変わるので、外部の作業場のレイヤーは外す
+        if not self.main.confirm_leave_workspace(None):
+            return
         self.load_managed_data()
 
     def load_from_zip(self):
@@ -372,13 +410,20 @@ class ForestZoningMainDialogArchive:
             QMessageBox.information(self.main, "保存ファイル読み込み", str(e))
             return
 
+        # 作業場がプロジェクト内に変わるので、外部の作業場のレイヤーは外す
+        leave_layers, leave_label = self.main.workspace_layers_to_leave(None)
+        message = "保存されていないデータは破棄されます。"
+        if leave_layers:
+            message += "\n" + self.main.leave_message(leave_layers, leave_label)
         answer = QMessageBox.question(
-            self.main, "保存ファイル読み込み", "保存されていないデータは破棄されます。",
+            self.main, "保存ファイル読み込み", message,
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Ok:
             return
+        if leave_layers:
+            utils.remove_project_layers(leave_layers)
 
         # ファイルを消せるよう、レイヤーの取り外しだけは先に画面側（メインスレッド）で行う。
         # 削除とコピー・展開は大きなDEMで時間がかかるため、ワーカースレッドに任せる

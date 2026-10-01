@@ -73,6 +73,10 @@ class ForestZoning:
         # 別名で保存したときは homePathChanged が来ないことがあるため、fileNameChanged も受ける（2回呼ばれても同じ結果になる）
         QgsProject.instance().homePathChanged.connect(self.onProjectChanged)
         QgsProject.instance().fileNameChanged.connect(self.onProjectChanged)
+        # 作業場はプロジェクトに書き込んであるため、読み込み終わってから（readProject）も合わせ直す。
+        # 新規プロジェクト（cleared）では記録が消えるので、プロジェクト内に戻る
+        QgsProject.instance().readProject.connect(self.onProjectChanged)
+        QgsProject.instance().cleared.connect(self.onProjectChanged)
 
     def unload(self):
         for action in self.actions:
@@ -93,6 +97,8 @@ class ForestZoning:
         )
         self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectChanged)
         self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectChanged)
+        self._safe_disconnect(QgsProject.instance().readProject, self.onProjectChanged)
+        self._safe_disconnect(QgsProject.instance().cleared, self.onProjectChanged)
         if self.main_dialog is not None:
             self.main_dialog.close()
             self.main_dialog.deleteLater()

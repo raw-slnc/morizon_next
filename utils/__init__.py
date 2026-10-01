@@ -238,6 +238,30 @@ def get_external_workspace():
     return _external_workspace
 
 
+# 作業場はQGISプロジェクトに書き込み、プロジェクトの保存で残す（開き直したときに同じ作業場で続けるため）。
+# 外部のフォルダならそのパス、プロジェクト内なら書き込まない
+_PROJECT_SCOPE = "MorizonNext"
+_PROJECT_KEY_WORKSPACE = "external_workspace"
+
+
+def read_project_workspace():
+    """プロジェクトに書き込まれた外部の作業場のパス。プロジェクト内なら None"""
+    value, _ = QgsProject.instance().readEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, "")
+    return os.path.normpath(value) if value else None
+
+
+def write_project_workspace(root):
+    """作業場をプロジェクトに書き込む（None ならプロジェクト内）。
+    書き込むとプロジェクトが変更ありの扱いになるので、同じ値なら書き込まない"""
+    root = os.path.normpath(root) if root else None
+    if read_project_workspace() == root:
+        return
+    if root:
+        QgsProject.instance().writeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, root)
+    else:
+        QgsProject.instance().removeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE)
+
+
 def get_workspace_dir(*subdirs) -> str:
     """今の作業場（外部のフォルダ、またはプロジェクト内の morizon_next）。subdirsを渡すとその下のパス"""
     if _external_workspace:
@@ -335,8 +359,8 @@ def remove_project_layers_by_sources(filepaths) -> int:
     return _remove_layers_and_empty_groups(layers)
 
 
-def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
-    """指定フォルダ配下（除外フォルダを除く）のファイルを読み込んでいるレイヤーをプロジェクトから外す。"""
+def project_layers_under_dir(directory: str, excluded_dirs=()) -> list:
+    """指定フォルダ配下（除外フォルダを除く）のファイルを読み込んでいるレイヤー"""
     directory = os.path.normpath(directory)
     excluded_dirs = [os.path.normpath(path) for path in excluded_dirs]
     layers = []
@@ -347,7 +371,17 @@ def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
         if any(is_under_dir(source, excluded) for excluded in excluded_dirs):
             continue
         layers.append(layer)
-    return _remove_layers_and_empty_groups(layers)
+    return layers
+
+
+def remove_project_layers(layers) -> int:
+    """レイヤーをプロジェクトから外す（空になったグループも消す）。ファイルは消さない"""
+    return _remove_layers_and_empty_groups(list(layers))
+
+
+def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
+    """指定フォルダ配下（除外フォルダを除く）のファイルを読み込んでいるレイヤーをプロジェクトから外す。"""
+    return _remove_layers_and_empty_groups(project_layers_under_dir(directory, excluded_dirs))
 
 
 def get_tiff_info(tiff_filepath: str) -> dict:

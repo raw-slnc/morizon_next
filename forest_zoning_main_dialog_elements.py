@@ -441,16 +441,21 @@ class ForestZoningMainDialogElements:
                     f"（候補{len(candidates)}件のうち名前順で最初）"
                 )
         warning = "" if found["dem"] else "\n\nDEMがありません。要素計算にはDEMが必要です。"
+        leave_layers, leave_label = self.main.workspace_layers_to_leave(workspace_root)
+        leave = "\n" + self.main.leave_message(leave_layers, leave_label) if leave_layers else ""
         answer = QMessageBox.question(
             self.main, "フォルダ選択から開始する",
             f"次のフォルダを作業場（外部）にします。\n{os.path.basename(workspace_root)}\n\n"
             "使う入力：\n" + "\n".join(lines) + warning
-            + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。\n開始しますか？",
+            + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。" + leave
+            + "\n開始しますか？",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Ok,
         )
         if answer != QMessageBox.StandardButton.Ok:
             return
+        if leave_layers:
+            utils.remove_project_layers(leave_layers)
         self.main.use_external_workspace(workspace_root)
         self.main.set_inputs_from_data_dir(data_dir)
 
@@ -541,9 +546,27 @@ class ForestZoningMainDialogElements:
                 "先にQGISプロジェクトを保存してください（保存先フォルダにDEM等を格納します）。"
             )
             return
-        # 取得したデータはプロジェクト内（morizon_next）に置くので、作業場をプロジェクト内にする
-        if utils.get_external_workspace():
-            self.main.use_project_workspace(refill_inputs=True)
+        # 取得したデータはプロジェクト内（morizon_next）に置くので、作業場をプロジェクト内にする。
+        # 外部の作業場のレイヤーを外すことと、前の解析の破棄は、押してすぐ1回にまとめて確かめ、
+        # 実行はDEMブラウザで範囲を決めてから行う（ブラウザで取りやめたときは何も変えない）
+        external = utils.get_external_workspace()
+        leave_layers, leave_label = self.main.workspace_layers_to_leave(None) if external else ([], "")
+        discard = self.main.archive.has_previous_analysis()
+        notes = []
+        if external:
+            notes.append(f"作業場を外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。"
+                         + (self.main.leave_message(leave_layers, leave_label) if leave_layers else ""))
+        if discard:
+            notes.append(self.main.archive.DISCARD_MESSAGE)
+        if notes:
+            answer = QMessageBox.question(
+                self.main, "DEMブラウザから開始する",
+                "\n\n".join(notes) + "\n\n実行は、DEMブラウザで範囲を決めてから行います。",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Ok:
+                return
 
         dlg = DemBrowserDialog(self.main)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -556,6 +579,13 @@ class ForestZoningMainDialogElements:
             if tile_sources is None:
                 return
             source.tile_sources = tile_sources
+
+        # ここから実行（確かめた内容）。外すレイヤーはブラウザの間に変わり得るので数え直す
+        if external:
+            utils.remove_project_layers(self.main.workspace_layers_to_leave(None)[0])
+            self.main.use_project_workspace(refill_inputs=True)
+        if discard:
+            self.main.archive.discard_previous_analysis()
         # DEMブラウザで指定した可視範囲は、最終成果物の表示・解析範囲として保持する。
         # DEMや道路などの途中データは周辺情報を失わないよう、ここでは切り捨てない。
         self._pending_extent_wgs84 = extent_wgs84
@@ -822,15 +852,25 @@ class ForestZoningMainDialogElements:
     def clear_elements_settings(self):
         """
         「設定をクリアする」ボタンの処理
-        要素計算タブの入力ファイル・チェックボックスを初期状態に戻す
+        要素計算タブの入力ファイル・チェックボックスを初期状態に戻し、作業場をプロジェクト内に戻す
         """
+        message = "要素計算タブの入力設定をクリアしてよろしいですか？"
+        external = utils.get_external_workspace()
+        leave_layers, leave_label = self.main.workspace_layers_to_leave(None)
+        if external:
+            message += f"\n\n作業場（外部 {os.path.basename(external) or external}）はプロジェクト内に戻ります。"
+        if leave_layers:
+            message += "\n" + self.main.leave_message(leave_layers, leave_label)
         answer = QMessageBox.question(
-            self.main, "確認", "要素計算タブの入力設定をクリアしてよろしいですか？",
+            self.main, "確認", message,
             QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.No:
             return
+        if leave_layers:
+            utils.remove_project_layers(leave_layers)
         self.reset_elements_inputs()
+        self.main.use_project_workspace(refill_inputs=False)
 
     def reset_elements_inputs(self):
         """要素計算タブの入力ファイル・チェックボックスを初期状態に戻す（確認なし）"""
