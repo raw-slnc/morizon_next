@@ -32,9 +32,9 @@ class ForestZoningMainDialogSettings:
         # 地形の複雑さの計算方法（SAGA ON / OFF）。「Morizon Next 設定」の右の枠のボタンに
         # 現在のモードを出し、押すたびに ON と OFF が入れ替わる
         self.widget.shcMethodButton.setToolTip(
-            "地形の複雑さの平滑化・平面曲率の計算方法です。押すと切り替わります。\n"
+            "地形の複雑さの平滑化・平面曲率の計算に使うプログラムです。押すと切り替わります。\n"
             "SAGA OFF（既定）：MORIZON v2.1 の結果に合うよう、プラグイン内で計算します（σ=3・半径12セル）。\n"
-            "SAGA ON：MORIZON v2.1 の指定のまま SAGA（Processing Saga NextGen Provider）に渡します。"
+            "SAGA ON：MORIZON v2.1 の指定のまま SAGA（プラグイン「Processing Saga NextGen Provider」経由）に渡します。"
             "現行の SAGA はこの指定に対応していないため、v2.1 の結果と相違が大きく出ます。"
         )
         self.widget.shcMethodButton.clicked.connect(self.toggle_shc_method)
@@ -88,7 +88,7 @@ class ForestZoningMainDialogSettings:
     # SAGA ON にしたときの説明（見つかった環境の版を差し込む）
     SAGA_NOTICE_TEXT = (
         "SAGA で計算します（地形の複雑さの平滑化と平面曲率）。<br>"
-        "検出した環境：SAGA {saga_version}（Processing Saga NextGen Provider {plugin_version}）<br><br>"
+        "検出した環境：SAGA {saga_version}（プラグイン Processing Saga NextGen Provider {plugin_version}）<br><br>"
         "MORIZON v2.1 の指定（平滑化：探索半径12・標準偏差3、曲率：Zevenbergen &amp; Thorne）を"
         "そのまま SAGA に渡します。現行の SAGA はこの指定に対応していないため、平滑化はほぼ行われず、"
         "平面曲率の係数も v2.1 と異なります。v2.1 の結果とは相違が大きく出ます"

@@ -117,7 +117,7 @@ def check_saga():
     if _parse_version(version) < _parse_version(REQUIRED_SAGA_VERSION):
         result["problem"] = (
             f"SAGA 本体の版が古いため使えません（検出した版：{version}、"
-            f"Processing Saga NextGen Provider が求める版：{REQUIRED_SAGA_VERSION} 以上）。"
+            f"プラグイン「Processing Saga NextGen Provider」が求める版：{REQUIRED_SAGA_VERSION} 以上）。"
         )
         return result
     result["ok"] = True

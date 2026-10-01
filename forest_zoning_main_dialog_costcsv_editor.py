@@ -5,7 +5,8 @@ import os
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
 from qgis.PyQt.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider
+    QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider,
+    QSizePolicy,
 )
 
 from .constants import RAWDATA_COLORS_COST
@@ -96,6 +97,48 @@ def read_costcsv(csv_path: str):
     return list(reversed(scores_descending)), names
 
 
+class ElidedLabel(QLabel):
+    """入りきらない文言は途中を「…」で省略して表示するラベル（省略したときは全文をツールチップに出す）。
+    読み込んだCSVのファイル名が長くても、一覧の幅を広げないようにするため。
+    elide_part を渡すと、その部分（ファイル名）だけを省略し、前後の文言は残す。
+    tooltip を渡すと、省略の有無にかかわらずそれをツールチップに出す（読み込んだファイルの場所など）"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self._elide_part = None
+        self._tooltip = None
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def setText(self, text, elide_part=None, tooltip=None):
+        self._full_text = text or ""
+        self._tooltip = tooltip
+        self._elide_part = elide_part if elide_part and elide_part in self._full_text else None
+        self._update_elided()
+
+    def text(self):
+        return self._full_text
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elided()
+
+    def _update_elided(self):
+        metrics = self.fontMetrics()
+        width = max(self.width(), 0)
+        if self._elide_part:
+            prefix, suffix = self._full_text.split(self._elide_part, 1)
+            room = width - metrics.horizontalAdvance(prefix + suffix)
+            elided = prefix + metrics.elidedText(self._elide_part, Qt.TextElideMode.ElideMiddle, max(room, 0)) + suffix
+        else:
+            elided = metrics.elidedText(self._full_text, Qt.TextElideMode.ElideMiddle, width)
+        super().setText(elided)
+        if self._tooltip:
+            self.setToolTip(self._tooltip)
+        else:
+            self.setToolTip(self._full_text if elided != self._full_text else "")
+
+
 class CostCsvEditorWidget(QWidget):
     """
     作業システムCSV（起伏量×傾斜と機材コードの対応）を編集し、
@@ -132,16 +175,18 @@ class CostCsvEditorWidget(QWidget):
         layout.addWidget(QLabel(
             "横軸=傾斜、縦軸=起伏量。色は右の機材名一覧に対応します。"
         ))
-        # いま表示しているパターンの出どころ（標準パターンか、読み込んだCSVか）
-        self.sourceLabel = QLabel()
-        self.sourceLabel.setWordWrap(True)
-        self.sourceLabel.setStyleSheet("color:#555;")
-        layout.addWidget(self.sourceLabel)
-
         columns_row = QHBoxLayout()
 
         left_col = QVBoxLayout()
-        left_col.addWidget(QLabel("機材名の一覧（色は右のパネルに対応。名前は編集できます）"))
+        # 一覧の見出しの行に、いま表示しているパターンの出どころ（標準パターンか、読み込んだCSVか）を
+        # 一覧の幅の中で右寄せに並べる
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("機材名の一覧（色は右のパネルに対応。名前は編集できます）"))
+        self.sourceLabel = ElidedLabel()
+        self.sourceLabel.setStyleSheet("color:#555;")
+        self.sourceLabel.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        title_row.addWidget(self.sourceLabel, stretch=1)
+        left_col.addLayout(title_row)
         legend_grid = QGridLayout()
         legend_grid.setHorizontalSpacing(6)
         legend_grid.setVerticalSpacing(2)
@@ -248,9 +293,11 @@ class CostCsvEditorWidget(QWidget):
         scores, names = read_costcsv(csv_path)
         merged_names = dict(DEFAULT_LEGEND)
         merged_names.update(names)
-        self._set_pattern(scores, merged_names, f"表示中：{os.path.basename(csv_path)} を読み込んだパターン", persist)
+        file_name = os.path.basename(csv_path)
+        self._set_pattern(scores, merged_names, f"表示中：{file_name}", persist,
+                          elide_part=file_name, tooltip=csv_path)
 
-    def _set_pattern(self, scores_ascending, names_by_code, source_text, persist):
+    def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None):
         self._base_scores = [row[:] for row in scores_ascending]
         self._margin = 0
         self._disabled_codes = set()
@@ -259,7 +306,7 @@ class CostCsvEditorWidget(QWidget):
 
         for i, code in enumerate(self._legend_codes):
             self.legendNameEdits[i].setText(names_by_code.get(code, ""))
-        self.sourceLabel.setText(source_text)
+        self.sourceLabel.setText(source_text, elide_part, tooltip)
 
         self._update_legend_visuals()
         self._redraw_panel()
