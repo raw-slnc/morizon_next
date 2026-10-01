@@ -285,16 +285,20 @@ li { margin: 3px 0; }
 <pre class="how" style="font-family:Consolas,monospace;font-size:13.5px;line-height:1.6;white-space:pre;overflow-x:auto">(プロジェクトフォルダ)/
 ├─ ○○.qgz                 … QGIS プロジェクト
 └─ morizon_next/
-    ├─ DEM/                dem_fetched.tif
-    ├─ SiteIndex/
-    │   ├─ NPP/            npp_clipped.tif
-    │   ├─ SRAD/           srad_clipped.tif
-    │   └─ VTEX/           vtex_clipped.tif
-    ├─ TATEMONO/           building.shp
-    ├─ ROAD/               road_edge.shp
-    ├─ SAGYO-SYSTEM_CSV/   costcsv.csv
-    └─ shared/             … 再取得を省くための控え（触らなくてよい）</pre>
-<p>この構成は原版の「ZoningKit」の DATA フォルダと同じです。後日「フォルダから一括読み込み」で <span class="path">morizon_next</span> フォルダを選べば、すべての入力をまとめて設定し直せます。</p>
+    ├─ DATA/                 … 入力データ
+    │   ├─ DEM/              dem_fetched.tif
+    │   ├─ SiteIndex/
+    │   │   ├─ NPP/          npp_clipped.tif
+    │   │   ├─ SRAD/         srad_clipped.tif
+    │   │   └─ VTEX/         vtex_clipped.tif
+    │   ├─ TATEMONO/         building.shp
+    │   ├─ ROAD/             road_edge.shp
+    │   └─ SAGYO-SYSTEM_CSV/ costcsv.csv
+    ├─ YOUSO/                … 要素計算の出力
+    ├─ ZONING/               … 収益性・災害リスク・ゾーニング図の出力
+    ├─ AGGREGATE/            … 集計の出力
+    └─ shared/               … 再取得を省くための控え（触らなくてよい）</pre>
+<p>この構成は原版の「ZoningKit」と同じです（AGGREGATE だけは MORIZON NEXT で追加したフォルダです）。画面右上の「保存ファイル出力」で、入力と出力をこの構成のまま ZIP に保存できます。保存した ZIP は要素計算タブの「保存ファイルを読み込む」で読み込むと、各タブの入力欄と出力レイヤーが保存したときの状態に戻ります。</p>
 
 <div class="note"><span class="label">別の範囲を取得すると上書きされます（現バージョン）</span>
 同じプロジェクトで範囲を変えてもう一度取得すると、上のファイルは新しい範囲のデータに置き換わります。複数の地区を解析する場合は、<strong>地区ごとに QGIS プロジェクトを分けて</strong>ください。
@@ -471,8 +475,15 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
   <li><strong>色分布パネル</strong>（右）：横軸が傾斜、縦軸が起伏量です。色が、その地形に割り当てる機械を表します。初期値は実際の作業データに基づく標準パターンです。</li>
   <li><strong>機材名の一覧</strong>（左）：色と機械の対応です。数字が大きい機械ほど作業効率が高い扱いになります。<strong>色の四角をクリックすると「保有していない機械」</strong>になり、その機械が割り当てられていた地形は「該当なし」（最も効率が低い）になります。</li>
   <li><strong>マージン</strong>：プラス側にすると、斜面を実際より最大5度緩いものとみなし、同じ地形でもより効率のよい機械を割り当てます（強気）。マイナス側はその逆（慎重）です。緩斜面と、機械の限界を超える急斜面の割り当ては動きません。</li>
-  <li><strong>「CSVとして書き出す」</strong>を押すと <span class="path">morizon_next/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
+  <li><strong>「CSVとして設定に反映する」</strong>を押すと <span class="path">morizon_next/DATA/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
 </ul>
+<p>地域の作業システムをマスごとに細かく決めたい場合は、原版と同じ Excel のひな形も使えます。</p>
+<ol>
+  <li><strong>「デフォルトExcelを開く」</strong>を押すと、ひな形（集材作業効率の設定220113.xlsx）が <span class="path">morizon_next/DATA/SAGYO-SYSTEM_CSV</span> に置かれて開きます。すでに置いてある場合は、そのファイルを開きます。</li>
+  <li>ひな形の説明どおりに入力し、「CSVで出力」シートを CSV 形式で同じフォルダに保存します。</li>
+  <li><strong>「CSVインポート」</strong>で保存した CSV を選ぶと、パターンと機材名がパネルと一覧に表示されます。</li>
+  <li>表示を確かめてから「CSVとして設定に反映する」を押します。</li>
+</ol>
 </div>
 <div class="note"><span class="label">現バージョンの制限</span>
 機材名の欄は書き換えられますが、書き換えても割り当てのパターンは変わりません。名前は凡例の表示に使われるだけです。地域独自の機材構成は、「保有していない機械」の指定とマージンで調整してください。
@@ -504,10 +515,10 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 使えない道（通行不能の林道、高速道路など）をあらかじめ削っておくと、地利はさらに実態に近づきます。
 </div>
 
-<h4>フォルダから一括読み込み</h4>
-<p>原版の ZoningKit の <span class="path">DATA</span> フォルダや、MORIZON NEXT が作った <span class="path">morizon_next</span> フォルダを選ぶと、中のサブフォルダ（DEM、SiteIndex/NPP など）から入力ファイルをまとめて設定します。</p>
+<h4>フォルダ選択から開始する</h4>
+<p>原版の ZoningKit のフォルダ（またはその中の <span class="path">DATA</span> フォルダ）や、MORIZON NEXT が作った <span class="path">morizon_next</span> フォルダを選ぶと、<span class="path">DATA</span> の中のサブフォルダ（DEM、SiteIndex/NPP など）から入力ファイルをまとめて設定します。ファイルはコピーせず、選んだ場所のものをそのまま使います。</p>
 <div class="note"><span class="label">各サブフォルダにはファイルを1つだけ置いてください</span>
-同じフォルダに候補が複数あると、どれが選ばれるかは決まっていません。古いファイルは別の場所に移しておいてください。
+同じフォルダに候補が複数あると、名前順で最初のファイルが選ばれます。意図しないファイルが選ばれないよう、古いファイルは別の場所に移しておいてください。
 </div>
 </section>
 

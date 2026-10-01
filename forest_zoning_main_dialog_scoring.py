@@ -21,6 +21,7 @@ from .processes.raster_styler import (
 from . import processes
 from . import utils
 from .constants import (
+    DIR_ZONING,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
     OUTPUT_SITEIDX_SUGI,
@@ -162,7 +163,7 @@ class ForestZoningMainDialogScoring:
         if self.main.scoringOutputDirFileWidget.filePath() == "":
             project_home = QgsProject.instance().homePath()
             if project_home != "":
-                default_output_dir = os.path.join(project_home, "morizon_next", "scoring")
+                default_output_dir = utils.get_morizon_managed_dir(DIR_ZONING)
                 os.makedirs(default_output_dir, exist_ok=True)
                 self.main.scoringOutputDirFileWidget.setFilePath(default_output_dir)
 
@@ -286,8 +287,10 @@ class ForestZoningMainDialogScoring:
             # 未選択なら処理を終了
             return
 
-        filepath = result[0][0]
+        self.apply_params_file(result[0][0])
 
+    def apply_params_file(self, filepath):
+        """params.json（スコアリング実行時に出力先へ書き出すしきい値）を各スピンボックスに反映する"""
         thresholds_dict = {}
         with open(filepath) as f:
             thresholds_dict = json.load(f)

@@ -14,7 +14,7 @@ from qgis.PyQt import sip
 import processing
 
 from ..processes import raster_styler
-from ..constants import PIXELS_THRESHOLD_RESAMPLING
+from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME
 
 
 @lru_cache(maxsize=None)
@@ -220,9 +220,11 @@ def find_morizon_layer_by_name(layer_name: str, allowed_extensions=None):
     return None
 
 
-def get_morizon_managed_dir() -> str:
+def get_morizon_managed_dir(*subdirs) -> str:
+    """MORIZON管理フォルダ（<プロジェクトフォルダ>/morizon_next）。subdirsを渡すとその下のパス。
+    構成は constants.py の DIR_DATA 等を参照"""
     project_home = QgsProject.instance().homePath() or os.path.expanduser("~")
-    return os.path.normpath(os.path.join(project_home, "morizon_next"))
+    return os.path.normpath(os.path.join(project_home, MANAGED_DIR_NAME, *subdirs))
 
 
 def _layer_source_path(layer: QgsMapLayer) -> str:

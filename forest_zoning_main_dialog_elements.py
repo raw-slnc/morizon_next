@@ -1,6 +1,6 @@
 import os
-import glob
 import re
+import shutil
 import gc
 
 # QGIS-API
@@ -18,15 +18,16 @@ from .forest_zoning_dem_browser_dialog import DemBrowserDialog
 from .dem_loader import GSITileDEMLoader
 from .settings_manager import OutputLayerStyleManager
 from . import processes
+from . import morizon_data
 from . import utils
 from .processes.raster_styler import apply_output_blend_mode
 from .constants import (
+    COSTCSV_TEMPLATE_FILE,
+    COSTCSV_TEMPLATE_NAME,
+    DIR_DATA,
+    DIR_SHARED,
+    DIR_YOUSO,
     INPUT_DEM,
-    INPUT_NPP,
-    INPUT_SRAD,
-    INPUT_VTEX,
-    INPUT_BUILDING,
-    INPUT_NETWORK,
     INPUT_COSTCSV,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
@@ -41,6 +42,27 @@ from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
 from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget
+
+
+class _AlignRightToPathField(QObject):
+    """開始ボタンの並びの右端を、入力欄のパス表示部分（「…」ボタンの手前）に揃える。
+    「…」の幅は表示環境のスタイルで変わるため固定値にせず、パス表示部分の位置・大きさが
+    変わるたびに実際の位置から右側の余白を測り直す"""
+
+    def __init__(self, file_widget, layout):
+        super().__init__(file_widget)
+        self._file_widget = file_widget
+        self._layout = layout
+        file_widget.lineEdit().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show):
+            path_right = obj.mapTo(self._file_widget, QPoint(obj.width(), 0)).x()
+            margin = max(self._file_widget.width() - path_right, 0)
+            current = self._layout.contentsMargins()
+            if current.right() != margin:
+                self._layout.setContentsMargins(current.left(), current.top(), margin, current.bottom())
+        return False
 
 
 class ForestZoningMainDialogElements:
@@ -66,6 +88,9 @@ class ForestZoningMainDialogElements:
             self.clear_elements_settings
         )
         self._init_output_blend_option()
+        self._button_row_alignment = _AlignRightToPathField(
+            self.main.elementsDemFileWidget, self.main.horizontalLayout
+        )
         # UIの変更を検知しUI全体を更新する
         for signal in (
             self.main.elementsDemFileWidget.fileChanged,
@@ -89,12 +114,15 @@ class ForestZoningMainDialogElements:
         if self.main.elementsOutputDirFileWidget.filePath() == "":
             project_home = QgsProject.instance().homePath()
             if project_home != "":
-                default_output_dir = os.path.join(project_home, "morizon_next", "output")
+                default_output_dir = utils.get_morizon_managed_dir(DIR_YOUSO)
                 os.makedirs(default_output_dir, exist_ok=True)
                 self.main.elementsOutputDirFileWidget.setFilePath(default_output_dir)
 
         self.costcsv_editor = CostCsvEditorWidget(
-            self.main, on_export=self.handle_costcsv_export
+            self.main,
+            on_export=self.handle_costcsv_export,
+            on_open_template=self.open_costcsv_template,
+            on_import=self.import_costcsv,
         )
         self.main.costCsvGroupBoxLayout.addWidget(self.costcsv_editor)
 
@@ -122,6 +150,40 @@ class ForestZoningMainDialogElements:
                 "QGISの描画や操作が重くなる場合があります。必要な場合だけ有効にしてください。",
             )
 
+    def open_costcsv_template(self):
+        """原版の作業システムExcelを DATA/SAGYO-SYSTEM_CSV に置き、既定のアプリで開く。
+        すでに置いてある場合は、編集途中の内容を消さないようそのファイルを開く"""
+        if QgsProject.instance().homePath() == "":
+            QMessageBox.information(
+                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelをプロジェクトフォルダに置きます）。"
+            )
+            return
+        target = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
+        if not os.path.isfile(target):
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copyfile(os.path.join(os.path.dirname(__file__), COSTCSV_TEMPLATE_FILE), target)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
+            QMessageBox.information(
+                self.main, "Excelを開けません",
+                "xlsxを開けるアプリが見つかりませんでした。次のファイルを表計算ソフトで開いてください。\n"
+                f"{target}"
+            )
+
+    def import_costcsv(self):
+        """作業システムCSVを選び、パターンと機材名を作業システム設定の表示に読み込む"""
+        start_dir = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        if not os.path.isdir(start_dir):
+            start_dir = ""
+        path, _ = QFileDialog.getOpenFileName(
+            self.main, "作業システムCSVを選択", start_dir, "CSVファイル (*.csv *.CSV)"
+        )
+        if not path:
+            return
+        try:
+            self.costcsv_editor.load_from_csv(path)
+        except (ValueError, OSError) as e:
+            QMessageBox.information(self.main, "CSVインポート", f"読み込めませんでした。\n\n{e}")
+
     def handle_costcsv_export(self, editor_widget):
         project_home = QgsProject.instance().homePath()
         if project_home == "":
@@ -129,8 +191,8 @@ class ForestZoningMainDialogElements:
                 self.main, "エラー", "先にQGISプロジェクトを保存してください。"
             )
             return
-        output_path = os.path.join(
-            project_home, "morizon_next", "SAGYO-SYSTEM_CSV", "costcsv.csv"
+        output_path = utils.get_morizon_managed_dir(
+            DIR_DATA, *INPUT_COSTCSV["PATH"], "costcsv.csv"
         )
         try:
             editor_widget.export_to_csv(output_path)
@@ -280,37 +342,37 @@ class ForestZoningMainDialogElements:
 
         return error_texts
 
+    def input_filewidgets(self) -> dict:
+        """入力欄（キーは morizon_data.INPUT_DEFS と同じ）"""
+        return {
+            "dem": self.main.elementsDemFileWidget,
+            "npp": self.main.elementsNppFileWidget,
+            "srad": self.main.elementsSradFileWidget,
+            "vtex": self.main.elementsVtexFileWidget,
+            "building": self.main.elementsBuildingFileWidget,
+            "network": self.main.elementsNetworkFileWidget,
+            "costcsv": self.main.elementsCostCsvFileWidget,
+        }
+
     def load_elements_files_from_dir(self):
         """
-        指定されたフォルダから複数のファイルを探し見つけたらFileWidgetに反映する
+        指定されたフォルダから入力ファイルを探し、見つかったものを入力欄に反映する。
+        ZoningKit の最上位・DATA フォルダのどちらを選んでもよい（その場で参照し、コピーはしない）
         """
         selected_dir = QFileDialog.getExistingDirectory(self.main, "フォルダを選択")
-
-        for INPUT_FILE, filewidget in (
-            (INPUT_DEM, self.main.elementsDemFileWidget),
-            (INPUT_NPP, self.main.elementsNppFileWidget),
-            (INPUT_SRAD, self.main.elementsSradFileWidget),
-            (INPUT_VTEX, self.main.elementsVtexFileWidget),
-            (INPUT_BUILDING, self.main.elementsBuildingFileWidget),
-            (INPUT_NETWORK, self.main.elementsNetworkFileWidget),
-            (INPUT_COSTCSV, self.main.elementsCostCsvFileWidget),
-        ):
-            # 拡張子の大文字小文字を区別せず探す:tif->[tT][iI][fF]
-            ext_case = "".join(
-                list(
-                    map(
-                        lambda char: "[" + char.lower() + char.upper() + "]",
-                        list(INPUT_FILE["EXT"]),
-                    )
-                )
+        if not selected_dir:
+            return
+        data_dir = morizon_data.resolve_data_dir(selected_dir)
+        if data_dir is None:
+            QMessageBox.information(
+                self.main, "フォルダ選択",
+                "入力データが見つかりませんでした。\n"
+                "DATA フォルダ（DEM・SiteIndex などを含むフォルダ）か、それを含むフォルダを選んでください。"
             )
-            files = glob.glob(
-                os.path.join(selected_dir, *INPUT_FILE["PATH"], "*." + ext_case + "*")
-            )
-
-            # ファイルが見つかったならウィジェットに反映する
-            if len(files) > 0:
-                filewidget.setFilePath(files[0])
+            return
+        for key, candidates in morizon_data.find_inputs(data_dir).items():
+            if candidates:
+                self.input_filewidgets()[key].setFilePath(candidates[0])
 
     def start_from_dem_browser(self):
         """
@@ -329,9 +391,13 @@ class ForestZoningMainDialogElements:
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         extent_wgs84 = dlg.get_extent_wgs84()
-        sources = self._resolve_dem_sources(dlg, extent_wgs84)
-        if sources is None:
-            return
+        source = dlg.get_selected_source()
+        if source.key == "gsi":
+            # 国土地理院は解像度の混在を避けるため、範囲全体をカバーできる解像度に先に絞る
+            tile_sources = self._resolve_gsi_tile_sources(extent_wgs84)
+            if tile_sources is None:
+                return
+            source.tile_sources = tile_sources
         # DEMブラウザで指定した可視範囲は、最終成果物の表示・解析範囲として保持する。
         # DEMや道路などの途中データは周辺情報を失わないよう、ここでは切り捨てない。
         self._pending_extent_wgs84 = extent_wgs84
@@ -340,15 +406,15 @@ class ForestZoningMainDialogElements:
         # データの実体は必ずプロジェクトフォルダ配下に保存する（ユーザーの保存場所を変えない）。
         # 全角パスでも構わない。ASCII安全な別名への変換は、実際にSAGA/GRASS等へ渡す直前
         # （processes/elements.pyのProcessingThread.run）でだけ行う
-        output_dir = os.path.join(project_home, "morizon_next", "DEM")
+        output_dir = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_DEM["PATH"])
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, "dem_fetched.tif")
 
         thread = processes.dem_fetch.DemFetchThread(
-            extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
-            extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
+            source,
+            (extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
+             extent_wgs84.xMaximum(), extent_wgs84.yMaximum()),
             output_path,
-            sources=sources,
         )
         progress_dialog = ProgressDialog(thread.set_abort_flag)
         thread.processStarted.connect(progress_dialog.set_sum_of_processes)
@@ -367,11 +433,7 @@ class ForestZoningMainDialogElements:
         thread.start()
         progress_dialog.exec()
 
-    def _resolve_dem_sources(self, dlg, extent_wgs84):
-        selected_sources = dlg.get_selected_sources()
-        if selected_sources is not GSITileDEMLoader.TILE_SOURCES:
-            return selected_sources
-
+    def _resolve_gsi_tile_sources(self, extent_wgs84):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             coverage_results = GSITileDEMLoader.check_sources_coverage(
@@ -467,12 +529,11 @@ class ForestZoningMainDialogElements:
             )
             return
 
-        project_home = QgsProject.instance().homePath()
-        output_dir = os.path.join(project_home, "morizon_next")
+        output_dir = utils.get_morizon_managed_dir(DIR_DATA)
         # ゾーン全体データはプロジェクト内蔵の共有領域に置く（ドライブ直下キャッシュは廃止）。
         # プロジェクトを他PCへ移動しても一緒に運ばれ、同一プロジェクト内での再取得を避けられる。
-        # 「フォルダ一式」（DEM/SiteIndex等）には含めない、あくまで内部支援用
-        cache_base_dir = os.path.join(project_home, "morizon_next", "shared")
+        # 「フォルダ一式」（DATA/等）には含めない、あくまで内部支援用
+        cache_base_dir = utils.get_morizon_managed_dir(DIR_SHARED)
 
         thread = processes.siteindex_fetch.SiteIndexFetchThread(
             zone, cache_base_dir, output_dir,
@@ -535,10 +596,9 @@ class ForestZoningMainDialogElements:
             fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
         )
 
-        project_home = QgsProject.instance().homePath()
-        output_dir = os.path.join(project_home, "morizon_next")
+        output_dir = utils.get_morizon_managed_dir(DIR_DATA)
         # 基盤地図情報のZIP自体は地位指数と同様、プロジェクト内蔵の共有領域にキャッシュする
-        cache_dir = os.path.join(project_home, "morizon_next", "shared", "fgd")
+        cache_dir = utils.get_morizon_managed_dir(DIR_SHARED, "fgd")
 
         thread = processes.building_road_fetch.BuildingRoadFetchThread(
             session, mesh_codes, cache_dir, output_dir,

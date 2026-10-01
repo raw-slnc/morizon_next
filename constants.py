@@ -1,3 +1,20 @@
+### MORIZON管理フォルダの構成 ###
+# プロジェクトフォルダ内の作業場所。原版の『ZoningKit_○○』（手引 図3-13）と同じ構成にし、
+# 「保存ファイル出力」のZIPも同じ構成で書き出す（そのまま展開・読み直しできるように）
+MANAGED_DIR_NAME = "morizon_next"
+DIR_DATA = "DATA"            # 入力（DEM/・SiteIndex/・ROAD/・TATEMONO/・SAGYO-SYSTEM_CSV/）
+DIR_YOUSO = "YOUSO"          # 要素計算の出力
+DIR_ZONING = "ZONING"        # スコアリング（収益性・災害リスク）とゾーニングの出力
+DIR_AGGREGATE = "AGGREGATE"  # 集計の出力（原版には無い。MORIZON NEXTで追加）
+DIR_SHARED = "shared"        # 解析をまたいで使い回すキャッシュ。保存・破棄の対象外
+DATA_INFO_FILE_NAME = "MORIZON_NEXT.txt"  # 保存データの最上位に置く説明
+
+### 作業システムのExcelひな形 ###
+# 原版 ZoningKit 同梱の「集材作業効率の設定220113.xlsx」（ZoningKit_03〜13・サンプルとも同一の配布原本）。
+# プラグイン内はASCII名で持ち、プロジェクトへは原版と同じ名前で置く
+COSTCSV_TEMPLATE_FILE = "templates/sagyo_system_template_220113.xlsx"
+COSTCSV_TEMPLATE_NAME = "集材作業効率の設定220113.xlsx"
+
 ### 入力ファイル定義 ###
 INPUT_DEM = {
     "DISPLAY_NAME": "DEM",

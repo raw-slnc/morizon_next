@@ -17,6 +17,7 @@ from . import processes
 from . import utils
 from .progress_dialog import ProgressDialog
 from .constants import (
+    DIR_ZONING,
     OUTPUT_PROFIT,
     OUTPUT_RISK,
     OUTPUT_ZONING,
@@ -62,7 +63,7 @@ class ForestZoningMainDialogZoning:
         if self.main.zoningOutputDirFileWidget.filePath() == "":
             project_home = QgsProject.instance().homePath()
             if project_home != "":
-                default_output_dir = os.path.join(project_home, "morizon_next", "zoning")
+                default_output_dir = utils.get_morizon_managed_dir(DIR_ZONING)
                 os.makedirs(default_output_dir, exist_ok=True)
                 self.main.zoningOutputDirFileWidget.setFilePath(default_output_dir)
 
@@ -142,6 +143,19 @@ class ForestZoningMainDialogZoning:
             (OUTPUT_RISK["DISPLAY_NAME"], self.main.zoningRiskLayerCombobox),
         ):
             layer = utils.find_morizon_layer_by_name(name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                combobox.setLayer(layer)
+
+    def select_restored_layers(self):
+        """保存データの読み込み後、収益性・災害リスクの選択欄を作り直したレイヤーに合わせる"""
+        self.update_zoning_layer_scope()
+        for output_def, combobox in (
+            (OUTPUT_PROFIT, self.main.zoningProfitLayerCombobox),
+            (OUTPUT_RISK, self.main.zoningRiskLayerCombobox),
+        ):
+            layer = utils.find_morizon_layer_by_name(
+                output_def["DISPLAY_NAME"], allowed_extensions={".tif", ".tiff"}
+            )
             if layer is not None:
                 combobox.setLayer(layer)
 

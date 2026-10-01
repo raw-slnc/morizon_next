@@ -10,8 +10,9 @@ from qgis.core import *
 from qgis.gui import *
 
 from . import processes
+from . import morizon_data
 from . import utils
-from .constants import OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
+from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import ProgressDialog
 
 
@@ -49,7 +50,7 @@ class ForestZoningMainDialogAggregate:
         if self.main.aggregateOutputDirFileWidget.filePath() == "":
             project_home = QgsProject.instance().homePath()
             if project_home != "":
-                default_output_dir = os.path.join(project_home, "morizon_next", "aggregate")
+                default_output_dir = utils.get_morizon_managed_dir(DIR_AGGREGATE)
                 os.makedirs(default_output_dir, exist_ok=True)
                 self.main.aggregateOutputDirFileWidget.setFilePath(
                     os.path.join(default_output_dir, f"{filename}.shp")
@@ -86,6 +87,15 @@ class ForestZoningMainDialogAggregate:
             QMessageBox.information(self.main, "エラー", "ゾーニング図を作成してください。")
             return
 
+    def select_restored_layers(self):
+        """保存データの読み込み後、ゾーニング図の選択欄を作り直したレイヤーに合わせる"""
+        self.update_aggregate_layer_scope()
+        layer = utils.find_morizon_layer_by_name(
+            OUTPUT_ZONING["DISPLAY_NAME"], allowed_extensions={".tif", ".tiff"}
+        )
+        if layer is not None:
+            self.main.aggregateZoningLayerCombobox.setLayer(layer)
+
     def update_aggregate_layer_scope(self):
         utils.set_morizon_layer_scope(
             self.main.aggregateZoningLayerCombobox,
@@ -96,18 +106,12 @@ class ForestZoningMainDialogAggregate:
     def load_aggregate_dem_path(self):
         selected_dir = QFileDialog.getExistingDirectory(self.main, "データフォルダを選択")
 
-        dem_filenames = glob.glob(
-            os.path.join(
-                selected_dir, *INPUT_DEM["PATH"], "*." + INPUT_DEM["EXT"] + "*"
-            )
-        )
-
-        # 既定階層にあったDEMファイルがない場合空文字列をセットする
-        dem_path = (
-            os.path.join(selected_dir, dem_filenames[0])
-            if len(dem_filenames) > 0
-            else ""
-        )
+        if not selected_dir:
+            return
+        # ZoningKit の最上位・DATA フォルダのどちらでもよい。既定階層にDEMが無ければ空にする
+        data_dir = morizon_data.resolve_data_dir(selected_dir)
+        dem_filenames = morizon_data.find_input_files(data_dir, INPUT_DEM) if data_dir else []
+        dem_path = dem_filenames[0] if dem_filenames else ""
         self.main.aggregateDemFileWidget.setFilePath(dem_path)
 
     def run_aggregate(self):

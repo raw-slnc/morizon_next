@@ -31,176 +31,198 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_2">
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout">
-         <item>
-          <widget class="QPushButton" name="elementsStartFromDemBrowserPushButton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">padding:12px;</string>
-           </property>
-           <property name="text">
-            <string>DEMブラウザから開始する</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="elementsLoadFromDirPushButton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">padding:12px;</string>
-           </property>
-           <property name="text">
-            <string>フォルダから一括読み込み</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="elementsClearSettingsPushButton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">padding:12px;</string>
-           </property>
-           <property name="text">
-            <string>設定をクリアする</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-       <item>
         <layout class="QGridLayout" name="gridLayout">
-         <item row="0" column="1">
+         <item row="0" column="2">
+          <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,1,1,1">
+           <item>
+            <widget class="QPushButton" name="elementsStartFromDemBrowserPushButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">padding:12px 4px;</string>
+             </property>
+             <property name="text">
+              <string>DEMブラウザから開始する</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="elementsLoadFromDirPushButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">padding:12px 4px;</string>
+             </property>
+             <property name="text">
+              <string>フォルダ選択から開始する</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="elementsLoadSavedPushButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">padding:12px 4px;</string>
+             </property>
+             <property name="text">
+              <string>保存ファイルを読み込む</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="elementsClearSettingsPushButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">padding:12px 4px;</string>
+             </property>
+             <property name="text">
+              <string>設定をクリアする</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item row="1" column="1">
           <widget class="QLabel" name="elementsDemLabel">
            <property name="text">
             <string>DEM</string>
            </property>
           </widget>
          </item>
-         <item row="1" column="1">
+         <item row="2" column="1">
           <widget class="QLabel" name="elementsNppLabel">
            <property name="text">
             <string>地位1(NPP)</string>
            </property>
           </widget>
          </item>
-         <item row="2" column="1">
+         <item row="3" column="1">
           <widget class="QLabel" name="elementsSradLabel">
            <property name="text">
             <string>地位2(SRAD)</string>
            </property>
           </widget>
          </item>
-         <item row="5" column="1">
+         <item row="6" column="1">
           <widget class="QLabel" name="elementsNetworkLabel">
            <property name="text">
             <string>既設路網ライン</string>
            </property>
           </widget>
          </item>
-         <item row="3" column="1">
+         <item row="4" column="1">
           <widget class="QLabel" name="elementsVtexLabel">
            <property name="text">
             <string>地位3(VTEX)</string>
            </property>
           </widget>
          </item>
-         <item row="6" column="1">
+         <item row="7" column="1">
           <widget class="QLabel" name="elementsCostCsvLabel">
            <property name="text">
             <string>作業システムCSV</string>
            </property>
           </widget>
          </item>
-         <item row="0" column="2">
+         <item row="1" column="2">
           <widget class="QgsFileWidget" name="elementsDemFileWidget">
            <property name="filter">
             <string>*.tif *.tiff</string>
            </property>
           </widget>
          </item>
-         <item row="4" column="1">
+         <item row="5" column="1">
           <widget class="QLabel" name="elementsBuildingLabel">
            <property name="text">
             <string>建物ポリゴン</string>
            </property>
           </widget>
          </item>
-         <item row="2" column="2">
+         <item row="3" column="2">
           <widget class="QgsFileWidget" name="elementsSradFileWidget">
            <property name="filter">
             <string>*.tif *.tiff</string>
            </property>
           </widget>
          </item>
-         <item row="4" column="2">
+         <item row="5" column="2">
           <widget class="QgsFileWidget" name="elementsBuildingFileWidget">
            <property name="filter">
             <string>*.shp</string>
            </property>
           </widget>
          </item>
-         <item row="5" column="2">
+         <item row="6" column="2">
           <widget class="QgsFileWidget" name="elementsNetworkFileWidget">
            <property name="filter">
             <string>*.shp</string>
            </property>
           </widget>
          </item>
-         <item row="3" column="2">
+         <item row="4" column="2">
           <widget class="QgsFileWidget" name="elementsVtexFileWidget">
            <property name="filter">
             <string>*.tif *.tiff</string>
            </property>
           </widget>
          </item>
-         <item row="6" column="2">
+         <item row="7" column="2">
           <widget class="QgsFileWidget" name="elementsCostCsvFileWidget">
            <property name="filter">
             <string>*.csv</string>
            </property>
           </widget>
          </item>
-         <item row="1" column="2">
+         <item row="2" column="2">
           <widget class="QgsFileWidget" name="elementsNppFileWidget">
            <property name="filter">
             <string>*.tif *.tiff</string>
            </property>
           </widget>
          </item>
-         <item row="0" column="3">
+         <item row="1" column="3">
           <widget class="QLabel" name="elementsDemStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -210,7 +232,7 @@
            </property>
           </widget>
          </item>
-         <item row="1" column="3">
+         <item row="2" column="3">
           <widget class="QLabel" name="elementsNppStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -220,7 +242,7 @@
            </property>
           </widget>
          </item>
-         <item row="2" column="3">
+         <item row="3" column="3">
           <widget class="QLabel" name="elementsSradStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -230,7 +252,7 @@
            </property>
           </widget>
          </item>
-         <item row="3" column="3">
+         <item row="4" column="3">
           <widget class="QLabel" name="elementsVtexStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -240,7 +262,7 @@
            </property>
           </widget>
          </item>
-         <item row="4" column="3">
+         <item row="5" column="3">
           <widget class="QLabel" name="elementsBuildingStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -250,7 +272,7 @@
            </property>
           </widget>
          </item>
-         <item row="5" column="3">
+         <item row="6" column="3">
           <widget class="QLabel" name="elementsNetworkStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>
@@ -260,7 +282,7 @@
            </property>
           </widget>
          </item>
-         <item row="6" column="3">
+         <item row="7" column="3">
           <widget class="QLabel" name="elementsCostCsvStatusLabel">
            <property name="styleSheet">
             <string notr="true">color:#ff0000;</string>

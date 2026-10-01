@@ -5,44 +5,43 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
 from qgis.utils import iface
 
-from .dem_loader import GSITileDEMLoader
+from . import dem_sources
 
 
 class DemBrowserDialog(QDialog):
     """
     DEM取得元を選択して取得するダイアログ。
 
-    現状は国土地理院(GSI)・AWS Terrariumのみに対応。静岡・長野等の地域別高解像度ソースは
-    forestry_operations_lite側(vs_lp.py/nagano_sabo.py/nagano_rinmu.py/nagano_dchm.py)に
-    実装があるが、まだ本プラグインには移植していない（別途追加予定）。
-
-    出典・ライセンス表記はforestry_operations_liteのDemBrowserDialog記載内容を踏襲。
+    取得元の一覧・出典の説明・対象地域の判定・取得処理は dem_sources パッケージ側にあり、
+    このダイアログは表示と選択だけを受け持つ。取得元を増やすときは dem_sources を参照。
+    表示範囲が対象地域に収まらない取得元は、一覧に出したうえで選べない状態にする。
     """
 
-    # (表示名, 出典・ライセンス・カバレッジの説明)
-    SOURCES = [
-        (
-            "国土地理院 DEM1A/5A/10B（1m→5m→10mの順で自動フォールバック）",
-            "出典：国土地理院（地理院タイル DEM1A/DEM5A/DEM10B）。利用の際は出典の明示が必要です。\n"
-            "・DEM1A 1m：航空レーザ測量。測量実施エリアのみ（伊豆半島・山間部等）\n"
-            "・DEM5A 5m：標準解像度、全国で利用可能\n"
-            "・DEM10B 10m：広域解析向け、全国で利用可能\n"
-            "取得範囲内でDEM1Aが無ければ自動的にDEM5A、それも無ければDEM10Bにフォールバックします。\n"
-            "実際どの解像度が取得されたかは処理完了後に表示します。\n"
-            "正式な利用規約は国土地理院の該当ページでご確認ください。"
-        ),
-        (
-            "AWS Terrarium（全球、登録不要）",
-            "出典：AWS Terrain Tiles (Mapzen Terrarium)。全球カバー、無料・登録不要。\n"
-            "国土地理院データが取得できない場合のフォールバック用途を想定。\n"
-            "正式な利用条件はAWS Terrain Tilesの配布元でご確認ください。"
-        ),
-    ]
+    # 詳細なDEMを選べば結果が良くなる、と受け取られないための常設の注意書き。
+    # 10mへのリサンプリング条件は utils.is_resampling_needed / constants.PIXELS_THRESHOLD_RESAMPLING
+    NOTE_TEXT = (
+        "<b>細かいDEMはゾーニングに有利とは限りません</b><br>"
+        "要素計算は原版と同じく10m格子を基本にしています。5mのDEMは常に、"
+        "1mのDEMも範囲が約25km²（5km四方）を超えると、計算前に10mへリサンプリングされます。"
+        "リサンプリングされない狭い範囲では、細かいDEMは小さな凹凸まで拾うため、"
+        "傾斜や地形の複雑さの値が10mのDEMとは変わり、スコアのしきい値との関係がずれることがあります。"
+        "取得と計算の時間も大きく増えます。迷ったら国土地理院のDEMを選んでください。"
+    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("DEMブラウザ")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(520)
+
+        # モーダル表示中はキャンバスを動かせないため、範囲は開いた時点で確定させる
+        self._extent = self._canvas_extent_wgs84()
+        extent_tuple = (
+            self._extent.xMinimum(), self._extent.yMinimum(),
+            self._extent.xMaximum(), self._extent.yMaximum(),
+        )
+        self._sources = dem_sources.all_sources()
+        self._problems = [source.coverage_problem(extent_tuple) for source in self._sources]
+        self._extent_tuple = extent_tuple
 
         layout = QVBoxLayout(self)
 
@@ -50,21 +49,40 @@ class DemBrowserDialog(QDialog):
         source_row.addWidget(QLabel("取得元:"))
         self.sourceCombobox = QComboBox()
         self.sourceCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.sourceCombobox.addItems([label for label, _ in self.SOURCES])
+        for source, problem in zip(self._sources, self._problems):
+            self.sourceCombobox.addItem(
+                source.label if problem is None else f"{source.label}（{problem}）"
+            )
+            if problem is not None:
+                # 既定モデル(QStandardItemModel)の項目を無効化して選べないようにする
+                self.sourceCombobox.model().item(self.sourceCombobox.count() - 1).setEnabled(False)
         self.sourceCombobox.currentIndexChanged.connect(self._update_info_label)
-        source_row.addWidget(self.sourceCombobox)
+        source_row.addWidget(self.sourceCombobox, 1)
         layout.addLayout(source_row)
 
         self.infoLabel = QLabel()
         self.infoLabel.setWordWrap(True)
+        self.infoLabel.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.infoLabel.setStyleSheet("color: #444; padding: 4px;")
         layout.addWidget(self.infoLabel)
-        self._update_info_label()
+
+        self.noteLabel = QLabel(self.NOTE_TEXT)
+        self.noteLabel.setWordWrap(True)
+        self.noteLabel.setTextFormat(Qt.TextFormat.RichText)
+        self.noteLabel.setStyleSheet(
+            "color: #5a4500; background: #fff6d6; border: 1px solid #e0c870; padding: 6px;"
+        )
+        layout.addWidget(self.noteLabel)
 
         self.extentLabel = QLabel()
         self.extentLabel.setWordWrap(True)
         layout.addWidget(self.extentLabel)
         self._update_extent_label()
+
+        # 先頭（国土地理院）は常に選べるが、念のため選べる最初の項目に合わせる
+        first_available = next(i for i, problem in enumerate(self._problems) if problem is None)
+        self.sourceCombobox.setCurrentIndex(first_available)
+        self._update_info_label()
 
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -131,29 +149,36 @@ class DemBrowserDialog(QDialog):
         return super().focusNextPrevChild(next)
 
     def _update_info_label(self):
-        _, info_text = self.SOURCES[self.sourceCombobox.currentIndex()]
-        self.infoLabel.setText(info_text)
+        source = self.get_selected_source()
+        text = source.description
+        estimate = source.estimate(self._extent_tuple)
+        if estimate:
+            text += f"\n\n{estimate}"
+        self.infoLabel.setText(text)
 
     def _update_extent_label(self):
-        extent = self.get_extent_wgs84()
-        self.extentLabel.setText(
-            "取得範囲（現在のQGIS地図表示範囲）:\n"
-            f"経度 {extent.xMinimum():.5f} 〜 {extent.xMaximum():.5f}\n"
-            f"緯度 {extent.yMinimum():.5f} 〜 {extent.yMaximum():.5f}"
-        )
+        extent = self._extent
+        lines = [
+            "取得範囲（現在のQGIS地図表示範囲）:",
+            f"経度 {extent.xMinimum():.5f} 〜 {extent.xMaximum():.5f}",
+            f"緯度 {extent.yMinimum():.5f} 〜 {extent.yMaximum():.5f}",
+        ]
+        if any(problem is not None for problem in self._problems):
+            lines.append("※ 表示範囲がデータの対象地域に収まらない取得元は選べません。")
+        self.extentLabel.setText("\n".join(lines))
 
-    def get_extent_wgs84(self):
+    @staticmethod
+    def _canvas_extent_wgs84():
         canvas = iface.mapCanvas()
         canvas_crs = canvas.mapSettings().destinationCrs()
         wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
         transform = QgsCoordinateTransform(canvas_crs, wgs84_crs, QgsProject.instance())
         return transform.transformBoundingBox(canvas.extent())
 
-    def get_selected_sources(self):
-        """
-        選択された取得元に対応するタイルソースリスト
-        （dem_loader.GSITileDEMLoader.fetch_for_extentのsources引数にそのまま渡せる形式）を返す
-        """
-        if self.sourceCombobox.currentIndex() == 0:
-            return GSITileDEMLoader.TILE_SOURCES
-        return GSITileDEMLoader.TERRARIUM_SOURCES
+    def get_extent_wgs84(self):
+        """ダイアログを開いた時点の表示範囲（WGS84、QgsRectangle）"""
+        return self._extent
+
+    def get_selected_source(self):
+        """選択された取得元（dem_sources.base.DemSource）"""
+        return self._sources[self.sourceCombobox.currentIndex()]

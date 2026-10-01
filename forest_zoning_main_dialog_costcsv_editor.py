@@ -1,10 +1,11 @@
+import bisect
 import csv
 import os
 
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
 from qgis.PyQt.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider
+    QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider
 )
 
 from .constants import RAWDATA_COLORS_COST
@@ -47,6 +48,54 @@ DEFAULT_LEGEND = [
 MARGIN_DEGREES_MAX = 5
 
 
+def read_costcsv(csv_path: str):
+    """作業システムCSV（原版のExcelひな形「CSVで出力」シート、またはこのエディタの書き出し）を読み、
+    (起伏量昇順のスコア10x6, {コード: 機材名}) を返す。
+    このエディタは起伏量・傾斜のしきい値が標準（手引・ひな形と同じ）であることを前提に描くため、
+    しきい値が違うCSVは ValueError にする（解析にはそのまま使える）。"""
+    rows = None
+    for encoding in ("cp932", "utf-8-sig"):
+        try:
+            with open(csv_path, encoding=encoding, newline="") as f:
+                rows = [[cell.strip() for cell in row] for row in csv.reader(f)]
+            break
+        except UnicodeDecodeError:
+            continue
+    if rows is None:
+        raise ValueError("文字コードを判別できません（Shift_JIS か UTF-8 で保存してください）")
+
+    def to_number(text):
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    n_rows = len(RUGGEDNESS_THRESHOLDS) - 1
+    n_cols = len(SLOPE_THRESHOLDS) - 1
+    if len(rows) < n_rows + 1:
+        raise ValueError("表の行数が足りません")
+    header = [to_number(cell) for cell in rows[0][:n_cols + 2]]
+    labels = [to_number(row[0]) if row else None for row in rows[1:n_rows + 1]]
+    if header != [RUGGEDNESS_THRESHOLDS[-1]] + SLOPE_THRESHOLDS or labels != RUGGEDNESS_THRESHOLDS[-2::-1]:
+        raise ValueError("起伏量・傾斜のしきい値が標準と異なるため、表示には反映できません（解析にはそのまま使えます）")
+
+    scores_descending = []
+    for row in rows[1:n_rows + 1]:
+        values = [to_number(cell) for cell in row[1:n_cols + 1]]
+        if len(values) < n_cols or any(v is None or v != int(v) or not 0 <= v <= 10 for v in values):
+            raise ValueError("表に0〜10以外の値か空欄があります")
+        scores_descending.append([int(v) for v in values])
+
+    # 表の下の「コード, 機材名」（見出し行の有無はどちらでもよい）
+    names = {}
+    for row in rows[n_rows + 1:]:
+        if len(row) >= 2 and to_number(row[0]) is not None and row[1]:
+            code = int(to_number(row[0]))
+            if 0 <= code <= 10:
+                names[code] = row[1]
+    return list(reversed(scores_descending)), names
+
+
 class CostCsvEditorWidget(QWidget):
     """
     作業システムCSV（起伏量×傾斜と機材コードの対応）を編集し、
@@ -68,7 +117,7 @@ class CostCsvEditorWidget(QWidget):
     SETTINGS_DISABLED_CODES = "disabled_codes"
     SETTINGS_MARGIN = "margin"
 
-    def __init__(self, parent=None, on_export=None):
+    def __init__(self, parent=None, on_export=None, on_open_template=None, on_import=None):
         super().__init__(parent)
         self._on_export = on_export
         # 起伏量昇順(行0=0-100側)で保持する、60マス分の基準スコア(機材コード0-10)
@@ -81,8 +130,13 @@ class CostCsvEditorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         layout.addWidget(QLabel(
-            "横軸=傾斜、縦軸=起伏量。色は右の機材名一覧に対応します（実データに基づく標準パターン）。"
+            "横軸=傾斜、縦軸=起伏量。色は右の機材名一覧に対応します。"
         ))
+        # いま表示しているパターンの出どころ（標準パターンか、読み込んだCSVか）
+        self.sourceLabel = QLabel()
+        self.sourceLabel.setWordWrap(True)
+        self.sourceLabel.setStyleSheet("color:#555;")
+        layout.addWidget(self.sourceLabel)
 
         columns_row = QHBoxLayout()
 
@@ -150,9 +204,30 @@ class CostCsvEditorWidget(QWidget):
         self.loadDefaultButton = QPushButton("初期値を読み込む")
         self.loadDefaultButton.clicked.connect(lambda: self.load_defaults())
         button_row.addWidget(self.loadDefaultButton)
-        self.exportButton = QPushButton("CSVとして書き出す")
+        self.exportButton = QPushButton("CSVとして設定に反映する")
+        self.exportButton.setToolTip("表示中のパターンをCSVに書き出し、作業システムCSV欄に設定します")
         self.exportButton.clicked.connect(self._on_export_clicked)
         button_row.addWidget(self.exportButton)
+        # 地域の作業システムを細かく決めたい場合は、原版のExcelひな形で作ったCSVを読み込む
+        self.openTemplateButton = QPushButton("デフォルトExcelを開く")
+        self.openTemplateButton.setToolTip(
+            "原版の「集材作業効率の設定」Excelを、プロジェクトの DATA/SAGYO-SYSTEM_CSV フォルダに置いて開きます"
+        )
+        if on_open_template:
+            self.openTemplateButton.clicked.connect(on_open_template)
+        button_row.addWidget(self.openTemplateButton)
+        self.importButton = QPushButton("CSVインポート")
+        self.importButton.setToolTip(
+            "作業システムCSVのパターンと機材名を表示に読み込みます（設定への反映は「CSVとして設定に反映する」で行います）"
+        )
+        if on_import:
+            self.importButton.clicked.connect(on_import)
+        button_row.addWidget(self.importButton)
+        # 凡例で機材を選び、パネルをクリック・ドラッグして割り当てる機能の予定地（未実装）
+        self.interactiveButton = QPushButton("インタラクティブモード（準備中）")
+        self.interactiveButton.setToolTip("準備中の機能です。押すと予定している内容を表示します")
+        self.interactiveButton.clicked.connect(self._show_interactive_plan)
+        button_row.addWidget(self.interactiveButton)
         layout.addLayout(button_row)
 
         self.load_defaults(persist=False)
@@ -162,14 +237,29 @@ class CostCsvEditorWidget(QWidget):
         self._redraw_panel()
 
     def load_defaults(self, persist=True):
-        self._base_scores = [row[:] for row in DEFAULT_SCORES_ASCENDING]
+        self._set_pattern(
+            DEFAULT_SCORES_ASCENDING, dict(DEFAULT_LEGEND),
+            "表示中：標準パターン（実データに基づく）", persist,
+        )
+
+    def load_from_csv(self, csv_path: str, persist=True):
+        """作業システムCSVのパターンと機材名を表示に反映する。読めない場合は ValueError（表示は変えない）。
+        読み込んだパターンをそのまま基準にするため、保有していない機材の指定とマージンは初期化する"""
+        scores, names = read_costcsv(csv_path)
+        merged_names = dict(DEFAULT_LEGEND)
+        merged_names.update(names)
+        self._set_pattern(scores, merged_names, f"表示中：{os.path.basename(csv_path)} を読み込んだパターン", persist)
+
+    def _set_pattern(self, scores_ascending, names_by_code, source_text, persist):
+        self._base_scores = [row[:] for row in scores_ascending]
         self._margin = 0
         self._disabled_codes = set()
         self.marginSlider.setValue(0)
         self.marginValueLabel.setText("0°")
 
-        for i, (code, name) in enumerate(DEFAULT_LEGEND):
-            self.legendNameEdits[i].setText(name)
+        for i, code in enumerate(self._legend_codes):
+            self.legendNameEdits[i].setText(names_by_code.get(code, ""))
+        self.sourceLabel.setText(source_text)
 
         self._update_legend_visuals()
         self._redraw_panel()
@@ -281,7 +371,9 @@ class CostCsvEditorWidget(QWidget):
         return max(0.0, 1 - abs((fraction - 0.5) / 0.5))
 
     def _nearest_lookup(self, ruggedness: float, slope: float) -> int:
-        """最も近いセルのコードをそのまま返す(補間しない、必ず表に実在する値になる)"""
+        """その起伏量・傾斜を含むマスのコードをそのまま返す(補間しない、必ず表に実在する値になる)。
+        しきい値は等間隔ではない(起伏量 0,100,150,…／傾斜 0,15,20,…)ため、
+        位置の比率ではなく、しきい値で区切られた区間からマスを引く"""
         r_max = RUGGEDNESS_THRESHOLDS[-1]
         s_max = SLOPE_THRESHOLDS[-1]
         r = max(0.0, min(r_max, ruggedness))
@@ -289,11 +381,9 @@ class CostCsvEditorWidget(QWidget):
 
         n_rows = len(self._base_scores)
         n_cols = len(self._base_scores[0])
-        ry = (r / r_max) * (n_rows - 1)
-        sx = (s / s_max) * (n_cols - 1)
-
-        row = max(0, min(n_rows - 1, round(ry)))
-        col = max(0, min(n_cols - 1, round(sx)))
+        # 区間 [T[i], T[i+1]) を i 番目のマスとする（上端の値は最後のマスに含める）
+        row = min(bisect.bisect_right(RUGGEDNESS_THRESHOLDS, r) - 1, n_rows - 1)
+        col = min(bisect.bisect_right(SLOPE_THRESHOLDS, s) - 1, n_cols - 1)
         code = self._base_scores[row][col]
         # 保有していない機材が担当するマスは0(該当なし)扱いにする
         if code in self._disabled_codes:
@@ -385,6 +475,47 @@ class CostCsvEditorWidget(QWidget):
                 writer.writerow([code, name])
 
         return output_path
+
+    # 準備中の「インタラクティブモード」の宣言と、操作方法の検討メモ（例）。実装したらこの案内は外す
+    INTERACTIVE_PLAN_TEXT = (
+        "<p>機材名の一覧で機材を選び、右のパネルを直接クリック・ドラッグして、"
+        "その地形（傾斜×起伏量のマス）に使う機材を割り当てられるようにする予定です。"
+        "Excel のひな形を使わなくても、地域の作業システムをマスごとに決められるようになります。</p>"
+        "<p><b>操作の例：</b>（検討中のもので、変わることがあります）</p>"
+        "<ul>"
+        "<li>一覧の色の四角をクリック：保有する／しないの切り替え（今と同じ）</li>"
+        "<li>一覧の色の四角を右クリック：その機材でパネルを塗るモードに入る</li>"
+        "<li>塗るモード中：一覧のクリックで塗る機材を選び、パネルのクリック・ドラッグで塗る</li>"
+        "<li>「該当なし」を選んで塗ると、そのマスを空ける（消しゴム）</li>"
+        "<li>塗るモード中は、一覧の空き（マージンの位置）に終了ボタンを出す</li>"
+        "<li>塗った操作は1回ずつ元に戻せる</li>"
+        "</ul>"
+        "<p><b>あわせて変える案の例：</b>（上の例と食い違う案も、検討用にそのまま残しています）</p>"
+        "<ul>"
+        "<li>「保有していない機材」の指定は、各行のチェックに移す</li>"
+        "<li>塗っている間はマージンを 0° にして、マスの区切りどおりに表示する</li>"
+        "<li>一覧は上ほど集材効率が高い扱いであることを、一覧に明記する</li>"
+        "</ul>"
+        "<p>それまでは、「デフォルトExcelを開く」でひな形を編集し、"
+        "「CSVインポート」で読み込んでください。</p>"
+    )
+
+    def _show_interactive_plan(self):
+        # QMessageBox は幅を広げられず文章が細長くなり、折り返すQLabelは箇条書きの高さを
+        # 少なく見積もって下の行が切れるため、文章表示用の部品に載せる
+        dialog = QDialog(self)
+        dialog.setWindowTitle("インタラクティブモード（準備中）")
+        layout = QVBoxLayout(dialog)
+        text = QTextBrowser()
+        text.setHtml(self.INTERACTIVE_PLAN_TEXT)
+        text.setFrameShape(QFrame.Shape.NoFrame)
+        text.setStyleSheet("background: transparent;")
+        text.setMinimumSize(560, 520)
+        layout.addWidget(text)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def _on_export_clicked(self):
         if self._on_export:
