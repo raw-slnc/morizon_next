@@ -1,3 +1,4 @@
+import os
 import time
 
 # QGIS-API
@@ -71,5 +72,54 @@ class DataImportThread(QThread):
                 self.processFinished.emit({"status": "cancelled"})
                 return
             self.processFinished.emit({"status": "done"})
+        except Exception as e:
+            self.processFailed.emit(str(e))
+
+
+class FileCopyThread(QThread):
+    """ファイルを決まった場所へコピーするスレッド（入力欄の「…」で選んだファイルを作業場へ取り込むときに使う）。
+    tasks は (元のパス, コピー先) の配列。中断されたら、書きかけのコピー先を消す"""
+
+    processStarted = pyqtSignal(int)
+    addProgress = pyqtSignal(int)
+    postMessage = pyqtSignal(str)
+    postDetail = pyqtSignal(str)
+    processFinished = pyqtSignal(dict)
+    setAbortable = pyqtSignal(bool)
+    processFailed = pyqtSignal(str)
+
+    def __init__(self, tasks):
+        super().__init__()
+        self.tasks = tasks
+        self.abort_flag = False
+
+    def set_abort_flag(self, flag=True):
+        self.abort_flag = flag
+
+    def run(self):
+        tasks = []
+        try:
+            tasks = [(src, dest, os.path.getsize(src)) for src, dest in self.tasks]
+            self.setAbortable.emit(True)
+            self.postMessage.emit("作業場にファイルを取り込み中")
+            self.processStarted.emit(100)
+            reported = {"percent": 0}
+
+            def on_progress(done, total, name):
+                percent = int(done * 100 / total) if total else 100
+                if percent > reported["percent"]:
+                    self.addProgress.emit(percent - reported["percent"])
+                    reported["percent"] = percent
+                self.postDetail.emit(f"{name}  {done / 1e6:.0f}/{total / 1e6:.0f}MB")
+
+            morizon_data._copy_tasks(
+                tasks, lambda path: open(path, "rb"), on_progress, lambda: self.abort_flag
+            )
+            self.processFinished.emit({"status": "done"})
+        except morizon_data.ImportCancelled:
+            for _, dest, _ in tasks:
+                if os.path.exists(dest):
+                    os.remove(dest)
+            self.processFinished.emit({"status": "cancelled"})
         except Exception as e:
             self.processFailed.emit(str(e))

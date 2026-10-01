@@ -8,6 +8,8 @@ DIR_ZONING = "ZONING"        # スコアリング（収益性・災害リスク�
 DIR_AGGREGATE = "AGGREGATE"  # 集計の出力（原版には無い。MORIZON NEXTで追加）
 DIR_SHARED = "shared"        # 解析をまたいで使い回すキャッシュ。保存・破棄の対象外
 DATA_INFO_FILE_NAME = "MORIZON_NEXT.txt"  # 保存データの最上位に置く説明
+# 出力レイヤーをまとめるレイヤーツリーのグループ（プロジェクトの最上位）
+OUTPUT_GROUP_NAME = "Morizon Next"
 
 ### 作業システムのExcelひな形 ###
 # 原版 ZoningKit 同梱の「集材作業効率の設定220113.xlsx」（ZoningKit_03〜13・サンプルとも同一の配布原本）。

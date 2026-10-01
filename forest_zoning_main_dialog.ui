@@ -1764,7 +1764,7 @@
      </widget>
      <widget class="QWidget" name="tab_3">
       <attribute name="title">
-       <string>集計</string>
+       <string>ゾーン統計量</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout_11">
        <item row="2" column="0">

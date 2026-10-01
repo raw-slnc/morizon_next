@@ -16,7 +16,9 @@ from qgis.utils import iface
 from .progress_dialog import ProgressDialog
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog
 from .dem_loader import GSITileDEMLoader
-from .settings_manager import OutputLayerStyleManager
+from .settings_manager import OutputLayerStyleManager, ShcMethodManager
+from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZoningMainDialogArchive
+from . import saga_check
 from . import processes
 from . import morizon_data
 from . import utils
@@ -88,6 +90,10 @@ class ForestZoningMainDialogElements:
             self.clear_elements_settings
         )
         self._init_output_blend_option()
+        # 「…」で選んだファイルを作業場へ取り込む
+        self._input_paths = {}
+        for key, filewidget in self.input_filewidgets().items():
+            filewidget.fileChanged.connect(lambda _path, k=key: self._on_input_file_changed(k))
         self._button_row_alignment = _AlignRightToPathField(
             self.main.elementsDemFileWidget, self.main.horizontalLayout
         )
@@ -161,12 +167,12 @@ class ForestZoningMainDialogElements:
     def open_costcsv_template(self):
         """原版の作業システムExcelを DATA/SAGYO-SYSTEM_CSV に置き、既定のアプリで開く。
         すでに置いてある場合は、編集途中の内容を消さないようそのファイルを開く"""
-        if QgsProject.instance().homePath() == "":
+        if not self.main.has_workspace():
             QMessageBox.information(
-                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelをプロジェクトフォルダに置きます）。"
+                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelを作業場に置きます）。"
             )
             return
-        target = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
+        target = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
         if not os.path.isfile(target):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             shutil.copyfile(os.path.join(os.path.dirname(__file__), COSTCSV_TEMPLATE_FILE), target)
@@ -179,7 +185,7 @@ class ForestZoningMainDialogElements:
 
     def import_costcsv(self):
         """作業システムCSVを選び、パターンと機材名を作業システム設定の表示に読み込む"""
-        start_dir = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        start_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         if not os.path.isdir(start_dir):
             start_dir = ""
         path, _ = QFileDialog.getOpenFileName(
@@ -193,21 +199,29 @@ class ForestZoningMainDialogElements:
             QMessageBox.information(self.main, "CSVインポート", f"読み込めませんでした。\n\n{e}")
 
     def handle_costcsv_export(self, editor_widget):
-        project_home = QgsProject.instance().homePath()
-        if project_home == "":
+        if not self.main.has_workspace():
             QMessageBox.information(
                 self.main, "エラー", "先にQGISプロジェクトを保存してください。"
             )
             return
-        output_path = utils.get_morizon_managed_dir(
-            DIR_DATA, *INPUT_COSTCSV["PATH"], "costcsv.csv"
-        )
+        target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        output_path = os.path.join(target_dir, "costcsv.csv")
+        # 1種類1ファイルにそろえる（Excel など CSV 以外は残す）
+        others = [path for path in self._files_of_type(target_dir, INPUT_COSTCSV["EXT"])
+                  if os.path.normcase(path) != os.path.normcase(output_path)]
+        if not self._confirm_replace_external(target_dir, others):
+            return
         try:
             editor_widget.export_to_csv(output_path)
         except ValueError as e:
             QMessageBox.warning(self.main, "入力エラー", str(e))
             return
-        self.main.elementsCostCsvFileWidget.setFilePath(output_path)
+        for path in others:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        self._set_input_path("costcsv", output_path)
         QMessageBox.information(
             self.main, "完了", f"作業システムCSVを書き出しました。\n{output_path}"
         )
@@ -346,9 +360,35 @@ class ForestZoningMainDialogElements:
         if not mondatory_files_dict["dem"]:
             error_texts.append("計算する要素をひとつ以上選択してください")
         if self.main.elementsOutputDirFileWidget.filePath() == "":
-            error_texts.append("出力先フォルダを指定してください")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
 
         return error_texts
+
+    def _confirm_shc_method(self) -> bool:
+        """地形の複雑さを SAGA で計算する設定（SAGA ON）なのに SAGA が使えない場合、計算を始める前に知らせる。
+        OFF（プラグイン内で計算）に切り替えて続けるなら True、やめるなら False"""
+        if not (self.main.elementsShcCheckbox.isChecked() and ShcMethodManager().load_use_saga()):
+            return True
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            check = saga_check.check_saga()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if check["ok"]:
+            return True
+        answer = QMessageBox.question(
+            self.main, "SAGA を使えません",
+            "地形の複雑さを SAGA で計算する設定（SAGA ON）になっていますが、SAGA を使えません。\n\n"
+            + check["problem"]
+            + "\n\nOFF（プラグイン内で計算）に切り替えて実行しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        ShcMethodManager().store_use_saga(False)
+        self.main.settings.update_shc_method_button()
+        return True
 
     def input_filewidgets(self) -> dict:
         """入力欄（キーは morizon_data.INPUT_DEFS と同じ）"""
@@ -364,23 +404,130 @@ class ForestZoningMainDialogElements:
 
     def load_elements_files_from_dir(self):
         """
-        指定されたフォルダから入力ファイルを探し、見つかったものを入力欄に反映する。
-        ZoningKit の最上位・DATA フォルダのどちらを選んでもよい（その場で参照し、コピーはしない）
+        「フォルダ選択から開始する」：選んだフォルダを作業場（外部）にして、その場で使う。
+        入力は DATA の中から探し、出力はそのフォルダの YOUSO/・ZONING/・AGGREGATE/ に書く（原版のキットと同じ使い方）。
+        フォルダの中身は人がそろえたものなので、使うファイルの一覧を確かめてから始める
         """
         selected_dir = QFileDialog.getExistingDirectory(self.main, "フォルダを選択")
         if not selected_dir:
             return
-        data_dir = morizon_data.resolve_data_dir(selected_dir)
-        if data_dir is None:
+        root, kind = morizon_data.resolve_root(selected_dir)
+        if root is None:
             QMessageBox.information(
                 self.main, "フォルダ選択",
                 "入力データが見つかりませんでした。\n"
                 "DATA フォルダ（DEM・SiteIndex などを含むフォルダ）か、それを含むフォルダを選んでください。"
             )
             return
-        for key, candidates in morizon_data.find_inputs(data_dir).items():
-            if candidates:
-                self.input_filewidgets()[key].setFilePath(candidates[0])
+        if kind == "kit":
+            data_dir = os.path.join(root, DIR_DATA)
+            workspace_root = root
+        else:
+            # DATA だけが選ばれた場合、出力（YOUSO/ 等）はその隣（DATA の親）に作る
+            data_dir = root
+            workspace_root = os.path.dirname(root) if os.path.basename(root) == DIR_DATA else root
+        found = morizon_data.find_inputs(data_dir)
+
+        lines = []
+        for key, defn in morizon_data.INPUT_DEFS.items():
+            candidates = found[key]
+            if not candidates:
+                lines.append(f"・{defn['DISPLAY_NAME']}：（なし）")
+            elif len(candidates) == 1:
+                lines.append(f"・{defn['DISPLAY_NAME']}：{os.path.basename(candidates[0])}")
+            else:
+                lines.append(
+                    f"・{defn['DISPLAY_NAME']}：{os.path.basename(candidates[0])}"
+                    f"（候補{len(candidates)}件のうち名前順で最初）"
+                )
+        warning = "" if found["dem"] else "\n\nDEMがありません。要素計算にはDEMが必要です。"
+        answer = QMessageBox.question(
+            self.main, "フォルダ選択から開始する",
+            f"次のフォルダを作業場（外部）にします。\n{os.path.basename(workspace_root)}\n\n"
+            "使う入力：\n" + "\n".join(lines) + warning
+            + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。\n開始しますか？",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok,
+        )
+        if answer != QMessageBox.StandardButton.Ok:
+            return
+        self.main.use_external_workspace(workspace_root)
+        self.main.set_inputs_from_data_dir(data_dir)
+
+    # ── 「…」で選んだファイルを作業場へ取り込む ─────────────────────────
+    # 個別に選んだファイルは、今の作業場の DATA/<種類>/ にコピーして使う（1種類1ファイル。前のファイルは置き換える）。
+    # プロジェクト内の作業場は取り込みでそろうので確認しない。外部のフォルダの中を置き換えるときだけ確認する
+
+    @staticmethod
+    def _files_of_type(directory, ext):
+        """作業場の種類フォルダにある、その種類のファイル（付随ファイルを含む。Excel 等ほかの形式は含めない）"""
+        if not os.path.isdir(directory):
+            return []
+        allowed = COMPANION_EXTENSIONS.get(ext.lower(), {"." + ext.lower()})
+        return [
+            os.path.join(directory, name) for name in sorted(os.listdir(directory))
+            if os.path.isfile(os.path.join(directory, name))
+            and (os.path.splitext(name)[1].lower() in allowed or name.lower().endswith(".aux.xml"))
+        ]
+
+    def _confirm_replace_external(self, target_dir, old_files) -> bool:
+        external = utils.get_external_workspace()
+        if not external or not old_files:
+            return True
+        names = "\n".join("・" + os.path.basename(path) for path in old_files)
+        answer = QMessageBox.question(
+            self.main, "外部のフォルダのファイルを置き換えます",
+            f"作業場（外部 {os.path.basename(external)}）の {os.path.relpath(target_dir, external)} にある"
+            f"次のファイルを削除し、選んだファイルに置き換えます。\n\n{names}\n\nよろしいですか？",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Ok
+
+    def _set_input_path(self, key, path):
+        with self.main.suppress_input_import():
+            self.input_filewidgets()[key].setFilePath(path)
+        self._input_paths[key] = path
+
+    def _on_input_file_changed(self, key):
+        path = self.input_filewidgets()[key].filePath()
+        previous = self._input_paths.get(key, "")
+        if self.main.is_input_import_suppressed() or not path or not os.path.isfile(path) \
+                or not self.main.has_workspace():
+            # プラグインが設定したとき・空欄・入力途中・作業場が無い（未保存のプロジェクト）ときはそのまま
+            self._input_paths[key] = path
+            return
+        input_def = morizon_data.INPUT_DEFS[key]
+        target_dir = utils.get_workspace_dir(DIR_DATA, *input_def["PATH"])
+        if utils.is_under_dir(os.path.abspath(path), target_dir):
+            self._input_paths[key] = path
+            return
+
+        old_files = self._files_of_type(target_dir, input_def["EXT"])
+        if not self._confirm_replace_external(target_dir, old_files):
+            self._set_input_path(key, previous)
+            return
+        sources = ForestZoningMainDialogArchive.get_companion_files(path, input_def["EXT"]) or [path]
+        os.makedirs(target_dir, exist_ok=True)
+        # いったん .part の名前でコピーし、そろってから前のファイルと入れ替える（中断・失敗しても前のファイルは残る）
+        tasks = [(src, os.path.join(target_dir, os.path.basename(src) + ".part")) for src in sources]
+        outcome = self.main.archive._run_thread(processes.data_import.FileCopyThread(tasks))
+        if outcome.get("status") != "done":
+            for _, part in tasks:
+                if os.path.exists(part):
+                    os.remove(part)
+            if outcome.get("status") == "failed":
+                QMessageBox.warning(self.main, "エラー", f"ファイルを取り込めませんでした。\n\n{outcome.get('message', '')}")
+            self._set_input_path(key, previous)
+            return
+        for old in old_files:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+        for _, part in tasks:
+            os.replace(part, part[:-len(".part")])
+        self._set_input_path(key, os.path.join(target_dir, os.path.basename(path)))
 
     def start_from_dem_browser(self):
         """
@@ -394,6 +541,9 @@ class ForestZoningMainDialogElements:
                 "先にQGISプロジェクトを保存してください（保存先フォルダにDEM等を格納します）。"
             )
             return
+        # 取得したデータはプロジェクト内（morizon_next）に置くので、作業場をプロジェクト内にする
+        if utils.get_external_workspace():
+            self.main.use_project_workspace(refill_inputs=True)
 
         dlg = DemBrowserDialog(self.main)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -704,6 +854,10 @@ class ForestZoningMainDialogElements:
             self.main.elementsSaveareaCheckbox,
         ):
             checkbox.setChecked(False)
+        self.forget_dem_browser_state()
+
+    def forget_dem_browser_state(self):
+        """DEMブラウザで取得したときの範囲などの記憶を消す（入力を消したとき・プロジェクトを切り替えたとき）"""
         self._dem_browser_dem_path = None
         self._pending_extent_wgs84 = None
         self._pending_final_extent_wgs84 = None
@@ -741,6 +895,8 @@ class ForestZoningMainDialogElements:
         return existing_filenames
 
     def run_elements(self):
+        if not self._confirm_shc_method():
+            return
         self.main.hide()
 
         existing_filenames = self.elements_get_existing_filenames()
@@ -839,7 +995,8 @@ class ForestZoningMainDialogElements:
         3階層以上の場合は最後のセグメントは葉グループを作らず、
         1つ手前のグループへレイヤーをまとめて直接追加する。
         """
-        root = QgsProject.instance().layerTreeRoot()
+        # 出力レイヤーは「Morizon Next」グループの中にまとめる
+        root = utils.get_morizon_output_group()
         group_cache = {}
         layer_items = list(reversed(list(output_rlayers_dict.items())))
         if not layer_items:
@@ -904,7 +1061,7 @@ class ForestZoningMainDialogElements:
             QCoreApplication.processEvents()
             ForestZoningMainDialogElements._wait_for_layer_add_step()
 
-        ForestZoningMainDialogElements.setup_output_layer_tree_visibility()
+        ForestZoningMainDialogElements.setup_output_layer_tree_visibility(root)
         progress_dialog.setValue(len(layer_items))
         progress_dialog.close()
         output_rlayers_dict.clear()
@@ -922,7 +1079,7 @@ class ForestZoningMainDialogElements:
         要素計算の出力グループにQGIS標準の排他的表示（Mutually Exclusive Group）を設定する。
         設定はプロジェクトに保存されるため、プラグインの起動有無に関係なく有効。
         """
-        root = root or QgsProject.instance().layerTreeRoot()
+        root = root or utils.get_morizon_output_group()
         # 災害リスクは傾斜をベースに地形の複雑さ・保全対象を含む流域を重ねて見るため、
         # 要素どうしは排他にしない（各要素内の生データ／スコアリングだけ排他）。収益性は要素どうしも排他
         for axis_name, exclusive_between_elements in (("収益性", True), ("災害リスク", False)):

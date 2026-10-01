@@ -128,7 +128,7 @@ class ForestZoningMainDialogZoning:
         # 既存の出力は実行時の上書き確認で置き換えるため、ここでは止めない
 
         if self.main.zoningOutputDirFileWidget.filePath() == "":
-            error_texts.append("出力先フォルダを指定してください")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
 
         return error_texts
 
@@ -160,17 +160,16 @@ class ForestZoningMainDialogZoning:
                 combobox.setLayer(layer)
 
     def update_zoning_layer_scope(self):
-        allowed_names = {
-            OUTPUT_PROFIT["DISPLAY_NAME"],
-            OUTPUT_RISK["DISPLAY_NAME"],
-        }
-        for combobox in (
-            self.main.zoningProfitLayerCombobox,
-            self.main.zoningRiskLayerCombobox,
+        # 欄ごとに、入るべきレイヤーだけを候補にする。両方の欄に両方を許すと、スコアリングが
+        # 収益性 → 災害リスクの順にレイヤーを追加したとき、空だった両方の欄が先に現れた収益性を
+        # 自動で選んでしまい、災害リスクの欄にも収益性が入る
+        for output_def, combobox in (
+            (OUTPUT_PROFIT, self.main.zoningProfitLayerCombobox),
+            (OUTPUT_RISK, self.main.zoningRiskLayerCombobox),
         ):
             utils.set_morizon_layer_scope(
                 combobox,
-                allowed_names=allowed_names,
+                allowed_names={output_def["DISPLAY_NAME"]},
                 allowed_extensions={".tif", ".tiff"},
             )
 
@@ -208,6 +207,8 @@ class ForestZoningMainDialogZoning:
             target_layer = self.main.zoningRiskLayerCombobox.currentLayer()
             opacity = 0.8
 
+        if not utils.is_usable_raster_layer(target_layer):
+            return
         target_layer.loadNamedStyle(qml_filepath)
         target_layer.renderer().setOpacity(opacity)
         apply_output_blend_mode(target_layer)
@@ -292,9 +293,8 @@ class ForestZoningMainDialogZoning:
         """
         for rlayer in rlayers_dict.values():
             apply_output_blend_mode(rlayer)
-            # プロジェクトのレイヤー一覧の一番上にレイヤーを追加
             QgsProject.instance().addMapLayer(rlayer, False)
-            root = QgsProject.instance().layerTreeRoot()
-            root.insertLayer(0, rlayer)
+            # 出力レイヤーは「Morizon Next」グループの中の一番上に追加する
+            utils.get_morizon_output_group().insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()

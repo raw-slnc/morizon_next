@@ -69,6 +69,10 @@ class ForestZoning:
         self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
             self.onLayersChanged
         )  # nopep8
+        # プロジェクトを開く・切り替える・別名で保存すると、保存先（<プロジェクト>/morizon_next）が変わる。
+        # 別名で保存したときは homePathChanged が来ないことがあるため、fileNameChanged も受ける（2回呼ばれても同じ結果になる）
+        QgsProject.instance().homePathChanged.connect(self.onProjectChanged)
+        QgsProject.instance().fileNameChanged.connect(self.onProjectChanged)
 
     def unload(self):
         for action in self.actions:
@@ -87,6 +91,8 @@ class ForestZoning:
             self.iface.layerTreeView().layerTreeModel().dataChanged,
             self.onLayersChanged,
         )
+        self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectChanged)
+        self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectChanged)
         if self.main_dialog is not None:
             self.main_dialog.close()
             self.main_dialog.deleteLater()
@@ -98,6 +104,11 @@ class ForestZoning:
             signal.disconnect(slot)
         except (TypeError, RuntimeError):
             pass
+
+    def onProjectChanged(self, *args):
+        # ダイアログは一度作ると開き直しても使い回すため、切り替わったプロジェクトに合わせ直す
+        if self.main_dialog is not None:
+            self.main_dialog.on_project_changed()
 
     def onLayersChanged(self, *args):
         if not self.is_visible_main_dialog():

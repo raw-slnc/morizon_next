@@ -707,7 +707,7 @@ class ForestZoningMainDialogScoring:
             error_texts.append("「収益性軸」「災害リスク軸」のいずれかにひとつ以上にチェックしてください")
 
         if self.main.scoringOutputDirFileWidget.filePath() == "":
-            error_texts.append("出力先フォルダを指定してください")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
 
         return error_texts
 
@@ -834,34 +834,16 @@ class ForestZoningMainDialogScoring:
         """
         処理結果を受け取ってレイヤー群を1つのグループとしてプロジェクトに追加
         """
-        root = QgsProject.instance().layerTreeRoot()
+        # 出力レイヤーは「Morizon Next」グループの中にまとめる
+        root = utils.get_morizon_output_group()
         group_node = root.insertGroup(0, "スコアリング")
         group_node.setExpanded(False)
 
+        # 収益性と災害リスクを重ねて見られるよう、グループ内は排他にしない。初期状態はグループ・レイヤーともOFF
+        group_node.setItemVisibilityChecked(False)
         for rlayer in rlayers_dict.values():
             apply_output_blend_mode(rlayer)
             QgsProject.instance().addMapLayer(rlayer, False)
-            group_node.addLayer(rlayer)
-        ForestZoningMainDialogScoring._set_mutually_exclusive_group(group_node, initial_child_index=None)
+            group_node.addLayer(rlayer).setItemVisibilityChecked(False)
         rlayers_dict.clear()
         gc.collect()
-
-    @staticmethod
-    def _set_mutually_exclusive_group(group, initial_child_index=None):
-        children = group.children()
-        if not children:
-            return
-        group.setItemVisibilityChecked(False)
-        for idx, child in enumerate(children):
-            child.setItemVisibilityChecked(
-                initial_child_index is not None and idx == initial_child_index
-            )
-        if hasattr(group, "setIsMutuallyExclusive"):
-            try:
-                if initial_child_index is None:
-                    group.setIsMutuallyExclusive(True)
-                else:
-                    initial_child_index = max(0, min(initial_child_index, len(children) - 1))
-                    group.setIsMutuallyExclusive(True, initial_child_index)
-            except TypeError:
-                group.setIsMutuallyExclusive(True)

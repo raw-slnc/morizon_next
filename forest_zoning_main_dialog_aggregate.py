@@ -161,24 +161,26 @@ class ForestZoningMainDialogAggregate:
             style_threshold=self.main.aggregateStyleThresholdspinBox.value()
         )
         progress_dialog = ProgressDialog(thread.set_abort_flag)
-        progress_dialog.set_abortable(False)
         thread.processStarted.connect(progress_dialog.set_sum_of_processes)
         thread.addProgress.connect(progress_dialog.add_progress)
         thread.postMessage.connect(progress_dialog.set_messsage)
+        thread.postDetail.connect(progress_dialog.set_detail)
+        thread.setAbortable.connect(progress_dialog.set_abortable)
         thread.processFinished.connect(self.add_layers_to_project)
         thread.processFinished.connect(progress_dialog.close)
+        failures = []
+        thread.processFailed.connect(failures.append)
         thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"
-            )
-        )
         thread.start()
         progress_dialog.exec()
+        thread.wait()
 
         self.main.show()
 
-        QMessageBox.information(self.main, "完了", "処理が完了しました。")
+        if failures:
+            QMessageBox.information(self.main, "エラー", f"集計を完了できませんでした。\n\n{failures[0]}")
+        else:
+            QMessageBox.information(self.main, "完了", f"処理が完了しました。\n{thread.summary}")
 
     def refresh_aggregate_ui(self):
         self.update_aggregate_layer_scope()
@@ -214,7 +216,7 @@ class ForestZoningMainDialogAggregate:
         ):
             error_texts.append("DEMファイルを指定してください")
         if self.main.aggregateOutputDirFileWidget.filePath() == "":
-            error_texts.append("出力先フォルダを指定してください")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
 
         return error_texts
 
@@ -224,9 +226,8 @@ class ForestZoningMainDialogAggregate:
         処理結果をプロジェクトに追加
         """
         for rlayer in rlayers_dict.values():
-            # プロジェクトのレイヤー一覧の一番上にレイヤーを追加
             QgsProject.instance().addMapLayer(rlayer, False)
-            root = QgsProject.instance().layerTreeRoot()
-            root.insertLayer(0, rlayer)
+            # 出力レイヤーは「Morizon Next」グループの中の一番上に追加する
+            utils.get_morizon_output_group().insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()

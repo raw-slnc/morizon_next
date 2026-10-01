@@ -13,8 +13,7 @@ from qgis.gui import *
 from qgis.PyQt import sip
 import processing
 
-from ..processes import raster_styler
-from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME
+from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME
 
 
 @lru_cache(maxsize=None)
@@ -102,6 +101,9 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
     rlayer_filepath = rlayer.dataProvider().dataSourceUri()
     output_dir = os.path.dirname(rlayer_filepath)
 
+    # processes は utils を使うため、utils の先頭では読み込まない（読み込み順によって循環して失敗する）
+    from ..processes import raster_styler
+
     # QGIS画面上の地図スタイルを変換しないために、filepathから新たにインスタンスを作成する
     rlayer_from_path = QgsRasterLayer(rlayer_filepath)
     renderer = raster_styler.get_quantile_renderer(
@@ -154,7 +156,7 @@ def find(l: list, x) -> int:
 def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
                              allowed_extensions=None) -> bool:
     """
-    MORIZON NEXTがプロジェクトフォルダ配下で管理する成果物レイヤーか判定する。
+    MORIZON NEXTが今の作業場（プロジェクト内の morizon_next、または外部のフォルダ）で管理する成果物レイヤーか判定する。
     外部レイヤーを広く走査しないため、タブ内の候補絞り込みと自動設定で使う。
     """
     if layer is None:
@@ -165,7 +167,7 @@ def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
     if not source:
         return False
     normalized_source = os.path.normpath(source)
-    managed_dir = get_morizon_managed_dir()
+    managed_dir = get_workspace_dir()
     try:
         in_managed_dir = os.path.commonpath(
             [normalized_source, managed_dir]
@@ -220,6 +222,29 @@ def find_morizon_layer_by_name(layer_name: str, allowed_extensions=None):
     return None
 
 
+# 作業場：入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所。
+# 通常はプロジェクト内（<プロジェクト>/morizon_next）。「フォルダ選択から開始する」で外部のフォルダにもなる
+_external_workspace = None
+
+
+def set_external_workspace(root):
+    """作業場を外部のフォルダにする。None ならプロジェクト内に戻す"""
+    global _external_workspace
+    _external_workspace = os.path.normpath(root) if root else None
+
+
+def get_external_workspace():
+    """外部のフォルダを作業場にしていればそのパス、プロジェクト内なら None"""
+    return _external_workspace
+
+
+def get_workspace_dir(*subdirs) -> str:
+    """今の作業場（外部のフォルダ、またはプロジェクト内の morizon_next）。subdirsを渡すとその下のパス"""
+    if _external_workspace:
+        return os.path.normpath(os.path.join(_external_workspace, *subdirs))
+    return get_morizon_managed_dir(*subdirs)
+
+
 def get_morizon_managed_dir(*subdirs) -> str:
     """MORIZON管理フォルダ（<プロジェクトフォルダ>/morizon_next）。subdirsを渡すとその下のパス。
     構成は constants.py の DIR_DATA 等を参照"""
@@ -258,6 +283,18 @@ def is_under_dir(path: str, directory: str) -> bool:
         return os.path.commonpath([os.path.normpath(path), directory]) == directory
     except ValueError:
         return False
+
+
+def get_morizon_output_group():
+    """出力レイヤーをまとめるグループ（プロジェクトの最上位の「Morizon Next」）。無ければ一番上に作る。
+    中身が空になったときは _remove_layers_and_empty_groups が取り除く"""
+    root = QgsProject.instance().layerTreeRoot()
+    for child in root.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME:
+            return child
+    group = root.insertGroup(0, OUTPUT_GROUP_NAME)
+    group.setExpanded(True)
+    return group
 
 
 def _remove_layers_and_empty_groups(layers) -> int:
@@ -350,15 +387,24 @@ def get_tiff_info(tiff_filepath: str) -> dict:
     }
 
 
+def is_usable_raster_layer(layer) -> bool:
+    """ラスター用の統計を取れる、使えるラスターレイヤーか。
+    選択欄が指しているレイヤーは、置き換えのための削除の最中などに、ラスターでない・削除済み・無効なものが
+    渡ってくることがある（ゾーニングタブで QgsVectorDataProvider の bandStatistics を呼んで落ちた例がある）"""
+    if layer is None or sip.isdeleted(layer):
+        return False
+    raster_layer_type = getattr(QgsMapLayer, "LayerType", QgsMapLayer).RasterLayer
+    if layer.type() != raster_layer_type or not layer.isValid():
+        return False
+    provider = layer.dataProvider()
+    return provider is not None and hasattr(provider, "bandStatistics")
+
+
 def is_valid_elements_layer(rlayer: QgsRasterLayer) -> bool:
     """
     ラスターレイヤーが有効な要素レイヤーかチェックする
     """
-    raster_layer_type = getattr(QgsMapLayer, "LayerType", QgsMapLayer).RasterLayer
-    if rlayer is None or rlayer.type() != raster_layer_type:
-        return False
-    provider = rlayer.dataProvider()
-    if provider is None or not hasattr(provider, "bandStatistics"):
+    if not is_usable_raster_layer(rlayer):
         return False
     stats = get_raster_stats(rlayer)
     return stats["MIN"] <= stats["MEAN"] and stats["MEAN"] <= stats["MAX"]
@@ -368,6 +414,8 @@ def is_valid_scoring_layer(rlayer: QgsRasterLayer) -> bool:
     """
     ラスターレイヤーが有効なスコアリングレイヤーかチェックする
     """
+    if not is_usable_raster_layer(rlayer):
+        return False
     stats = get_raster_stats(rlayer)
     is_tile = stats["MIN"] >= stats["MAX"]
     has_negative = stats["MIN"] < 0

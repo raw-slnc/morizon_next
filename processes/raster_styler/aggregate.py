@@ -1,6 +1,20 @@
 from ...constants import ZONING_COLORS
 
 
+# 地面（背景の地図）を隠さないよう、塗りは不透明度60%にする（外周線と斜線は不透明のまま）
+FILL_OPACITY = 0.6
+# 外周線は濃い紺。背景の等高線（茶系）や、重ねた森林計画図の小班線（黒）と見分けやすく、
+# 区分3・4の水色・青の塗りの上でも縁が見える。赤は「災害リスク高」の斜線の意味なので使わない
+OUTLINE_COLOR = "31,78,156,255"
+
+
+def _fill_color(hex_color: str) -> str:
+    """#rrggbb を QGIS のスタイルの r,g,b,a（不透明度 FILL_OPACITY）にする"""
+    value = hex_color.lstrip("#")
+    r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return f"{r},{g},{b},{round(255 * FILL_OPACITY)}"
+
+
 def write_qml(output_shp_path: str, threshold=0.3) -> str:
     output_filepath = output_shp_path.replace(".shp", ".qml")
     with open(output_filepath, mode="w") as f:
@@ -23,12 +37,12 @@ def write_qml(output_shp_path: str, threshold=0.3) -> str:
       <symbol name="0" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{ZONING_COLORS[0]}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[0])}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
           <prop k="offset_unit" v="MM"/>
-          <prop k="outline_color" v="0,0,0,255"/>
+          <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
           <prop k="outline_width" v="0.2"/>
           <prop k="outline_width_unit" v="MM"/>
@@ -45,12 +59,12 @@ def write_qml(output_shp_path: str, threshold=0.3) -> str:
       <symbol name="1" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{ZONING_COLORS[1]}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[1])}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
           <prop k="offset_unit" v="MM"/>
-          <prop k="outline_color" v="0,0,0,255"/>
+          <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
           <prop k="outline_width" v="0.2"/>
           <prop k="outline_width_unit" v="MM"/>
@@ -67,12 +81,12 @@ def write_qml(output_shp_path: str, threshold=0.3) -> str:
       <symbol name="2" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{ZONING_COLORS[2]}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[2])}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
           <prop k="offset_unit" v="MM"/>
-          <prop k="outline_color" v="0,0,0,255"/>
+          <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
           <prop k="outline_width" v="0.2"/>
           <prop k="outline_width_unit" v="MM"/>
@@ -89,12 +103,12 @@ def write_qml(output_shp_path: str, threshold=0.3) -> str:
       <symbol name="3" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{ZONING_COLORS[3]}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[3])}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
           <prop k="offset_unit" v="MM"/>
-          <prop k="outline_color" v="0,0,0,255"/>
+          <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
           <prop k="outline_width" v="0.2"/>
           <prop k="outline_width_unit" v="MM"/>

@@ -163,6 +163,7 @@ class ShcMethodManager:
 
     SETTING_GROUP = '/MORIZON/shc_method'
     USE_SAGA_KEY = 'use_saga'
+    HIDE_SAGA_NOTICE_KEY = 'hide_saga_notice'
 
     def load_use_saga(self) -> bool:
         qsettings = QSettings()
@@ -175,4 +176,18 @@ class ShcMethodManager:
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
         qsettings.setValue(self.USE_SAGA_KEY, bool(use_saga))
+        qsettings.endGroup()
+
+    def load_hide_saga_notice(self) -> bool:
+        """SAGA ON にしたときの説明を「次回から表示しない」にしたか"""
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.HIDE_SAGA_NOTICE_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_hide_saga_notice(self, hide: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.HIDE_SAGA_NOTICE_KEY, bool(hide))
         qsettings.endGroup()

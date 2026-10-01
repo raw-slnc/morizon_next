@@ -1,7 +1,9 @@
 import json
 
-from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
 
+from . import saga_check
 from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
 
 
@@ -59,8 +61,54 @@ class ForestZoningMainDialogSettings:
 
     def toggle_shc_method(self, *_args):
         manager = ShcMethodManager()
-        manager.store_use_saga(not manager.load_use_saga())
+        if manager.load_use_saga():
+            manager.store_use_saga(False)
+            self.update_shc_method_button()
+            return
+
+        # ON にする前に、SAGA で計算できる環境かを確かめる。足りなければ案内して OFF のままにする
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            check = saga_check.check_saga()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not check["ok"]:
+            QMessageBox.information(
+                self.main, "SAGA を使えません",
+                "SAGA で計算できる環境が見つからないため、OFF（プラグイン内で計算）のままにします。\n\n"
+                + check["problem"],
+            )
+            return
+
+        manager.store_use_saga(True)
         self.update_shc_method_button()
+        if not manager.load_hide_saga_notice():
+            self.show_saga_notice(check)
+
+    # SAGA ON にしたときの説明（見つかった環境の版を差し込む）
+    SAGA_NOTICE_TEXT = (
+        "SAGA で計算します（地形の複雑さの平滑化と平面曲率）。<br>"
+        "検出した環境：SAGA {saga_version}（Processing Saga NextGen Provider {plugin_version}）<br><br>"
+        "MORIZON v2.1 の指定（平滑化：探索半径12・標準偏差3、曲率：Zevenbergen &amp; Thorne）を"
+        "そのまま SAGA に渡します。現行の SAGA はこの指定に対応していないため、平滑化はほぼ行われず、"
+        "平面曲率の係数も v2.1 と異なります。v2.1 の結果とは相違が大きく出ます"
+        "（サンプルDEMでの3区分の一致率は約50%）。<br><br>"
+        "MORIZON v2.1 の結果に沿った計算が必要な場合は、OFF（既定）を使ってください。"
+    )
+
+    def show_saga_notice(self, check):
+        box = QMessageBox(self.main)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("SAGA で計算します")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(self.SAGA_NOTICE_TEXT.format(
+            saga_version=check["saga_version"], plugin_version=check["plugin_version"] or "不明",
+        ))
+        hide_checkbox = QCheckBox("次回から表示しない")
+        box.setCheckBox(hide_checkbox)
+        box.exec()
+        if hide_checkbox.isChecked():
+            ShcMethodManager().store_hide_saga_notice(True)
 
     @staticmethod
     def force_odd(spinbox):

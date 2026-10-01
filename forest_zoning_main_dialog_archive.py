@@ -21,7 +21,6 @@ from .constants import (
     INPUT_BUILDING,
     INPUT_NETWORK,
     INPUT_COSTCSV,
-    OUTPUT_AGGREGATE,
     OUTPUT_COST,
     OUTPUT_DISTANCE,
     OUTPUT_PARAMS_JSON,
@@ -167,7 +166,7 @@ class ForestZoningMainDialogArchive:
 
         # 作業システムのExcel（「デフォルトExcelを開く」で置いたもの・原版キットに入っていたもの）も
         # クリアで消えないよう、CSVと同じフォルダに入れて残す
-        costcsv_dir = utils.get_morizon_managed_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        costcsv_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         if os.path.isdir(costcsv_dir):
             for name in sorted(os.listdir(costcsv_dir)):
                 if os.path.splitext(name)[1].lower() in (".xlsx", ".xls"):
@@ -258,15 +257,22 @@ class ForestZoningMainDialogArchive:
             f"・{folder}/  {counts.get(folder, 0)}ファイル"
             for folder in (DIR_DATA, DIR_YOUSO, DIR_ZONING, DIR_AGGREGATE)
         )
+        # 作業場が外部のフォルダのときは、そのフォルダを消さない（保存だけ行う）
+        external = utils.get_external_workspace()
+        if external:
+            clear_text = f"作業場は外部のフォルダ（{os.path.basename(external)}）のため、保存後のクリアは行いません。\n\n"
+        else:
+            clear_text = (
+                "保存後、次の個別データをクリアします。\n"
+                f"・{managed_dir} 内のファイル（{DIR_SHARED} フォルダを除く）\n"
+                "・上記を読み込んでいるプロジェクト上のレイヤー\n"
+                "・各タブの入力欄\n\n"
+            )
         answer = QMessageBox.question(
             self.main,
             "保存ファイル出力",
             f"入力データと出力結果を次のZIPに保存します。\n{archive_path}\n\n{content_lines}\n\n"
-            "保存後、次の個別データをクリアします。\n"
-            f"・{managed_dir} 内のファイル（{DIR_SHARED} フォルダを除く）\n"
-            "・上記を読み込んでいるプロジェクト上のレイヤー\n"
-            "・各タブの入力欄\n\n"
-            "実行してよろしいですか？",
+            + clear_text + "実行してよろしいですか？",
             QMessageBox.StandardButton.Yes,
             QMessageBox.StandardButton.No,
         )
@@ -285,9 +291,14 @@ class ForestZoningMainDialogArchive:
             QMessageBox.warning(self.main, "保存ファイル出力", text)
             return
 
+        if external:
+            QMessageBox.information(self.main, "保存ファイル出力", f"ZIPを保存しました。\n{archive_path}")
+            return
+
         failed = self._clear_managed_data(managed_dir)
-        self.main.elements.reset_elements_inputs()
-        self.main.aggregateDemFileWidget.setFilePath("")
+        with self.main.suppress_input_import():
+            self.main.elements.reset_elements_inputs()
+            self.main.aggregateDemFileWidget.setFilePath("")
         self.recreate_output_dirs(managed_dir)
 
         message = f"ZIPを保存しました。\n{archive_path}\n\n個別データをクリアしました。"
@@ -393,7 +404,9 @@ class ForestZoningMainDialogArchive:
         self.load_managed_data()
 
     def load_managed_data(self):
-        """管理フォルダ（DATA/・YOUSO/・ZONING/・AGGREGATE/）を各タブとレイヤーに反映する"""
+        """管理フォルダ（DATA/・YOUSO/・ZONING/・AGGREGATE/）を各タブとレイヤーに反映する。
+        保存データはプロジェクト内に取り込むので、作業場はプロジェクト内になる"""
+        self.main.use_project_workspace(refill_inputs=False)
         managed_dir = utils.get_morizon_managed_dir()
         data_dir = os.path.join(managed_dir, DIR_DATA)
         youso_dir = os.path.join(managed_dir, DIR_YOUSO)
@@ -408,28 +421,20 @@ class ForestZoningMainDialogArchive:
         )
 
         # 入力
-        self.main.elements.reset_elements_inputs()
-        self.main.aggregateDemFileWidget.setFilePath("")
-        found = morizon_data.find_inputs(data_dir)
+        with self.main.suppress_input_import():
+            self.main.elements.reset_elements_inputs()
+        found = self.main.set_inputs_from_data_dir(data_dir)
         notes = []
-        for key, filewidget in self.main.elements.input_filewidgets().items():
-            candidates = found[key]
-            if candidates:
-                filewidget.setFilePath(candidates[0])
-                if len(candidates) > 1:
-                    notes.append(
-                        f"{morizon_data.INPUT_DEFS[key]['DISPLAY_NAME']}：候補が{len(candidates)}個あるため"
-                        f"「{os.path.basename(candidates[0])}」を使います"
-                    )
+        for key, candidates in found.items():
+            if len(candidates) > 1:
+                notes.append(
+                    f"{morizon_data.INPUT_DEFS[key]['DISPLAY_NAME']}：候補が{len(candidates)}個あるため"
+                    f"「{os.path.basename(candidates[0])}」を使います"
+                )
 
-        # 出力先
-        self.main.elementsOutputDirFileWidget.setFilePath(youso_dir)
-        self.main.scoringOutputDirFileWidget.setFilePath(zoning_dir)
-        self.main.zoningOutputDirFileWidget.setFilePath(zoning_dir)
+        # 出力先（作業場の中に決まる）
+        self.main.apply_workspace_output_dirs()
         aggregate_shp = morizon_restore.find_aggregate_shp(aggregate_dir)
-        self.main.aggregateOutputDirFileWidget.setFilePath(
-            aggregate_shp or os.path.join(aggregate_dir, OUTPUT_AGGREGATE["FILE_NAME"] + ".shp")
-        )
 
         # スコアリングのしきい値
         params_path = os.path.join(zoning_dir, _json_name(OUTPUT_PARAMS_JSON))
