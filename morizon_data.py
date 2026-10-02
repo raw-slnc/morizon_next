@@ -11,7 +11,7 @@ MORIZONデータ（ZoningKit形式のフォルダ・保存ZIP）の構成を扱�
     ├─ DATA/        DEM/ SiteIndex/{NPP,SRAD,VTEX}/ ROAD/ TATEMONO/ SAGYO-SYSTEM_CSV/
     ├─ YOUSO/       要素計算の出力
     ├─ ZONING/      スコアリングとゾーニングの出力
-    └─ AGGREGATE/   集計の出力（MORIZON NEXTで追加）
+    └─ AGGREGATE/   ゾーン統計量の出力（MORIZON NEXTで追加）
 原版の手引では DATA フォルダそのものを指定する運用のため、DATA だけのフォルダ・ZIPも受け付ける。
 """
 
@@ -324,7 +324,7 @@ def info_text() -> str:
         "  SAGYO-SYSTEM_CSV/     作業システム\n"
         f"{DIR_YOUSO}/       要素計算の出力\n"
         f"{DIR_ZONING}/      収益性・災害リスク・ゾーニング図の出力\n"
-        f"{DIR_AGGREGATE}/   集計の出力（MORIZON NEXT で追加したフォルダです。原版にはありません）\n"
+        f"{DIR_AGGREGATE}/   ゾーン統計量の出力（MORIZON NEXT で追加したフォルダです。原版にはありません）\n"
         "\n"
         "■ 読み直すには\n"
         "MORIZON NEXT の要素計算タブ「保存ファイルを読み込む」から、この ZIP またはフォルダを選んでください。\n"
