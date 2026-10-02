@@ -281,32 +281,34 @@ li { margin: 3px 0; }
 <h3>1.2 準備の前に：範囲と保存場所を決める</h3>
 
 <h4>QGIS プロジェクトを先に保存する</h4>
-<p>自動取得したデータは、すべて <strong>QGIS プロジェクトファイルと同じフォルダの中</strong>の <span class="path">morizon_next</span> フォルダに保存されます。そのため、データを取得する前にプロジェクトを一度保存してください。保存していないと、取得を始めたときに案内が出ます。</p>
+<p>自動取得したデータは、すべて <strong>QGIS プロジェクトファイルと同じフォルダの中</strong>の <span class="path">morizon_next</span> フォルダの、<strong>プロジェクトのファイル名のフォルダ</strong>（プロジェクト内の作業フォルダ）に保存されます。同じフォルダに複数の QGIS プロジェクトを置いても、プロジェクトごとに分かれます。そのため、データを取得する前にプロジェクトを一度保存してください。保存していないと、取得を始めたときに案内が出ます。</p>
 <div class="why"><span class="label">なぜプロジェクトフォルダに置くのか</span>
 データがプロジェクトと一緒にまとまっていれば、フォルダごと別の PC に持っていくだけで作業を続けられます。システムの一時フォルダや、プロジェクトと無関係な場所にデータが散らばることもありません。フォルダ名やユーザー名に日本語が含まれていても問題ありません。
 </div>
 
 <p>取得が終わると、フォルダの中は次のようになります。</p>
 <pre class="how" style="font-family:Consolas,monospace;font-size:13.5px;line-height:1.6;white-space:pre;overflow-x:auto">(プロジェクトフォルダ)/
-├─ ○○.qgz                 … QGIS プロジェクト
+├─ ○○.qgz                     … QGIS プロジェクト
 └─ morizon_next/
-    ├─ DATA/                 … 入力データ
-    │   ├─ DEM/              dem_fetched.tif
-    │   ├─ SiteIndex/
-    │   │   ├─ NPP/          npp_clipped.tif
-    │   │   ├─ SRAD/         srad_clipped.tif
-    │   │   └─ VTEX/         vtex_clipped.tif
-    │   ├─ TATEMONO/         building.shp
-    │   ├─ ROAD/             road_edge.shp
-    │   └─ SAGYO-SYSTEM_CSV/ costcsv.csv
-    ├─ YOUSO/                … 要素計算の出力
-    ├─ ZONING/               … 収益性・災害リスク・ゾーニング図の出力
-    ├─ AGGREGATE/            … 集計の出力
-    └─ shared/               … 再取得を省くための控え（触らなくてよい）</pre>
-<p>この構成は原版の「ZoningKit」と同じです（AGGREGATE だけは MORIZON NEXT で追加したフォルダです）。画面右上の「保存ファイル出力」で、入力と出力をこの構成のまま ZIP に保存できます。保存した ZIP は要素計算タブの「保存ファイルを読み込む」で読み込むと、各タブの入力欄と出力レイヤーが保存したときの状態に戻ります。</p>
+    ├─ ○○/                     … プロジェクト内の作業フォルダ（プロジェクトのファイル名）
+    │   ├─ DATA/                … 入力データ
+    │   │   ├─ DEM/             dem_fetched.tif
+    │   │   ├─ SiteIndex/
+    │   │   │   ├─ NPP/         npp_clipped.tif
+    │   │   │   ├─ SRAD/        srad_clipped.tif
+    │   │   │   └─ VTEX/        vtex_clipped.tif
+    │   │   ├─ TATEMONO/        building.shp
+    │   │   ├─ ROAD/            road_edge.shp
+    │   │   └─ SAGYO-SYSTEM_CSV/ costcsv.csv
+    │   ├─ YOUSO/               … 要素計算の出力
+    │   ├─ ZONING/              … 収益性・災害リスク・ゾーニング図の出力
+    │   └─ AGGREGATE/           … ゾーン統計量の出力
+    ├─ shared/                  … 再取得を省くための控え（同じフォルダのプロジェクトで共有。触らなくてよい）
+    └─ archive/                 … 保存ファイル（ZIP）</pre>
+<p>作業フォルダの構成は原版の「ZoningKit」と同じです（AGGREGATE だけは MORIZON NEXT で追加したフォルダです）。画面右上の「保存ファイル出力」で、入力と出力をこの構成のまま ZIP に保存できます（保存先は <span class="path">morizon_next/archive</span>）。保存した ZIP は要素計算タブの「保存ファイルを読み込む」で読み込むと、各タブの入力欄と出力レイヤーが保存したときの状態に戻ります。QGIS プロジェクトを保存して開き直したときは、「再開しますか？」と確認して、前回の作業フォルダの続きから作業できます。</p>
 
-<div class="note"><span class="label">別の範囲を取得すると上書きされます（現バージョン）</span>
-同じプロジェクトで範囲を変えてもう一度取得すると、上のファイルは新しい範囲のデータに置き換わります。複数の地区を解析する場合は、<strong>地区ごとに QGIS プロジェクトを分けて</strong>ください。
+<div class="note"><span class="label">1つの QGIS プロジェクトで扱う解析は1つです</span>
+同じプロジェクトで範囲を変えて「DEMブラウザから開始する」を押すと、前の解析のデータがある場合は、破棄してよいかを確認します。前の解析を残したい場合は、先に「保存ファイル出力」で保存してください。複数の地区を同時に扱う場合は、<strong>地区ごとに QGIS プロジェクトを分けて</strong>ください（同じフォルダに置いても、作業フォルダはプロジェクトごとに分かれます）。
 </div>
 
 <h4>範囲は「QGIS の地図に表示している範囲」</h4>
@@ -396,7 +398,7 @@ DEM の取得が終わると、続けて自動で取得が始まります。操�
 <ul>
   <li>取得元は、林野庁がもりぞん用に公開している「ZoningKit」（G空間情報センター）です。登録は不要です。</li>
   <li>表示範囲の中心がどの座標系の地域にあるかを判定し、必要な部分だけを取り出します。</li>
-  <li>一度取得した地域のデータは <span class="path">morizon_next/shared</span> に控えが残り、同じプロジェクトで取り直すときにはダウンロードを省きます。</li>
+  <li>一度取得した地域のデータは <span class="path">morizon_next/shared</span> に控えが残り、同じフォルダのプロジェクトで取り直すときにはダウンロードを省きます。</li>
 </ul>
 </div>
 
@@ -480,11 +482,11 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
   <li><strong>色分布パネル</strong>（右）：横軸が傾斜、縦軸が起伏量です。色が、その地形に割り当てる機械を表します。初期値は実際の作業データに基づく標準パターンです。</li>
   <li><strong>機材名の一覧</strong>（左）：色と機械の対応です。数字が大きい機械ほど作業効率が高い扱いになります。<strong>色の四角をクリックすると「保有していない機械」</strong>になり、その機械が割り当てられていた地形は「該当なし」（最も効率が低い）になります。</li>
   <li><strong>マージン</strong>：プラス側にすると、斜面を実際より最大5度緩いものとみなし、同じ地形でもより効率のよい機械を割り当てます（強気）。マイナス側はその逆（慎重）です。緩斜面と、機械の限界を超える急斜面の割り当ては動きません。</li>
-  <li><strong>「CSVとして設定に反映する」</strong>を押すと <span class="path">morizon_next/DATA/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
+  <li><strong>「CSVとして設定に反映する」</strong>を押すと、作業フォルダの <span class="path">DATA/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
 </ul>
 <p>地域の作業システムをマスごとに細かく決めたい場合は、原版と同じ Excel のひな形も使えます。</p>
 <ol>
-  <li><strong>「デフォルトExcelを開く」</strong>を押すと、ひな形（集材作業効率の設定220113.xlsx）が <span class="path">morizon_next/DATA/SAGYO-SYSTEM_CSV</span> に置かれて開きます。すでに置いてある場合は、そのファイルを開きます。</li>
+  <li><strong>「デフォルトExcelを開く」</strong>を押すと、ひな形（集材作業効率の設定220113.xlsx）が、作業フォルダの <span class="path">DATA/SAGYO-SYSTEM_CSV</span> に置かれて開きます。すでに置いてある場合は、そのファイルを開きます。</li>
   <li>ひな形の説明どおりに入力し、「CSVで出力」シートを CSV 形式で同じフォルダに保存します。</li>
   <li><strong>「CSVインポート」</strong>で保存した CSV を選ぶと、パターンと機材名がパネルと一覧に表示されます。</li>
   <li>表示を確かめてから「CSVとして設定に反映する」を押します。</li>
@@ -521,7 +523,7 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 </div>
 
 <h4>フォルダ選択から開始する</h4>
-<p>原版の ZoningKit のフォルダ（またはその中の <span class="path">DATA</span> フォルダ）や、MORIZON NEXT が作った <span class="path">morizon_next</span> フォルダを選ぶと、<span class="path">DATA</span> の中のサブフォルダ（DEM、SiteIndex/NPP など）から入力ファイルをまとめて設定します。ファイルはコピーせず、選んだ場所のものをそのまま使い、出力もそのフォルダの YOUSO・ZONING・AGGREGATE に書き込みます（作業フォルダ：外部）。開始する前に、使うファイルの一覧を確認できます。入力欄の「…」でファイルを個別に選んだ場合は、作業フォルダの DATA にコピーして使います。作業フォルダは QGIS プロジェクトと一緒に保存されるので、プロジェクトを保存して開き直せば同じフォルダで続きから作業できます（「設定をクリアする」でプロジェクト内に戻ります）。</p>
+<p>原版の ZoningKit のフォルダ（またはその中の <span class="path">DATA</span> フォルダ）や、MORIZON NEXT の作業フォルダ（<span class="path">morizon_next/○○</span>）を選ぶと、<span class="path">DATA</span> の中のサブフォルダ（DEM、SiteIndex/NPP など）から入力ファイルをまとめて設定します。ファイルはコピーせず、選んだ場所のものをそのまま使い、出力もそのフォルダの YOUSO・ZONING・AGGREGATE に書き込みます（作業フォルダ：外部）。開始する前に、使うファイルの一覧を確認できます。選んだフォルダに出力（YOUSO・ZONING・AGGREGATE のファイル）がある場合は、途中まで進んだフォルダとして読み込み、出力をレイヤーに反映します。入力欄の「…」でファイルを個別に選んだ場合は、作業フォルダの DATA にコピーして使います。作業フォルダは QGIS プロジェクトに記録されるので、プロジェクトを保存して開き直すと「再開しますか？」と確認し、同じフォルダで続きから作業できます（「設定をクリアする」では初期状態、作業フォルダ：なし に戻ります）。</p>
 <div class="note"><span class="label">各サブフォルダにはファイルを1つだけ置いてください</span>
 同じフォルダに候補が複数あると、名前順で最初のファイルが選ばれます。意図しないファイルが選ばれないよう、古いファイルは別の場所に移しておいてください。
 </div>
