@@ -81,7 +81,7 @@ class DataImportThread(QThread):
 
 
 class FileCopyThread(QThread):
-    """ファイルを決まった場所へコピーするスレッド（入力欄の「…」で選んだファイルを作業場へ取り込むときに使う）。
+    """ファイルを決まった場所へコピーするスレッド（入力欄の「…」で選んだファイルを作業フォルダへ取り込むときに使う）。
     tasks は (元のパス, コピー先) の配列。中断されたら、書きかけのコピー先を消す"""
 
     processStarted = pyqtSignal(int)
@@ -105,7 +105,7 @@ class FileCopyThread(QThread):
         try:
             tasks = [(src, dest, os.path.getsize(src)) for src, dest in self.tasks]
             self.setAbortable.emit(True)
-            self.postMessage.emit("作業場にファイルを取り込み中")
+            self.postMessage.emit("作業フォルダにファイルを取り込み中")
             self.processStarted.emit(100)
             reported = {"percent": 0}
 

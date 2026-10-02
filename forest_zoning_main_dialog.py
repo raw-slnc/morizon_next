@@ -7,11 +7,15 @@ import os
 from qgis.PyQt import uic
 from contextlib import contextmanager
 
-from qgis.PyQt.QtCore import QEvent, Qt
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QDialog, QLabel, QMessageBox
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer
+from qgis.PyQt.QtGui import QIcon, QKeySequence
+try:
+    from qgis.PyQt.QtGui import QShortcut  # Qt6
+except ImportError:
+    from qgis.PyQt.QtWidgets import QShortcut  # Qt5
+from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QLabel, QMessageBox, QSpinBox
+from qgis.gui import QgsMapLayerComboBox
 from qgis.core import QgsProject
-from qgis.utils import iface
 
 from .forest_zoning_main_dialog_elements import ForestZoningMainDialogElements
 from .forest_zoning_main_dialog_scoring import ForestZoningMainDialogScoring
@@ -20,6 +24,7 @@ from .forest_zoning_main_dialog_aggregate import ForestZoningMainDialogAggregate
 from .forest_zoning_main_dialog_printlayout import ForestZoningMainDialogPrintlayout
 from .forest_zoning_main_dialog_settings import ForestZoningMainDialogSettings
 from .forest_zoning_main_dialog_archive import ForestZoningMainDialogArchive
+from .forest_zoning_main_dialog_costcsv_editor import ElidedLabel
 # utils は processes より後に読み込む（utils が processes.raster_styler を使い、processes が utils を使うため。
 # 先に読み込むと processes の読み込みが途中で失敗する）
 from . import morizon_data, utils
@@ -47,6 +52,7 @@ class ForestZoningMainDialog(QDialog):
             os.path.join(os.path.dirname(__file__), "forest_zoning_settings_dialog.ui")
         )
         self.settingsTabLayout.addWidget(self.settings_widget)
+        self._init_tab_shortcuts()
 
         # 各タブのUIを初期化する：実装は各クラスへ移譲
         self.elements = ForestZoningMainDialogElements(self)
@@ -57,17 +63,36 @@ class ForestZoningMainDialog(QDialog):
         self.settings = ForestZoningMainDialogSettings(self.settings_widget, self)
         self.archive = ForestZoningMainDialogArchive(self)
         self._input_import_suppressed = 0
-        self._missing_workspace_notified = None
+        self._restore_pending = False
         self.lock_output_dirs()
         self._init_workspace_status()
-        self.restore_project_workspace()
+        self.use_no_workspace(persist=False)
+        # 開いているプロジェクトがあれば、画面を表示したときに再開の分岐へ進む
+        if QgsProject.instance().fileName():
+            self._restore_pending = True
 
-    # ── 作業場 ───────────────────────────────────────────────────────
-    # 作業場は入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所で、2種類ある。
-    #   プロジェクト内：<プロジェクト>/morizon_next（通常。DEMブラウザ・保存ファイルの読み込み・設定のクリア）
-    #   外部：「フォルダ選択から開始する」で選んだフォルダ（その場で使う。原版のキットと同じ使い方）
-    # 作業場はプロジェクトに書き込み、プロジェクトを保存して開き直せば同じ作業場で続けられる。
-    # 出力先は作業場の中に決まり、ユーザーは変更できない
+    # タブの切り替え（Ctrl+Tab／Ctrl+Shift+Tab）。Qt のタブはこのキーで切り替わるが、フォーカスのある部品が
+    # キーを先に受け取ると届かない（レイヤーの選択欄で止まった）。画面全体のショートカットにして、どこからでも切り替える
+    def _init_tab_shortcuts(self):
+        self._tab_shortcuts = []
+        for sequence, step in (("Ctrl+Tab", 1), ("Ctrl+Shift+Tab", -1), ("Ctrl+Backtab", -1)):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(lambda step=step: self._step_tab(step))
+            self._tab_shortcuts.append(shortcut)
+
+    def _step_tab(self, step: int):
+        count = self.tabWidget.count()
+        if count:
+            self.tabWidget.setCurrentIndex((self.tabWidget.currentIndex() + step) % count)
+
+    # ── 作業フォルダ ───────────────────────────────────────────────────────
+    # 作業フォルダは入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所で、3つの状態がある。
+    #   なし：初期状態（設定のクリア・未保存のプロジェクト・記録の無いプロジェクト）。出力先は空欄で、入力欄の「…」は使えない
+    #   プロジェクト内：<プロジェクト>/morizon_next（DEMブラウザから開始・保存ファイルの読み直し・ZIPの読み込み）
+    #   外部：「フォルダ選択から開始する」「保存ファイルを読み込む（フォルダ）」で選んだフォルダ（その場で使う）
+    # 作業フォルダはプロジェクトに書き込み、プロジェクトを開いたときに再開するかを聞く。
+    # 出力先は作業フォルダの中に決まり、ユーザーは変更できない
 
     def output_targets(self):
         return (
@@ -78,11 +103,16 @@ class ForestZoningMainDialog(QDialog):
         )
 
     def has_workspace(self) -> bool:
-        """作業場が決まっているか（プロジェクト内の作業場は、プロジェクトが保存済みのときだけ）"""
-        return bool(utils.get_external_workspace()) or QgsProject.instance().homePath() != ""
+        """作業フォルダが決まっているか（プロジェクト内の作業フォルダは、プロジェクトが保存済みのときだけ）"""
+        workspace = utils.get_workspace()
+        if workspace is None:
+            return False
+        if workspace == utils.WORKSPACE_INTERNAL:
+            return QgsProject.instance().homePath() != ""
+        return True
 
     def apply_workspace_output_dirs(self):
-        """出力先の欄を、今の作業場の中の決まった場所にする（作業場が無ければ空欄）"""
+        """出力先の欄を、今の作業フォルダの中の決まった場所にする（作業フォルダが無ければ空欄）"""
         for filewidget, parts in self.output_targets():
             if not self.has_workspace():
                 filewidget.setFilePath("")
@@ -92,15 +122,54 @@ class ForestZoningMainDialog(QDialog):
             filewidget.setFilePath(path)
 
     def lock_output_dirs(self):
+        """出力先は作業フォルダの中に決まり変えられないので、選ぶ欄ではなく文字列として見せる。
+        欄そのものは隠して値の入れ物にし（計算の処理がそのまま読む）、同じ場所に省略表示付きのラベルを置く。
+        長いパスは途中を「…」で省略し、マウスを重ねると全文を出す"""
+        self._output_dir_labels = []
         for filewidget, _ in self.output_targets():
             filewidget.setReadOnly(True)
-            filewidget.setToolTip(
-                "出力先は作業場の中に決まります（プロジェクト内なら QGISプロジェクトと同じフォルダの morizon_next）"
+            label = ElidedLabel()
+            label.setStyleSheet("color:#333;")
+            layout = filewidget.parentWidget().layout() if filewidget.parentWidget() else None
+            if layout is not None and layout.replaceWidget(filewidget, label) is not None:
+                filewidget.hide()
+            else:
+                continue
+            # 行の余った幅はすべてこのラベルに回す（割り当てが無いと見出しのラベルも広がり、パスが早く省略される）。
+            # replaceWidget は外側のレイアウトから中の行までたどって置き換えるので、ラベルが入った行を探して付ける
+            row = self._layout_containing(layout, label)
+            if row is not None and hasattr(row, "setStretchFactor"):
+                row.setStretchFactor(label, 1)
+            filewidget.fileChanged.connect(
+                lambda path, target=label: target.setText(path, tooltip=path or self.OUTPUT_DIR_TOOLTIP)
             )
+            label.setText(filewidget.filePath(), tooltip=filewidget.filePath() or self.OUTPUT_DIR_TOOLTIP)
+            self._output_dir_labels.append(label)
+
+    @classmethod
+    def _layout_containing(cls, layout, widget):
+        """layout とその中のレイアウトから、widget を直接持つレイアウトを探す"""
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item.widget() is widget:
+                return layout
+            if item.layout() is not None:
+                found = cls._layout_containing(item.layout(), widget)
+                if found is not None:
+                    return found
+        return None
+
+    OUTPUT_DIR_TOOLTIP = "出力先は作業フォルダの中に決まります（作業フォルダ：なし のときは空欄）"
+
+    def update_input_availability(self):
+        """作業フォルダが無いときは、入力欄の「…」を使えなくする（選んだファイルをコピーする作業フォルダが無いため）"""
+        enabled = self.has_workspace()
+        for filewidget in self.elements.input_filewidgets().values():
+            filewidget.setEnabled(enabled)
 
     @contextmanager
     def suppress_input_import(self):
-        """プラグインが入力欄を設定する間は、「…」で選んだときの取り込み（作業場へのコピー）をしない"""
+        """プラグインが入力欄を設定する間は、「…」で選んだときの取り込み（作業フォルダへのコピー）をしない"""
         self._input_import_suppressed += 1
         try:
             yield
@@ -111,7 +180,7 @@ class ForestZoningMainDialog(QDialog):
         return self._input_import_suppressed > 0
 
     def set_inputs_from_data_dir(self, data_dir):
-        """作業場の DATA にあるデータで入力欄を埋める（無い入力は空欄）"""
+        """作業フォルダの DATA にあるデータで入力欄を埋める（無い入力は空欄）"""
         found = morizon_data.find_inputs(data_dir) if data_dir and os.path.isdir(data_dir) else {}
         with self.suppress_input_import():
             for key, filewidget in self.elements.input_filewidgets().items():
@@ -123,12 +192,11 @@ class ForestZoningMainDialog(QDialog):
         return found
 
     def use_project_workspace(self, refill_inputs=True, persist=True):
-        """作業場をプロジェクト内（<プロジェクト>/morizon_next）にする。
-        refill_inputs なら入力欄を morizon_next/DATA のデータで埋め直す（外部の作業場やほかのプロジェクトの
-        データを指したままにしない）。persist ならプロジェクトにも書き込む"""
-        utils.set_external_workspace(None)
+        """作業フォルダをプロジェクト内（<プロジェクト>/morizon_next）にする。
+        refill_inputs なら入力欄を morizon_next/DATA のデータで埋め直す。persist ならプロジェクトにも書き込む"""
+        utils.set_workspace(utils.WORKSPACE_INTERNAL)
         if persist:
-            utils.write_project_workspace(None)
+            utils.write_project_workspace(utils.WORKSPACE_INTERNAL)
         if refill_inputs:
             project_saved = QgsProject.instance().homePath() != ""
             self.set_inputs_from_data_dir(
@@ -136,77 +204,196 @@ class ForestZoningMainDialog(QDialog):
             )
         self._after_workspace_changed()
 
-    def use_external_workspace(self, root):
-        """作業場を外部のフォルダにする（入力欄は呼び出し側が設定する）"""
-        utils.set_external_workspace(root)
-        utils.write_project_workspace(root)
+    def use_external_workspace(self, root, persist=True):
+        """作業フォルダを外部にする（入力欄は呼び出し側が設定する）"""
+        utils.set_workspace(root)
+        if persist:
+            utils.write_project_workspace(root)
+        self._after_workspace_changed()
+
+    def use_no_workspace(self, persist=True):
+        """作業フォルダをなし（初期状態）にする。入力欄を空にし、persist ならプロジェクトの記録も消す"""
+        utils.set_workspace(None)
+        if persist:
+            utils.write_project_workspace(None)
+        with self.suppress_input_import():
+            self.elements.reset_elements_inputs()
+            self.aggregateDemFileWidget.setFilePath("")
+        self.elements.forget_dem_browser_state()
         self._after_workspace_changed()
 
     # 初期状態にする操作（DEMブラウザから開始・フォルダ選択から開始・設定をクリア・保存ファイルの読み込み）は、
-    # ボタンを押した（読み込みはメニューで選んだ）時点でレイヤーを初期化してから、それぞれの工程に入る。
-    # 初期状態にはプラグインのレイヤーは無いので、指しているファイルの場所に関係なくすべて外す（ファイルは残す）。
-    # データを消す・上書きするかは、それぞれの工程の中で別に判断する。
-    # プロジェクトを開いたときの作業場の復元では外さない（そのプロジェクトのレイヤーなので）
+    # レイヤーを初期化してから、それぞれの工程に入る。初期状態にはプラグインのレイヤーは無いので、
+    # 指しているファイルの場所に関係なくすべて外す（ファイルは残す）。
+    # データを消す・上書きするかは、それぞれの工程の中で別に判断する
 
-    def initialize_layers(self) -> bool:
-        """「レイヤーを初期化します」と確かめて、プラグインのレイヤーをすべてプロジェクトから外す。
-        取りやめたら False（呼び出し側は何もせずに戻る）。外すレイヤーが無ければ確かめずに True"""
+    def layers_to_initialize(self) -> list:
+        """初期化で外すレイヤー：プラグインのレイヤーすべてと、作業フォルダのファイルを自分で追加したレイヤー
+        （共有キャッシュは除く）"""
         layers = utils.output_layers()
         if self.has_workspace():
-            # 作業場のフォルダのファイルを、自分で追加したレイヤーも外す（共有キャッシュは除く）
             current = utils.get_workspace_dir()
             ids = {layer.id() for layer in layers}
             layers += [layer for layer in utils.project_layers_under_dir(current, [os.path.join(current, DIR_SHARED)])
                        if layer.id() not in ids]
+        return layers
+
+    @staticmethod
+    def initialize_message(layers) -> str:
+        return f"レイヤーを初期化します。\nMorizon Next のレイヤー {len(layers)}件をプロジェクトから外します（ファイルは残ります）。"
+
+    def initialize_layers(self, confirm=True) -> bool:
+        """プラグインのレイヤーをすべてプロジェクトから外す。confirm なら「レイヤーを初期化します」と確かめ、
+        取りやめたら False（呼び出し側は何もせずに戻る）。外すレイヤーが無ければ確かめずに True"""
+        layers = self.layers_to_initialize()
         if not layers:
             return True
-        answer = QMessageBox.question(
-            self, "レイヤーの初期化",
-            f"レイヤーを初期化します。\nMorizon Next のレイヤー {len(layers)}件をプロジェクトから外します（ファイルは残ります）。",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok,
-        )
-        if answer != QMessageBox.StandardButton.Ok:
-            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self, "レイヤーの初期化", self.initialize_message(layers),
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Ok,
+            )
+            if answer != QMessageBox.StandardButton.Ok:
+                return False
         utils.remove_project_layers(layers)
         return True
 
+    # ── 工程の上書きをキャンセルしたときの戻し ─────────────────────────
+    # 工程を実行するときに片付けたレイヤーは、上書きをキャンセルしたら元に戻す（utils.restore_detached_layers）。
+    # レイヤーを取り外すと、ほかのタブの選択欄からそのレイヤーが外れ、スコアリングでは選択が変わったことで
+    # しきい値も初期値に戻ってしまう。そこで、取り外す前に選択欄と数値の欄を控えておき、戻すときに一緒に戻す
+
+    def snapshot_selections(self) -> dict:
+        project = QgsProject.instance()
+        return {
+            "layers": [(combo, combo.currentLayer().id() if combo.currentLayer() else None)
+                       for combo in self.findChildren(QgsMapLayerComboBox)],
+            "values": [(box, box.value()) for box in self.findChildren(QSpinBox) + self.findChildren(QDoubleSpinBox)],
+            "_project": project,
+        }
+
+    def restore_selections(self, snapshot: dict):
+        project = snapshot["_project"]
+        for combo, layer_id in snapshot["layers"]:
+            layer = project.mapLayer(layer_id) if layer_id else None
+            if combo.currentLayer() is layer:
+                continue
+            combo.blockSignals(True)
+            combo.setLayer(layer)
+            combo.blockSignals(False)
+        for box, value in snapshot["values"]:
+            if box.value() != value:
+                box.blockSignals(True)
+                box.setValue(value)
+                box.blockSignals(False)
+        # 信号を止めて戻したので、ボタンの有効・無効などの見た目は改めて合わせる
+        self.scoring.refresh_scoring_ui()
+        self.zoning.refresh_zoning_ui()
+        self.aggregate.refresh_aggregate_ui()
+
+    # ── プロジェクトを開いたとき ───────────────────────────────────────
+    # 記録なし → 作業フォルダなし
+    # 記録あり → フォルダがあるか確かめる
+    #   ある → 再開しますか？ → はい：プロジェクト内なら読み直し、外部なら作業フォルダを戻す（レイヤーはプロジェクトのものでそろっている）
+    #                         いいえ：初期化して作業フォルダなし（記録も消す）
+    #   無い（外部のフォルダが見つからない）→ プロジェクト内にデータがあれば、そこから再開（読み直し）
+    #                                       無ければ知らせてクリア（作業フォルダなし、記録も消す）
+    # 画面を開いていないときは、次に画面を表示したときに行う
+
+    def on_project_read(self):
+        if self.isVisible():
+            self.restore_project_workspace()
+        else:
+            self._restore_pending = True
+
+    def on_project_cleared(self):
+        """新規・閉じる：作業フォルダなし（新しいプロジェクトには記録が無い）"""
+        self._restore_pending = False
+        self.use_no_workspace(persist=False)
+
+    def on_project_path_changed(self):
+        """別名で保存などで保存先が変わったとき：作業フォルダの場所の表示を合わせ直す"""
+        self._after_workspace_changed()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._restore_pending:
+            self._restore_pending = False
+            QTimer.singleShot(0, self.restore_project_workspace)
+
+    def _internal_has_data(self) -> bool:
+        managed_dir = utils.get_morizon_managed_dir()
+        return any(
+            any(files for _, _, files in os.walk(os.path.join(managed_dir, name)))
+            for name in (DIR_DATA, DIR_YOUSO, DIR_ZONING, DIR_AGGREGATE)
+        )
+
+    def _ask_resume(self, place: str) -> bool:
+        answer = QMessageBox.question(
+            self, "再開",
+            f"このプロジェクトは、前回 {place} で作業していました。再開しますか？\n"
+            "「いいえ」を選ぶと、レイヤーを初期化して初期状態（作業フォルダ：なし）にします。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _resume_from_internal(self):
+        """プロジェクト内のデータから再開する（保存ファイルを読み込む → プロジェクト内のデータを読み直す と同じ）"""
+        self.initialize_layers(confirm=False)
+        self.archive.load_managed_data()
+
+    def _reset_to_initial(self):
+        """初期状態にする（レイヤーを初期化し、作業フォルダなし。プロジェクトの記録も消す）"""
+        self.initialize_layers(confirm=False)
+        self.use_no_workspace(persist=True)
+
     def restore_project_workspace(self):
-        """プロジェクトに書き込まれた作業場に戻す（プロジェクトを開いた・切り替えたとき）。
-        外部のフォルダが見つからなければプロジェクト内にして知らせる。プロジェクトの記録は書き換えない
-        （外付けのドライブをつなぎ忘れただけなら、つないで開き直せば戻れるように）"""
-        root = utils.read_project_workspace()
-        if root and os.path.isdir(root):
-            self._missing_workspace_notified = None
-            self.use_external_workspace(root)
-            self.set_inputs_from_data_dir(morizon_data.resolve_data_dir(root))
+        record = utils.read_project_workspace()
+        if record is None or not QgsProject.instance().homePath():
+            self.use_no_workspace(persist=False)
             return
-        self.use_project_workspace(refill_inputs=True, persist=False)
-        # プロジェクトを開くと切り替えの通知が続けて届くため、同じフォルダについては1回だけ知らせる。
-        # 読み込みの最初（記録がまだ無い時点）で忘れるので、開き直せばまた知らせる
-        if not root:
-            self._missing_workspace_notified = None
-        elif self._missing_workspace_notified != root:
-            self._missing_workspace_notified = root
-            iface.messageBar().pushWarning(
-                "Morizon Next",
-                f"作業場（外部 {os.path.basename(root) or root}）が見つからないため、プロジェクト内にしました：{root}",
+        if record == utils.WORKSPACE_INTERNAL:
+            if not self._internal_has_data():
+                # 記録はあるがデータが無い → 記録なしとして扱う
+                self._reset_to_initial()
+            elif self._ask_resume(f"プロジェクト内（morizon_next/{os.path.basename(utils.get_morizon_managed_dir())}）"):
+                self._resume_from_internal()
+            else:
+                self._reset_to_initial()
+            return
+        if os.path.isdir(record):
+            if self._ask_resume(f"外部のフォルダ（{os.path.basename(record) or record}）"):
+                self.use_external_workspace(record)
+                self.set_inputs_from_data_dir(morizon_data.resolve_data_dir(record))
+            else:
+                self._reset_to_initial()
+            return
+        if self._internal_has_data():
+            QMessageBox.information(
+                self, "再開",
+                f"保存されていた外部のフォルダが見つかりません。\n{record}\n\nプロジェクト内のデータから再開します。",
             )
+            self._resume_from_internal()
+            return
+        QMessageBox.information(
+            self, "再開",
+            "保存されていた記録の外部フォルダが見つかりません。削除または移動などが行われた可能性があります。\n"
+            f"{record}\n\nクリアします。再開はフォルダから読み込んでください。",
+        )
+        self._reset_to_initial()
 
     def _after_workspace_changed(self):
         self.apply_workspace_output_dirs()
         self.update_workspace_status()
+        self.update_input_availability()
         self.scoring.update_scoring_layer_scope()
         self.zoning.update_zoning_layer_scope()
         self.aggregate.update_aggregate_layer_scope()
         self.printlayout.update_printlayout_layer_scope()
 
-    def on_project_changed(self):
-        """プロジェクトが切り替わったら、作業場をそのプロジェクトに書き込まれたものにする（無ければ morizon_next）。
-        ダイアログは使い回すので、何もしないと前のプロジェクト（や外部のフォルダ）を指したまま計算してしまう"""
-        self.restore_project_workspace()
-
-    # 作業場の表示（タブ列の「設定」の右隣）
+    # 作業フォルダの表示（タブ列の「設定」の右隣）
     def _init_workspace_status(self):
         self.workspaceStatusLabel = QLabel(self.tabWidget)
         self.workspaceStatusLabel.setStyleSheet("color:#555;")
@@ -216,14 +403,16 @@ class ForestZoningMainDialog(QDialog):
     def update_workspace_status(self):
         external = utils.get_external_workspace()
         if external:
-            text = f"作業場：外部 {os.path.basename(external) or external}"
+            text = f"作業フォルダ：外部 {os.path.basename(external) or external}"
             tooltip = external
-        elif QgsProject.instance().homePath():
-            text = "作業場：プロジェクト内"
+        elif self.has_workspace():
+            text = "作業フォルダ：プロジェクト内"
             tooltip = utils.get_morizon_managed_dir()
         else:
-            text = "作業場：なし（QGISプロジェクトが未保存）"
-            tooltip = "QGISプロジェクトを保存すると、プロジェクト内の morizon_next が作業場になります"
+            text = "作業フォルダ：なし"
+            tooltip = ("「DEMブラウザから開始する」「フォルダ選択から開始する」「保存ファイルを読み込む」で始めます"
+                       if QgsProject.instance().homePath() else
+                       "QGISプロジェクトが未保存です。保存してから始めてください")
         self.workspaceStatusLabel.setText(text)
         self.workspaceStatusLabel.setToolTip(tooltip)
         self.workspaceStatusLabel.adjustSize()

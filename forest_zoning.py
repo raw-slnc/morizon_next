@@ -73,14 +73,13 @@ class ForestZoning:
         self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
             self.onLayersChanged
         )  # nopep8
-        # プロジェクトを開く・切り替える・別名で保存すると、保存先（<プロジェクト>/morizon_next）が変わる。
-        # 別名で保存したときは homePathChanged が来ないことがあるため、fileNameChanged も受ける（2回呼ばれても同じ結果になる）
-        QgsProject.instance().homePathChanged.connect(self.onProjectChanged)
-        QgsProject.instance().fileNameChanged.connect(self.onProjectChanged)
-        # 作業場はプロジェクトに書き込んであるため、読み込み終わってから（readProject）も合わせ直す。
-        # 新規プロジェクト（cleared）では記録が消えるので、プロジェクト内に戻る
-        QgsProject.instance().readProject.connect(self.onProjectChanged)
-        QgsProject.instance().cleared.connect(self.onProjectChanged)
+        # 作業フォルダはプロジェクトに書き込んであるので、プロジェクトを読み終えたとき（readProject）に再開の分岐へ進む。
+        # 新規・閉じる（cleared）では作業フォルダなし。別名で保存などで保存先が変わったとき（homePathChanged・
+        # fileNameChanged）は、プロジェクト内の作業フォルダの場所が変わるので表示を合わせ直す
+        QgsProject.instance().readProject.connect(self.onProjectRead)
+        QgsProject.instance().cleared.connect(self.onProjectCleared)
+        QgsProject.instance().homePathChanged.connect(self.onProjectPathChanged)
+        QgsProject.instance().fileNameChanged.connect(self.onProjectPathChanged)
 
     def unload(self):
         for action in self.actions:
@@ -99,10 +98,10 @@ class ForestZoning:
             self.iface.layerTreeView().layerTreeModel().dataChanged,
             self.onLayersChanged,
         )
-        self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectChanged)
-        self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectChanged)
-        self._safe_disconnect(QgsProject.instance().readProject, self.onProjectChanged)
-        self._safe_disconnect(QgsProject.instance().cleared, self.onProjectChanged)
+        self._safe_disconnect(QgsProject.instance().readProject, self.onProjectRead)
+        self._safe_disconnect(QgsProject.instance().cleared, self.onProjectCleared)
+        self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectPathChanged)
+        self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectPathChanged)
         if self.main_dialog is not None:
             self.main_dialog.close()
             self.main_dialog.deleteLater()
@@ -115,10 +114,18 @@ class ForestZoning:
         except (TypeError, RuntimeError):
             pass
 
-    def onProjectChanged(self, *args):
-        # ダイアログは一度作ると開き直しても使い回すため、切り替わったプロジェクトに合わせ直す
+    # ダイアログは一度作ると開き直しても使い回すため、切り替わったプロジェクトに合わせ直す
+    def onProjectRead(self, *args):
         if self.main_dialog is not None:
-            self.main_dialog.on_project_changed()
+            self.main_dialog.on_project_read()
+
+    def onProjectCleared(self, *args):
+        if self.main_dialog is not None:
+            self.main_dialog.on_project_cleared()
+
+    def onProjectPathChanged(self, *args):
+        if self.main_dialog is not None:
+            self.main_dialog.on_project_path_changed()
 
     def onLayersChanged(self, *args):
         if not self.is_visible_main_dialog():

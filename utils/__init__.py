@@ -17,7 +17,7 @@ from qgis.gui import *
 from qgis.PyQt import sip
 import processing
 
-from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME
+from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED
 
 
 @lru_cache(maxsize=None)
@@ -160,7 +160,7 @@ def find(l: list, x) -> int:
 def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
                              allowed_extensions=None) -> bool:
     """
-    MORIZON NEXTが今の作業場（プロジェクト内の morizon_next、または外部のフォルダ）で管理する成果物レイヤーか判定する。
+    MORIZON NEXTが今の作業フォルダ（プロジェクト内の morizon_next、または外部のフォルダ）で管理する成果物レイヤーか判定する。
     外部レイヤーを広く走査しないため、タブ内の候補絞り込みと自動設定で使う。
     """
     if layer is None:
@@ -172,6 +172,8 @@ def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
         return False
     normalized_source = os.path.normpath(source)
     managed_dir = get_workspace_dir()
+    if not managed_dir:
+        return False
     try:
         in_managed_dir = os.path.commonpath(
             [normalized_source, managed_dir]
@@ -226,58 +228,110 @@ def find_morizon_layer_by_name(layer_name: str, allowed_extensions=None):
     return None
 
 
-# 作業場：入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所。
-# 通常はプロジェクト内（<プロジェクト>/morizon_next）。「フォルダ選択から開始する」で外部のフォルダにもなる
-_external_workspace = None
+# 作業フォルダ：入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所。3つの状態がある。
+#   なし（None）：初期状態（設定のクリア・未保存のプロジェクト・記録の無いプロジェクト）。出力先は空欄
+#   プロジェクト内（WORKSPACE_INTERNAL）：<プロジェクト>/morizon_next
+#   外部（フォルダのパス）：「フォルダ選択から開始する」「保存ファイルを読み込む（フォルダ）」で選んだフォルダ
+WORKSPACE_INTERNAL = "internal"
+_workspace = None
 
 
-def set_external_workspace(root):
-    """作業場を外部のフォルダにする。None ならプロジェクト内に戻す"""
-    global _external_workspace
-    _external_workspace = os.path.normpath(root) if root else None
+def set_workspace(value):
+    """作業フォルダを設定する。None＝なし、WORKSPACE_INTERNAL＝プロジェクト内、それ以外＝外部のフォルダのパス"""
+    global _workspace
+    if value and value != WORKSPACE_INTERNAL:
+        value = os.path.normpath(value)
+    _workspace = value or None
+
+
+def get_workspace():
+    """今の作業フォルダ（None／WORKSPACE_INTERNAL／外部のフォルダのパス）"""
+    return _workspace
+
+
+def is_internal_workspace() -> bool:
+    return _workspace == WORKSPACE_INTERNAL
 
 
 def get_external_workspace():
-    """外部のフォルダを作業場にしていればそのパス、プロジェクト内なら None"""
-    return _external_workspace
+    """外部のフォルダを作業フォルダにしていればそのパス、それ以外は None"""
+    return _workspace if _workspace and _workspace != WORKSPACE_INTERNAL else None
 
 
-# 作業場はQGISプロジェクトに書き込み、プロジェクトの保存で残す（開き直したときに同じ作業場で続けるため）。
-# 外部のフォルダならそのパス、プロジェクト内なら書き込まない
+# 作業フォルダはQGISプロジェクトに書き込み、プロジェクトの保存で残す（開き直したときに同じ作業フォルダで再開するため）。
+# プロジェクト内なら "internal"、外部ならそのパス、なしなら書き込まない
 _PROJECT_SCOPE = "MorizonNext"
-_PROJECT_KEY_WORKSPACE = "external_workspace"
+_PROJECT_KEY_WORKSPACE = "workspace"
+_PROJECT_KEY_WORKSPACE_OLD = "external_workspace"  # 以前の書き方（外部のパスだけを記録していた）
 
 
 def read_project_workspace():
-    """プロジェクトに書き込まれた外部の作業場のパス。プロジェクト内なら None"""
-    value, _ = QgsProject.instance().readEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, "")
-    return os.path.normpath(value) if value else None
+    """プロジェクトに書き込まれた作業フォルダ（None／WORKSPACE_INTERNAL／外部のフォルダのパス）"""
+    project = QgsProject.instance()
+    value, _ = project.readEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, "")
+    if not value:
+        value, _ = project.readEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE_OLD, "")
+    if not value:
+        return None
+    return value if value == WORKSPACE_INTERNAL else os.path.normpath(value)
 
 
-def write_project_workspace(root):
-    """作業場をプロジェクトに書き込む（None ならプロジェクト内）。
+def write_project_workspace(value):
+    """作業フォルダをプロジェクトに書き込む（None なら記録を消す）。
     書き込むとプロジェクトが変更ありの扱いになるので、同じ値なら書き込まない"""
-    root = os.path.normpath(root) if root else None
-    if read_project_workspace() == root:
+    if value and value != WORKSPACE_INTERNAL:
+        value = os.path.normpath(value)
+    value = value or None
+    project = QgsProject.instance()
+    old_value, _ = project.readEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE_OLD, "")
+    if old_value:
+        project.removeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE_OLD)
+    elif read_project_workspace() == value:
         return
-    if root:
-        QgsProject.instance().writeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, root)
+    if value:
+        project.writeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE, value)
     else:
-        QgsProject.instance().removeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE)
+        project.removeEntry(_PROJECT_SCOPE, _PROJECT_KEY_WORKSPACE)
 
 
 def get_workspace_dir(*subdirs) -> str:
-    """今の作業場（外部のフォルダ、またはプロジェクト内の morizon_next）。subdirsを渡すとその下のパス"""
-    if _external_workspace:
-        return os.path.normpath(os.path.join(_external_workspace, *subdirs))
-    return get_morizon_managed_dir(*subdirs)
+    """今の作業フォルダ（外部のフォルダ、またはプロジェクト内の morizon_next）。subdirsを渡すとその下のパス。
+    作業フォルダがなしなら空文字"""
+    external = get_external_workspace()
+    if external:
+        return os.path.normpath(os.path.join(external, *subdirs))
+    if is_internal_workspace():
+        return get_morizon_managed_dir(*subdirs)
+    return ""
+
+
+def _project_folder_name() -> str:
+    """プロジェクト内の作業フォルダ名：qgz のファイル名（拡張子を除く）。
+    同じフォルダに複数の qgz を置いても、プロジェクトごとに作業フォルダが分かれるようにするため。
+    キャッシュのフォルダ名（shared）と重なる場合は、別の名前にする"""
+    file_name = QgsProject.instance().fileName()
+    name = os.path.splitext(os.path.basename(file_name))[0] if file_name else ""
+    if not name:
+        return "untitled"
+    return name + "_project" if name == DIR_SHARED else name
+
+
+def get_morizon_root_dir(*subdirs) -> str:
+    """<qgz のフォルダ>/morizon_next。プロジェクトごとの作業フォルダと、共有キャッシュ（shared）を置く"""
+    project_home = QgsProject.instance().homePath() or os.path.expanduser("~")
+    return os.path.normpath(os.path.join(project_home, MANAGED_DIR_NAME, *subdirs))
 
 
 def get_morizon_managed_dir(*subdirs) -> str:
-    """MORIZON管理フォルダ（<プロジェクトフォルダ>/morizon_next）。subdirsを渡すとその下のパス。
+    """プロジェクト内の作業フォルダ（<qgz のフォルダ>/morizon_next/<qgz のファイル名>）。subdirsを渡すとその下のパス。
     構成は constants.py の DIR_DATA 等を参照"""
-    project_home = QgsProject.instance().homePath() or os.path.expanduser("~")
-    return os.path.normpath(os.path.join(project_home, MANAGED_DIR_NAME, *subdirs))
+    return get_morizon_root_dir(_project_folder_name(), *subdirs)
+
+
+def get_morizon_shared_dir(*subdirs) -> str:
+    """解析をまたいで使い回すキャッシュ（<qgz のフォルダ>/morizon_next/shared）。同じフォルダのプロジェクトで共有し、
+    保存・破棄・クリアの対象にしない"""
+    return get_morizon_root_dir(DIR_SHARED, *subdirs)
 
 
 def layer_source_path(layer: QgsMapLayer) -> str:
@@ -321,7 +375,7 @@ def is_under_dir(path: str, directory: str) -> bool:
 # ── プラグインの出力レイヤーの印 ─────────────────────────────────
 # プラグインが作るレイヤーには、どの工程（と要素）のものかを印としてレイヤーに付ける（プロジェクトに保存される）。
 # 片付けはこの印で行い、レイヤーが指しているファイルの場所には頼らない。場所で見分けると、フォルダを移動して
-# 参照を直したレイヤーや、作業場の外を指すレイヤーを見失い、新しい出力と混ざって残るため
+# 参照を直したレイヤーや、作業フォルダの外を指すレイヤーを見失い、新しい出力と混ざって残るため
 OUTPUT_TAG_KEY = "morizon_next/output"
 STAGE_ELEMENTS = "elements"
 STAGE_SCORING = "scoring"
@@ -389,6 +443,88 @@ def remove_output_layers(stage: str = None, keys=None) -> int:
     return _remove_layers_and_empty_groups(output_layers(stage, keys))
 
 
+def _group_path(node) -> list:
+    """レイヤーツリーのグループを、ルートから順に (名前, 親の中の位置, 排他か, チェック, 展開) の並びで返す（ルートは含めない）"""
+    path = []
+    group = node.parent()
+    while group is not None and group.parent() is not None:
+        path.insert(0, (group.name(), group.parent().children().index(group), group.isMutuallyExclusive(),
+                        group.itemVisibilityChecked(), group.isExpanded()))
+        group = group.parent()
+    return path
+
+
+def detach_output_layers(stage: str = None, keys=None) -> list:
+    """プラグインの出力レイヤーを、削除せずにプロジェクトから取り外して返す（キャンセルされたら restore_detached_layers で戻す）。
+    戻すため、グループの中の位置とチェックの状態、グループの設定を一緒に覚えておく。
+    取り外したレイヤーはファイルを掴んだままなので、ファイルを上書きする前に discard_detached_layers で削除すること"""
+    project = QgsProject.instance()
+    root = project.layerTreeRoot()
+    records = []
+    for layer in output_layers(stage, keys):
+        node = root.findLayer(layer.id())
+        if node is None or node.parent() is None:
+            continue
+        parent = node.parent()
+        records.append({
+            "path": _group_path(node),
+            "index": parent.children().index(node),
+            "checked": node.itemVisibilityChecked(),
+            "expanded": node.isExpanded(),
+            "parent": parent,
+            "layer_id": layer.id(),
+        })
+    taken = []
+    for record in records:
+        layer = project.takeMapLayer(project.mapLayer(record.pop("layer_id")))
+        if layer is not None:
+            record["layer"] = layer
+            taken.append(record)
+    _remove_empty_groups([record["parent"] for record in records])
+    for record in taken:
+        record.pop("parent", None)
+    if taken:
+        _refresh_map_canvas()
+    return taken
+
+
+def restore_detached_layers(records):
+    """detach_output_layers で取り外したレイヤーを、元のグループの元の位置に戻す（無くなったグループは作り直す）"""
+    if not records:
+        return
+    project = QgsProject.instance()
+    for record in sorted(records, key=lambda r: (len(r["path"]), r["index"])):
+        group = project.layerTreeRoot()
+        for name, index, exclusive, checked, expanded in record["path"]:
+            child = next((c for c in group.children()
+                          if isinstance(c, QgsLayerTreeGroup) and c.name() == name), None)
+            if child is None:
+                child = group.insertGroup(min(index, len(group.children())), name)
+                child.setIsMutuallyExclusive(exclusive)
+                child.setItemVisibilityChecked(checked)
+                child.setExpanded(expanded)
+            group = child
+        project.addMapLayer(record["layer"], False)
+        node = group.insertLayer(min(record["index"], len(group.children())), record["layer"])
+        node.setItemVisibilityChecked(record["checked"])
+        node.setExpanded(record["expanded"])
+    _refresh_map_canvas()
+
+
+def discard_detached_layers(records):
+    """detach_output_layers で取り外したレイヤーを削除し、ファイルの掴みを解放する"""
+    project = QgsProject.instance()
+    for record in records or []:
+        layer = record.get("layer")
+        if layer is None:
+            continue
+        # 取り外したレイヤーはプロジェクトの管理外なので、いったん登録してから外し、QGIS に削除させる
+        project.addMapLayer(layer, False)
+        project.removeMapLayer(layer.id())
+    if records:
+        records.clear()
+
+
 def get_morizon_output_group():
     """出力レイヤーをまとめるグループ（プロジェクトの最上位の「Morizon Next」）。無ければ一番上に作る。
     中身が空になったときは _remove_layers_and_empty_groups が取り除く"""
@@ -414,9 +550,17 @@ def _remove_layers_and_empty_groups(layers) -> int:
         if node is not None and node.parent() is not None:
             parent_groups.append(node.parent())
     project.removeMapLayers([layer.id() for layer in layers])
+    _remove_empty_groups(parent_groups)
+    if layers:
+        _refresh_map_canvas()
+    return len(layers)
 
-    # 空になったグループを親方向へ順に取り除く（ルートは残す）。
-    # 同じグループが複数回積まれるため、削除済みのものは飛ばす
+
+def _remove_empty_groups(parent_groups):
+    """空になったグループを親方向へ順に取り除く（ルートは残す）。
+    同じグループが複数回積まれるため、削除済みのものは飛ばす"""
+    root = QgsProject.instance().layerTreeRoot()
+    parent_groups = list(parent_groups)
     while parent_groups:
         group = parent_groups.pop()
         if sip.isdeleted(group) or group is root or group.children():
@@ -426,9 +570,6 @@ def _remove_layers_and_empty_groups(layers) -> int:
             continue
         parent.removeChildNode(group)
         parent_groups.append(parent)
-    if layers:
-        _refresh_map_canvas()
-    return len(layers)
 
 
 def _refresh_map_canvas():

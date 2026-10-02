@@ -711,7 +711,7 @@ class ForestZoningMainDialogScoring:
             error_texts.append("「収益性軸」「災害リスク軸」のいずれかにひとつ以上にチェックしてください")
 
         if self.main.scoringOutputDirFileWidget.filePath() == "":
-            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
 
         return error_texts
 
@@ -751,7 +751,10 @@ class ForestZoningMainDialogScoring:
             axis_names.add(OUTPUT_PROFIT["DISPLAY_NAME"])
         if self.main.scoringSlopeLayerCombobox.parent().isChecked():
             axis_names.add(OUTPUT_RISK["DISPLAY_NAME"])
-        utils.remove_output_layers(utils.STAGE_SCORING, axis_names)
+        # 片付けたレイヤーは削除せずに取り外して持っておき、上書きをキャンセルしたら元の位置に戻す。
+        # 実行するなら、ファイルの掴みを解放するため、ここで削除する
+        selections = self.main.snapshot_selections()
+        detached = utils.detach_output_layers(utils.STAGE_SCORING, axis_names)
 
         existing_filenames = self.scoring_get_existing_filenames()
         if len(existing_filenames) > 0:
@@ -762,8 +765,11 @@ class ForestZoningMainDialogScoring:
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
+                utils.restore_detached_layers(detached)
+                self.main.restore_selections(selections)
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
+        utils.discard_detached_layers(detached)
 
         input_layers_dict = {
             "siteidx": self.main.scoringSiteidxLayerCombobox.currentLayer(),

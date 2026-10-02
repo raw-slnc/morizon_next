@@ -7,7 +7,7 @@ import zipfile
 from datetime import datetime
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QFileDialog, QLabel, QMenu, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication, QFileDialog, QLabel, QMenu, QMessageBox
 from qgis.core import QgsProject
 
 from . import morizon_data, morizon_restore, processes, utils
@@ -41,8 +41,9 @@ from .constants import (
     OUTPUT_ZONING_THRESHOLDS_JSON,
 )
 
-ARCHIVE_DIR_NAME = "morizon_next_archive"
-ARCHIVE_FILE_PREFIX = "morizon_next"
+# 保存ファイルは <qgz のフォルダ>/morizon_next/archive に置く。同じフォルダのプロジェクトで共有するので、
+# ファイル名の頭に qgz のファイル名（プロジェクト内の作業フォルダ名）を付けて見分ける
+ARCHIVE_DIR_NAME = "archive"
 
 # ZIPに同梱する付随ファイルの拡張子
 # （読み込み時の検索で本体と取り違えないよう、.aux.xml等は入れない）
@@ -110,6 +111,11 @@ class ForestZoningMainDialogArchive:
         thread.start()
         progress_dialog.exec()
         thread.wait()
+        # 閉じた進捗の窓の絵が残らないよう、窓を消して下の画面を描き直してから次へ進む
+        # （続けて知らせを出すと、描き直す前に次の窓が開き、閉じた窓の絵が残像として残った）
+        progress_dialog.hide()
+        progress_dialog.deleteLater()
+        QApplication.processEvents()
         return outcome
 
     # ── 保存 ─────────────────────────────────────────────────────────
@@ -230,6 +236,12 @@ class ForestZoningMainDialogArchive:
         )
         return morizon_data.clear_managed_dir(managed_dir)
 
+    def clear_managed_data(self) -> list:
+        """プロジェクト内（morizon_next/<qgz のファイル名>）の個別データを削除する（共有キャッシュは残す）。削除できなかったものを返す"""
+        if not QgsProject.instance().homePath():
+            return []
+        return self._clear_managed_data(utils.get_morizon_managed_dir())
+
     @staticmethod
     def _has_files(directory: str) -> bool:
         return any(files for _, _, files in os.walk(directory))
@@ -288,8 +300,8 @@ class ForestZoningMainDialogArchive:
 
         entries = self.get_archive_entries()
         managed_dir = utils.get_morizon_managed_dir()
-        archive_dir = os.path.join(project_home, ARCHIVE_DIR_NAME)
-        archive_name = f"{ARCHIVE_FILE_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        archive_dir = utils.get_morizon_root_dir(ARCHIVE_DIR_NAME)
+        archive_name = f"{os.path.basename(managed_dir)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         archive_path = os.path.join(archive_dir, archive_name)
 
         counts = {}
@@ -299,14 +311,14 @@ class ForestZoningMainDialogArchive:
             f"・{folder}/  {counts.get(folder, 0)}ファイル"
             for folder in (DIR_DATA, DIR_YOUSO, DIR_ZONING, DIR_AGGREGATE)
         ) + f"\n・{DATA_INFO_FILE_NAME}（保存データの説明）"
-        # 作業場が外部のフォルダのときは、そのフォルダを消さない（保存だけ行う）
+        # 作業フォルダが外部のときは、そのフォルダを消さない（保存だけ行う）
         external = utils.get_external_workspace()
         if external:
-            clear_text = f"作業場は外部のフォルダ（{os.path.basename(external)}）のため、保存後のクリアは行いません。\n\n"
+            clear_text = f"作業フォルダは外部（{os.path.basename(external)}）のため、保存後のクリアは行いません。\n\n"
         else:
             clear_text = (
                 "保存後、次の個別データをクリアします。\n"
-                "・[Project Folder]/morizon_next 内の個別ファイル\n"
+                f"・[Project Folder]/morizon_next/{os.path.basename(managed_dir)} 内の個別ファイル\n"
                 "・プラグインに由来するプロジェクト上のレイヤーはクリアされます\n"
                 "・要素計算タブの入力欄と、ゾーン統計量タブのDEMの欄\n"
                 " 　※スコアリング設定値は残ります\n\n"
@@ -383,39 +395,22 @@ class ForestZoningMainDialogArchive:
         self.load_managed_data()
 
     def load_from_zip(self):
+        """ZIPを選んで読み込む：ZIPの中身をプロジェクト内に取り込み、作業フォルダはプロジェクト内になる。
+        ZIPを選んだ後に、レイヤーの初期化とプロジェクト内のデータの更新をまとめて確かめる（選択を取りやめたら何も変えない）"""
         if not self._require_project():
-            return
-        # 初期状態にしてから読み込むので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
             return
         path, _ = QFileDialog.getOpenFileName(
             self.main, "読み込むZIPを選択", "", "ZIPファイル (*.zip *.ZIP)"
         )
-        if path:
-            self._import_and_load(path)
-
-    def load_from_dir(self):
-        if not self._require_project():
+        if not path:
             return
-        # 初期状態にしてから読み込むので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
-            return
-        path = QFileDialog.getExistingDirectory(self.main, "読み込むフォルダを選択")
-        if path:
-            self._import_and_load(path)
-
-    def _import_and_load(self, source: str):
         managed_dir = utils.get_morizon_managed_dir()
-        source = os.path.normpath(source)
-        if os.path.normcase(source) == os.path.normcase(managed_dir):
-            self.reload_managed_data()
-            return
+        source = os.path.normpath(path)
         if utils.is_under_dir(os.path.abspath(source), managed_dir):
             # 取り込み前に管理フォルダを空にするため、中にあるものは取り込み元にできない
             QMessageBox.information(
                 self.main, "保存ファイル読み込み",
-                f"{managed_dir} の中にあるZIP・フォルダは読み込めません。\n"
-                "別の場所に移してから選んでください。"
+                f"{managed_dir} の中にあるZIPは読み込めません。\n別の場所に移してから選んでください。"
             )
             return
         try:
@@ -424,13 +419,17 @@ class ForestZoningMainDialogArchive:
             QMessageBox.information(self.main, "保存ファイル読み込み", str(e))
             return
 
+        layers = self.main.layers_to_initialize()
+        message = (self.main.initialize_message(layers) + "\n") if layers else ""
+        message += "ZIPの取り込みはプロジェクト内のデータを更新します（プロジェクト内の保存されていないデータは破棄されます）。\nよろしいですか？"
         answer = QMessageBox.question(
-            self.main, "保存ファイル読み込み", "保存されていないデータは破棄されます。",
+            self.main, "保存ファイル読み込み", message,
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Ok:
             return
+        utils.remove_project_layers(layers)
 
         # ファイルを消せるよう、レイヤーの取り外しだけは先に画面側（メインスレッド）で行う。
         # 削除とコピー・展開は大きなDEMで時間がかかるため、ワーカースレッドに任せる
@@ -455,19 +454,61 @@ class ForestZoningMainDialogArchive:
             return
         self.load_managed_data()
 
-    def load_managed_data(self):
-        """管理フォルダ（DATA/・YOUSO/・ZONING/・AGGREGATE/）を各タブとレイヤーに反映する。
-        保存データはプロジェクト内に取り込むので、作業場はプロジェクト内になる"""
-        self.main.use_project_workspace(refill_inputs=False)
+    def load_from_dir(self):
+        """フォルダを選んで読み込む：選んだフォルダをその場で作業フォルダ（外部）にし、出力があればレイヤーに反映する。
+        フォルダを選んだ後にレイヤーの初期化を確かめる（選択を取りやめたら何も変えない）。
+        出力の上書きは、各工程を実行するときに判断する"""
+        if not self._require_project():
+            return
+        path = QFileDialog.getExistingDirectory(self.main, "読み込むフォルダを選択")
+        if not path:
+            return
         managed_dir = utils.get_morizon_managed_dir()
-        data_dir = os.path.join(managed_dir, DIR_DATA)
+        source = os.path.normpath(path)
+        if os.path.normcase(source) == os.path.normcase(managed_dir):
+            self.reload_managed_data()
+            return
+        if utils.is_under_dir(os.path.abspath(source), managed_dir):
+            QMessageBox.information(
+                self.main, "保存ファイル読み込み",
+                f"{managed_dir} の中のフォルダは読み込めません。\n"
+                "プロジェクト内のデータは「プロジェクト内のデータを読み直す」で読み込んでください。"
+            )
+            return
+        workspace_root, _ = morizon_data.resolve_workspace(source)
+        if workspace_root is None:
+            QMessageBox.information(
+                self.main, "保存ファイル読み込み",
+                "MORIZONのデータとして読める構成ではありません。\n"
+                "DATA フォルダ（DEM・SiteIndex などを含むフォルダ）か、それを含むフォルダを選んでください。"
+            )
+            return
+        if not self.main.initialize_layers():
+            return
+        self.load_workspace_data(workspace_root)
+
+    def load_managed_data(self):
+        """プロジェクト内（morizon_next/<qgz のファイル名>）のデータを各タブとレイヤーに反映する。作業フォルダはプロジェクト内になる"""
+        self.load_workspace_data(None)
+
+    def load_workspace_data(self, workspace_root):
+        """作業フォルダ（None ならプロジェクト内、それ以外は外部のフォルダ）の DATA/・YOUSO/・ZONING/・AGGREGATE/ を
+        各タブとレイヤーに反映し、その作業フォルダに切り替える"""
+        if workspace_root is None:
+            self.main.use_project_workspace(refill_inputs=False)
+            managed_dir = utils.get_morizon_managed_dir()
+            data_dir = os.path.join(managed_dir, DIR_DATA)
+        else:
+            self.main.use_external_workspace(workspace_root)
+            managed_dir = workspace_root
+            data_dir = morizon_data.resolve_data_dir(workspace_root) or os.path.join(workspace_root, DIR_DATA)
         youso_dir = os.path.join(managed_dir, DIR_YOUSO)
         zoning_dir = os.path.join(managed_dir, DIR_ZONING)
         aggregate_dir = os.path.join(managed_dir, DIR_AGGREGATE)
         for directory in (youso_dir, zoning_dir, aggregate_dir):
             os.makedirs(directory, exist_ok=True)
 
-        # 同じファイルのレイヤーが二重にならないよう、管理フォルダのレイヤーは外してから作り直す
+        # 同じファイルのレイヤーが二重にならないよう、作業フォルダのレイヤーは外してから作り直す
         utils.remove_project_layers_under_dir(
             managed_dir, excluded_dirs=[os.path.join(managed_dir, DIR_SHARED)]
         )
@@ -484,7 +525,7 @@ class ForestZoningMainDialogArchive:
                     f"「{os.path.basename(candidates[0])}」を使います"
                 )
 
-        # 出力先（作業場の中に決まる）
+        # 出力先（作業フォルダの中に決まる）
         self.main.apply_workspace_output_dirs()
         aggregate_shp = morizon_restore.find_aggregate_shp(aggregate_dir)
 

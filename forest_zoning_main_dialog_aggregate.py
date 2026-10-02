@@ -220,7 +220,7 @@ class ForestZoningMainDialogAggregate:
         ):
             error_texts.append("DEMファイルを指定してください")
         if self.main.aggregateOutputDirFileWidget.filePath() == "":
-            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
 
         return error_texts
 

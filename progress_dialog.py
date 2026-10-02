@@ -49,6 +49,14 @@ class ProgressDialog(QDialog):
         self.abortButton.setText("中断")
         self.abortButton.clicked.connect(self.on_abort_click)
 
+    def exec(self):
+        """閉じたあと、窓を消して下の画面を描き直してから戻る。
+        戻ってすぐ次の知らせ（終了・エラーなど）を出すと、閉じた窓の絵が描き直されずに残像として残るため"""
+        result = super().exec()
+        self.hide()
+        QApplication.processEvents()
+        return result
+
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key.Key_Escape:
             return

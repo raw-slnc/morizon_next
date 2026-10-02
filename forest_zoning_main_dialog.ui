@@ -488,7 +488,7 @@
             <string notr="true">padding:12px;</string>
            </property>
            <property name="text">
-            <string>レイヤーを自動設定</string>
+            <string>既定値を読み込む</string>
            </property>
           </widget>
          </item>
@@ -1614,7 +1614,7 @@
             <string notr="true">padding:12px;</string>
            </property>
            <property name="text">
-            <string>レイヤーを自動設定</string>
+            <string>既定値を読み込む</string>
            </property>
           </widget>
          </item>
@@ -1937,7 +1937,7 @@
          <item row="0" column="2">
           <widget class="QPushButton" name="aggregateSetLayersButton">
            <property name="text">
-            <string>レイヤを自動設定</string>
+            <string>既定値を読み込む</string>
            </property>
           </widget>
          </item>
@@ -2118,7 +2118,7 @@
                </size>
               </property>
               <property name="text">
-               <string>レイヤ自動設定</string>
+               <string>既定値を読み込む</string>
               </property>
              </widget>
             </item>
@@ -2184,7 +2184,7 @@
                </size>
               </property>
               <property name="text">
-               <string>レイヤ自動設定</string>
+               <string>既定値を読み込む</string>
               </property>
              </widget>
             </item>

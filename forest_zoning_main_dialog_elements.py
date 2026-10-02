@@ -31,7 +31,6 @@ from .constants import (
     COSTCSV_TEMPLATE_FILE,
     COSTCSV_TEMPLATE_NAME,
     DIR_DATA,
-    DIR_SHARED,
     DIR_YOUSO,
     INPUT_DEM,
     INPUT_COSTCSV,
@@ -94,7 +93,7 @@ class ForestZoningMainDialogElements:
             self.clear_elements_settings
         )
         self._init_output_blend_option()
-        # 「…」で選んだファイルを作業場へ取り込む
+        # 「…」で選んだファイルを作業フォルダへ取り込む
         self._input_paths = {}
         for key, filewidget in self.input_filewidgets().items():
             filewidget.fileChanged.connect(lambda _path, k=key: self._on_input_file_changed(k))
@@ -173,7 +172,7 @@ class ForestZoningMainDialogElements:
         すでに置いてある場合は、編集途中の内容を消さないようそのファイルを開く"""
         if not self.main.has_workspace():
             QMessageBox.information(
-                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelを作業場に置きます）。"
+                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelを作業フォルダに置きます）。"
             )
             return
         target = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
@@ -364,7 +363,7 @@ class ForestZoningMainDialogElements:
         if not mondatory_files_dict["dem"]:
             error_texts.append("計算する要素をひとつ以上選択してください")
         if self.main.elementsOutputDirFileWidget.filePath() == "":
-            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
 
         return error_texts
 
@@ -408,7 +407,7 @@ class ForestZoningMainDialogElements:
 
     def load_elements_files_from_dir(self):
         """
-        「フォルダ選択から開始する」：選んだフォルダを作業場（外部）にして、その場で使う。
+        「フォルダ選択から開始する」：選んだフォルダを作業フォルダ（外部）にして、その場で使う。
         入力は DATA の中から探し、出力はそのフォルダの YOUSO/・ZONING/・AGGREGATE/ に書く（原版のキットと同じ使い方）。
         フォルダの中身は人がそろえたものなので、使うファイルの一覧を確かめてから始める
         """
@@ -418,21 +417,23 @@ class ForestZoningMainDialogElements:
         selected_dir = QFileDialog.getExistingDirectory(self.main, "フォルダを選択")
         if not selected_dir:
             return
-        root, kind = morizon_data.resolve_root(selected_dir)
-        if root is None:
+        # DATA だけが選ばれた場合、出力（YOUSO/ 等）はその隣（DATA の親）に作る
+        workspace_root, data_dir = morizon_data.resolve_workspace(selected_dir)
+        if workspace_root is None:
             QMessageBox.information(
                 self.main, "フォルダ選択",
                 "入力データが見つかりませんでした。\n"
                 "DATA フォルダ（DEM・SiteIndex などを含むフォルダ）か、それを含むフォルダを選んでください。"
             )
             return
-        if kind == "kit":
-            data_dir = os.path.join(root, DIR_DATA)
-            workspace_root = root
-        else:
-            # DATA だけが選ばれた場合、出力（YOUSO/ 等）はその隣（DATA の親）に作る
-            data_dir = root
-            workspace_root = os.path.dirname(root) if os.path.basename(root) == DIR_DATA else root
+        if morizon_data.has_outputs(workspace_root):
+            # 出力がある＝途中まで進んだフォルダなので、保存ファイルの読み込み（フォルダ）と同じく読み込んで反映する
+            QMessageBox.information(
+                self.main, "フォルダ選択から開始する",
+                f"既存データがあります。読み込んで反映されます。\n{os.path.basename(workspace_root)}"
+            )
+            self.main.archive.load_workspace_data(workspace_root)
+            return
         found = morizon_data.find_inputs(data_dir)
 
         lines = []
@@ -450,7 +451,7 @@ class ForestZoningMainDialogElements:
         warning = "" if found["dem"] else "\n\nDEMがありません。要素計算にはDEMが必要です。"
         answer = QMessageBox.question(
             self.main, "フォルダ選択から開始する",
-            f"次のフォルダを作業場（外部）にします。\n{os.path.basename(workspace_root)}\n\n"
+            f"次のフォルダを作業フォルダ（外部）にします。\n{os.path.basename(workspace_root)}\n\n"
             "使う入力：\n" + "\n".join(lines) + warning
             + "\n\n出力は、このフォルダの YOUSO・ZONING・AGGREGATE に書き込みます。\n開始しますか？",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
@@ -461,13 +462,13 @@ class ForestZoningMainDialogElements:
         self.main.use_external_workspace(workspace_root)
         self.main.set_inputs_from_data_dir(data_dir)
 
-    # ── 「…」で選んだファイルを作業場へ取り込む ─────────────────────────
-    # 個別に選んだファイルは、今の作業場の DATA/<種類>/ にコピーして使う（1種類1ファイル。前のファイルは置き換える）。
-    # プロジェクト内の作業場は取り込みでそろうので確認しない。外部のフォルダの中を置き換えるときだけ確認する
+    # ── 「…」で選んだファイルを作業フォルダへ取り込む ─────────────────────────
+    # 個別に選んだファイルは、今の作業フォルダの DATA/<種類>/ にコピーして使う（1種類1ファイル。前のファイルは置き換える）。
+    # プロジェクト内の作業フォルダは取り込みでそろうので確認しない。外部のフォルダの中を置き換えるときだけ確認する
 
     @staticmethod
     def _files_of_type(directory, ext):
-        """作業場の種類フォルダにある、その種類のファイル（付随ファイルを含む。Excel 等ほかの形式は含めない）"""
+        """作業フォルダの種類フォルダにある、その種類のファイル（付随ファイルを含む。Excel 等ほかの形式は含めない）"""
         if not os.path.isdir(directory):
             return []
         allowed = COMPANION_EXTENSIONS.get(ext.lower(), {"." + ext.lower()})
@@ -484,7 +485,7 @@ class ForestZoningMainDialogElements:
         names = "\n".join("・" + os.path.basename(path) for path in old_files)
         answer = QMessageBox.question(
             self.main, "外部のフォルダのファイルを置き換えます",
-            f"作業場（外部 {os.path.basename(external)}）の {os.path.relpath(target_dir, external)} にある"
+            f"作業フォルダ（外部 {os.path.basename(external)}）の {os.path.relpath(target_dir, external)} にある"
             f"次のファイルを削除し、選んだファイルに置き換えます。\n\n{names}\n\nよろしいですか？",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
@@ -501,7 +502,7 @@ class ForestZoningMainDialogElements:
         previous = self._input_paths.get(key, "")
         if self.main.is_input_import_suppressed() or not path or not os.path.isfile(path) \
                 or not self.main.has_workspace():
-            # プラグインが設定したとき・空欄・入力途中・作業場が無い（未保存のプロジェクト）ときはそのまま
+            # プラグインが設定したとき・空欄・入力途中・作業フォルダが無い（未保存のプロジェクト）ときはそのまま
             self._input_paths[key] = path
             return
         input_def = morizon_data.INPUT_DEFS[key]
@@ -551,14 +552,15 @@ class ForestZoningMainDialogElements:
         # 初期状態から始める操作なので、最初にレイヤーを初期化する
         if not self.main.initialize_layers():
             return
-        # 取得したデータはプロジェクト内（morizon_next）に置くので、作業場をプロジェクト内にする。
-        # 作業場の切り替えと前の解析の破棄（データの判断）は、押してすぐ1回にまとめて確かめ、
+        # 取得したデータはプロジェクト内（morizon_next）に置くので、作業フォルダをプロジェクト内にする。
+        # 作業フォルダの切り替えと前の解析の破棄（データの判断）は、押してすぐ1回にまとめて確かめ、
         # 実行はDEMブラウザで範囲を決めてから行う（ブラウザで取りやめたときはデータを変えない）
         external = utils.get_external_workspace()
+        switch_to_internal = not utils.is_internal_workspace()
         discard = self.main.archive.has_previous_analysis()
         notes = []
         if external:
-            notes.append(f"作業場を外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。")
+            notes.append(f"作業フォルダを外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。")
         if discard:
             notes.append(self.main.archive.DISCARD_MESSAGE)
         if notes:
@@ -583,8 +585,8 @@ class ForestZoningMainDialogElements:
                 return
             source.tile_sources = tile_sources
 
-        # ここから実行（確かめた内容）。外すレイヤーはブラウザの間に変わり得るので数え直す
-        if external:
+        # ここから実行（確かめた内容）
+        if switch_to_internal:
             self.main.use_project_workspace(refill_inputs=True)
         if discard:
             self.main.archive.discard_previous_analysis()
@@ -723,7 +725,7 @@ class ForestZoningMainDialogElements:
         # ゾーン全体データはプロジェクト内蔵の共有領域に置く（ドライブ直下キャッシュは廃止）。
         # プロジェクトを他PCへ移動しても一緒に運ばれ、同一プロジェクト内での再取得を避けられる。
         # 「フォルダ一式」（DATA/等）には含めない、あくまで内部支援用
-        cache_base_dir = utils.get_morizon_managed_dir(DIR_SHARED)
+        cache_base_dir = utils.get_morizon_shared_dir()
 
         thread = processes.siteindex_fetch.SiteIndexFetchThread(
             zone, cache_base_dir, output_dir,
@@ -788,7 +790,7 @@ class ForestZoningMainDialogElements:
 
         output_dir = utils.get_morizon_managed_dir(DIR_DATA)
         # 基盤地図情報のZIP自体は地位指数と同様、プロジェクト内蔵の共有領域にキャッシュする
-        cache_dir = utils.get_morizon_managed_dir(DIR_SHARED, "fgd")
+        cache_dir = utils.get_morizon_shared_dir("fgd")
 
         thread = processes.building_road_fetch.BuildingRoadFetchThread(
             session, mesh_codes, cache_dir, output_dir,
@@ -853,24 +855,36 @@ class ForestZoningMainDialogElements:
 
     def clear_elements_settings(self):
         """
-        「設定をクリアする」ボタンの処理
-        要素計算タブの入力ファイル・チェックボックスを初期状態に戻し、作業場をプロジェクト内に戻す
+        「設定をクリアする」ボタンの処理：初期状態（作業フォルダ：なし）に戻す。
+        レイヤーを初期化し、選べばプロジェクト内（morizon_next）の個別データも削除する。プロジェクトの作業フォルダの記録も消す
         """
-        # 初期状態に戻す操作なので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
-            return
-        message = "要素計算タブの入力設定をクリアしてよろしいですか？"
-        external = utils.get_external_workspace()
-        if external:
-            message += f"\n\n作業場（外部 {os.path.basename(external) or external}）はプロジェクト内に戻ります。"
-        answer = QMessageBox.question(
-            self.main, "確認", message,
-            QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
+        layers = self.main.layers_to_initialize()
+        box = QMessageBox(self.main)
+        box.setWindowTitle("設定をクリアする")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            (self.main.initialize_message(layers) + "\n") if layers else "レイヤーを初期化します。\n"
         )
-        if answer == QMessageBox.StandardButton.No:
+        box.setInformativeText("要素計算タブの入力欄を空にし、初期状態（作業フォルダ：なし）に戻します。")
+        delete_checkbox = QCheckBox(
+            f"プラグインフォルダ内の個別データを削除（[Project Folder]/morizon_next/{os.path.basename(utils.get_morizon_managed_dir())}）"
+        )
+        delete_checkbox.setEnabled(QgsProject.instance().homePath() != "")
+        box.setCheckBox(delete_checkbox)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Ok:
             return
+        utils.remove_project_layers(layers)
+        if delete_checkbox.isChecked():
+            failed = self.main.archive.clear_managed_data()
+            if failed:
+                QMessageBox.warning(
+                    self.main, "設定をクリアする",
+                    "次のものは削除できませんでした（使用中の可能性があります）。\n" + "\n".join(failed),
+                )
         self.reset_elements_inputs()
-        self.main.use_project_workspace(refill_inputs=False)
+        self.main.use_no_workspace(persist=True)
 
     def reset_elements_inputs(self):
         """要素計算タブの入力ファイル・チェックボックスを初期状態に戻す（確認なし）"""
@@ -957,7 +971,10 @@ class ForestZoningMainDialogElements:
         self.main.hide()
 
         # 計算する要素のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
-        utils.remove_output_layers(utils.STAGE_ELEMENTS, self.selected_element_names())
+        # 片付けたレイヤーは削除せずに取り外して持っておき、上書きをキャンセルしたら元の位置に戻す。
+        # 実行するなら、ファイルの掴みを解放するため、ここで削除する
+        selections = self.main.snapshot_selections()
+        detached = utils.detach_output_layers(utils.STAGE_ELEMENTS, self.selected_element_names())
 
         existing_filenames = self.elements_get_existing_filenames()
         if len(existing_filenames) > 0:
@@ -968,9 +985,12 @@ class ForestZoningMainDialogElements:
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
+                utils.restore_detached_layers(detached)
+                self.main.restore_selections(selections)
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 self.main.show()
                 return
+        utils.discard_detached_layers(detached)
 
         input_files_dict = {
             "dem": self.main.elementsDemFileWidget.filePath(),

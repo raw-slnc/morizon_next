@@ -132,7 +132,7 @@ class ForestZoningMainDialogZoning:
         # 既存の出力は実行時の上書き確認で置き換えるため、ここでは止めない
 
         if self.main.zoningOutputDirFileWidget.filePath() == "":
-            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next の中に決まります）")
+            error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
 
         return error_texts
 
@@ -239,7 +239,10 @@ class ForestZoningMainDialogZoning:
 
     def run_zoning(self):
         # ゾーニング図のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
-        utils.remove_output_layers(utils.STAGE_ZONING)
+        # 片付けたレイヤーは削除せずに取り外して持っておき、上書きをキャンセルしたら元の位置に戻す。
+        # 実行するなら、ファイルの掴みを解放するため、ここで削除する
+        selections = self.main.snapshot_selections()
+        detached = utils.detach_output_layers(utils.STAGE_ZONING)
 
         existing_filenames = self.get_existing_filenames()
         if len(existing_filenames) > 0:
@@ -250,8 +253,11 @@ class ForestZoningMainDialogZoning:
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):
+                utils.restore_detached_layers(detached)
+                self.main.restore_selections(selections)
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
+        utils.discard_detached_layers(detached)
 
         input_layers_dict = {
             "profit": self.main.zoningProfitLayerCombobox.currentLayer(),

@@ -102,6 +102,27 @@ def resolve_root(selected_dir: str):
     return None, None
 
 
+def resolve_workspace(selected_dir: str):
+    """選ばれたフォルダから (作業フォルダ, DATAフォルダ) を返す。読める構成でなければ (None, None)。
+    最上位（DATA/ を持つ）ならそのまま。DATA を選んだ場合はその親を作業フォルダにする（出力の YOUSO/ 等は DATA の隣にできる）。
+    DATA という名前でない入力フォルダなら、そのフォルダ自身を作業フォルダにする"""
+    root, kind = resolve_root(selected_dir)
+    if root is None:
+        return None, None
+    if kind == "kit":
+        return root, os.path.join(root, DIR_DATA)
+    workspace_root = os.path.dirname(root) if os.path.basename(root) == DIR_DATA else root
+    return workspace_root, root
+
+
+def has_outputs(workspace_root: str) -> bool:
+    """作業フォルダに出力（YOUSO/・ZONING/・AGGREGATE/ のファイル）があるか"""
+    return any(
+        any(files for _, _, files in os.walk(os.path.join(workspace_root, name)))
+        for name in (DIR_YOUSO, DIR_ZONING, DIR_AGGREGATE)
+    )
+
+
 def resolve_data_dir(selected_dir: str):
     """選ばれたフォルダ（最上位でも DATA でもよい）から DATA フォルダを返す。無ければ None。"""
     root, kind = resolve_root(selected_dir)
