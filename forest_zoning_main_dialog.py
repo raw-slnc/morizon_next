@@ -248,16 +248,40 @@ class ForestZoningMainDialog(QDialog):
         layers = self.layers_to_initialize()
         if not layers:
             return True
-        if confirm:
-            answer = QMessageBox.question(
-                self, "レイヤーの初期化", self.initialize_message(layers),
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Ok,
-            )
-            if answer != QMessageBox.StandardButton.Ok:
-                return False
+        if confirm and not self._confirm_initialize(layers):
+            return False
         utils.remove_project_layers(layers)
         return True
+
+    def _confirm_initialize(self, layers) -> bool:
+        answer = QMessageBox.question(
+            self, "レイヤーの初期化", self.initialize_message(layers),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok,
+        )
+        return answer == QMessageBox.StandardButton.Ok
+
+    # ── 初期状態から始める操作を、途中で取りやめたときの戻し ─────────────────────
+    # 「フォルダ選択から開始する」「DEMブラウザから開始する」などは、最初にレイヤーを初期化してから
+    # フォルダ選択などへ進む。そこで取りやめても入力欄や作業フォルダは前のままなので、レイヤーも元に戻す。
+    # そのため初期化では削除せずに取り外して持っておき、取りやめたら restore_initialized_layers で戻し、
+    # 先へ進むときに discard_initialized_layers で削除する（ファイルの掴みを解放する）
+
+    def detach_layers_to_initialize(self):
+        """「レイヤーを初期化します」と確かめてから、プラグインのレイヤーを取り外して返す。取りやめたら None"""
+        layers = self.layers_to_initialize()
+        if layers and not self._confirm_initialize(layers):
+            return None
+        selections = self.snapshot_selections()
+        return {"records": utils.detach_layers(layers), "selections": selections}
+
+    def restore_initialized_layers(self, detached):
+        utils.restore_detached_layers(detached["records"])
+        self.restore_selections(detached["selections"])
+
+    @staticmethod
+    def discard_initialized_layers(detached):
+        utils.discard_detached_layers(detached["records"])
 
     # ── 工程の上書きをキャンセルしたときの戻し ─────────────────────────
     # 工程を実行するときに片付けたレイヤーは、上書きをキャンセルしたら元に戻す（utils.restore_detached_layers）。

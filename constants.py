@@ -2,7 +2,7 @@
 # Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
-### MORIZON管理フォルダの構成 ###
+# MORIZON管理フォルダの構成
 # プロジェクトフォルダ内の作業場所。原版の『ZoningKit_○○』（手引 図3-13）と同じ構成にし、
 # 「保存ファイル出力」のZIPも同じ構成で書き出す（そのまま展開・読み直しできるように）
 MANAGED_DIR_NAME = "morizon_next"
@@ -15,13 +15,13 @@ DATA_INFO_FILE_NAME = "MORIZON_NEXT.txt"  # 保存データの最上位に置く
 # 出力レイヤーをまとめるレイヤーツリーのグループ（プロジェクトの最上位）
 OUTPUT_GROUP_NAME = "Morizon Next"
 
-### 作業システムのExcelひな形 ###
+# 作業システムのExcelひな形
 # 原版 ZoningKit 同梱の「集材作業効率の設定220113.xlsx」（ZoningKit_03〜13・サンプルとも同一の配布原本）。
 # プラグイン内はASCII名で持ち、プロジェクトへは原版と同じ名前で置く
 COSTCSV_TEMPLATE_FILE = "templates/sagyo_system_template_220113.xlsx"
 COSTCSV_TEMPLATE_NAME = "集材作業効率の設定220113.xlsx"
 
-### 入力ファイル定義 ###
+# 入力ファイル定義
 INPUT_DEM = {
     "DISPLAY_NAME": "DEM",
     "EXT": "tif",
@@ -58,7 +58,7 @@ INPUT_COSTCSV = {
     "PATH": ["SAGYO-SYSTEM_CSV"]
 }
 
-### 出力ファイル定義 ###
+# 出力ファイル定義
 OUTPUT_SLOPE = {
     "DISPLAY_NAME": "災害リスク/傾斜",
     "FILE_NAME": "Y_12_keisha",
@@ -119,7 +119,7 @@ OUTPUT_AGGREGATE = {
     "FILE_NAME": "aggregate"
 }
 
-### 各レイヤーの色定義 ###
+# 各レイヤーの色定義
 RAWDATA_COLORS_SITEIDX_SUGI = (
     "#cdf1c5", "#a3d5a6", "#7ab987", "#509c68", "#268049")
 RAWDATA_COLORS_SITEIDX_HINOKI = (

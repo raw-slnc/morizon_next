@@ -106,7 +106,11 @@ class CostcsvParser:
         expressions = []
 
         for score_tuple in self._get_score_tuples():
-            expression = f'{score_tuple[4]} * ({score_tuple[0]} <= "{ruggedness_entry_name}" and "{ruggedness_entry_name}" < {score_tuple[1]} and {score_tuple[2]} <= "{slope_entry_name}" and "{slope_entry_name}" < {score_tuple[3]})'
+            expression = (
+                f'{score_tuple[4]} * ('
+                f'{score_tuple[0]} <= "{ruggedness_entry_name}" and "{ruggedness_entry_name}" < {score_tuple[1]}'
+                f' and {score_tuple[2]} <= "{slope_entry_name}" and "{slope_entry_name}" < {score_tuple[3]})'
+            )
             expressions.append(expression)
 
         return ' + '.join(expressions)

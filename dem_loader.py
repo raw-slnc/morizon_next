@@ -288,7 +288,7 @@ class GSITileDEMLoader:
             return None, f"Image processing error: {e}", len(raw)
 
     def fetch_for_extent(self, lon_min, lat_min, lon_max, lat_max, sources=None, cancel_cb=None,
-                          progress_cb=None):
+                         progress_cb=None):
         """WGS84経緯度範囲のタイルをダウンロードして取得する。
         sources省略時はTILE_SOURCES(1m→5m→10m)の順で自動フォールバックする。
         progress_cb(tiles_done, tiles_total, bytes_done)は各タイル取得後に呼ばれる。"""
@@ -301,8 +301,8 @@ class GSITileDEMLoader:
         for i, item in enumerate(source_list):
             tile_url, tile_zoom, label, encoding = item
             candidate = self._fetch_tiles(lon_min, lat_min, lon_max, lat_max,
-                                           tile_url, tile_zoom, encoding, cancel_cb=cancel_cb,
-                                           progress_cb=progress_cb)
+                                          tile_url, tile_zoom, encoding, cancel_cb=cancel_cb,
+                                          progress_cb=progress_cb)
             if candidate is None:
                 self._cancelled = True
                 return self
@@ -357,7 +357,7 @@ class GSITileDEMLoader:
         return self
 
     def _fetch_tiles(self, lon_min, lat_min, lon_max, lat_max, tile_url, zoom, encoding="gsi",
-                      cancel_cb=None, progress_cb=None):
+                     cancel_cb=None, progress_cb=None):
         max_tile = 2 ** zoom - 1
         TS = self.TILE_SIZE
 

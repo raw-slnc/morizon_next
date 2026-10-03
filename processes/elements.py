@@ -7,11 +7,8 @@ import os
 import shutil
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtCore import QThread, pyqtSignal
+from qgis.core import QgsRasterLayer
 
 from . import raster_writer
 from . import raster_styler

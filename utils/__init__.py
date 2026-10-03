@@ -9,11 +9,15 @@ import tempfile
 import os
 import re
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtCore import QCoreApplication
+from qgis.core import (
+    QgsCoordinateReferenceSystem,
+    QgsLayerTreeGroup,
+    QgsMapLayer,
+    QgsProject,
+    QgsRasterLayer,
+)
+from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt import sip
 import processing
 
@@ -54,7 +58,7 @@ def get_raster_stats(rlayer: QgsRasterLayer) -> dict:
             + rlayer.dataProvider().htmlMetadata().replace("\n", "")
             + "</root>"
         )
-    except ET.ParseError as e:
+    except ET.ParseError:
         # xyzタイルはhtmlMetadataが適切なXMLとしてパース出来ないので例外をキャッチ
         print(f"failed to parse htmlMetada of {rlayer.name()}, skipping...")
         root = ET.fromstring("<root></root>")
@@ -141,20 +145,20 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
     return thresholds
 
 
-def find(l: list, x) -> int:
+def find(values: list, x) -> int:
     """
     https://note.nkmk.me/python-list-index/
     配列から要素を検索し、存在すればそのインデックスを返す
     存在しなければ-1を返す
 
     Args:
-        l ([type]): 検索対象の配列
+        values ([type]): 検索対象の配列
         x ([type]): 検索する値
 
     Returns:
         int: 見つかった最初の要素のインデックス
     """
-    return l.index(x) if x in l else -1
+    return values.index(x) if x in values else -1
 
 
 def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
@@ -458,10 +462,15 @@ def detach_output_layers(stage: str = None, keys=None) -> list:
     """プラグインの出力レイヤーを、削除せずにプロジェクトから取り外して返す（キャンセルされたら restore_detached_layers で戻す）。
     戻すため、グループの中の位置とチェックの状態、グループの設定を一緒に覚えておく。
     取り外したレイヤーはファイルを掴んだままなので、ファイルを上書きする前に discard_detached_layers で削除すること"""
+    return detach_layers(output_layers(stage, keys))
+
+
+def detach_layers(layers) -> list:
+    """レイヤーを、削除せずにプロジェクトから取り外して返す（detach_output_layers と同じ。対象を呼び出し側が決める）"""
     project = QgsProject.instance()
     root = project.layerTreeRoot()
     records = []
-    for layer in output_layers(stage, keys):
+    for layer in layers:
         node = root.findLayer(layer.id())
         if node is None or node.parent() is None:
             continue

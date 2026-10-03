@@ -3,13 +3,8 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import tempfile
-import xml.etree.ElementTree as ET
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsContrastEnhancement, QgsRasterLayer, QgsRasterMinMaxOrigin
 
 from ...constants import (
     SCORING_COLORS_SITEIDX,

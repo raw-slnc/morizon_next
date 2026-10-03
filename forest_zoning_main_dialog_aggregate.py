@@ -7,18 +7,14 @@ import glob
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+from qgis.core import QgsMapLayerProxyModel, QgsProject
 
 from . import processes
 from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import ProgressDialog
-
 
 
 class ForestZoningMainDialogAggregate:
@@ -127,7 +123,7 @@ class ForestZoningMainDialogAggregate:
             try:
                 os.rename(file_name, file_name)
                 return False
-            except:
+            except Exception:
                 return True
 
         # ゾーン統計量のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
@@ -142,11 +138,11 @@ class ForestZoningMainDialogAggregate:
             # deletableを初期化
             deletable = True
             for file in file_list:
-                if is_file_used(file) == True:
+                if is_file_used(file):
                     deletable = False
                     break
 
-            if deletable == True:
+            if deletable:
                 for file in file_list:
                     os.remove(file)
             else:
@@ -156,7 +152,10 @@ class ForestZoningMainDialogAggregate:
         self.main.hide()
 
         mode = "polygon" if self.main.radioButtonPolygon.isChecked() else "dem"
-        input_layer = self.main.aggregatePolygonLayerCommbobox.currentLayer() if mode=="polygon" else self.main.aggregateDemFileWidget.filePath()
+        if mode == "polygon":
+            input_layer = self.main.aggregatePolygonLayerCommbobox.currentLayer()
+        else:
+            input_layer = self.main.aggregateDemFileWidget.filePath()
         thread = processes.aggregate.ProcessingThread(
             mode=mode,
             zoning_layer_path=zoning_rlayer,
@@ -188,6 +187,15 @@ class ForestZoningMainDialogAggregate:
 
     def refresh_aggregate_ui(self):
         self.update_aggregate_layer_scope()
+
+        # 既定のレイヤーが入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする
+        default_layer = utils.find_morizon_layer_by_name(
+            OUTPUT_ZONING["DISPLAY_NAME"], allowed_extensions={".tif", ".tiff"}
+        )
+        self.main.aggregateSetLayersButton.setEnabled(
+            default_layer is not None
+            and self.main.aggregateZoningLayerCombobox.currentLayer() is not default_layer
+        )
 
         # ラジオボタンの状態に応じてUIを有効化・無効化
         self.main.aggregatePolygonLayerCommbobox.setEnabled(

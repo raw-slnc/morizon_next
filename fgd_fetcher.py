@@ -111,7 +111,7 @@ def download_file(session: requests.Session, file_id: int, output_path: str, can
 
 
 def fetch_meshes(session: requests.Session, type_code: str, mesh_codes: list, cache_dir: str,
-                  progress_cb=None, cancel_cb=None) -> list:
+                 progress_cb=None, cancel_cb=None) -> list:
     """type_code・メッシュ群のZIPをcache_dirへダウンロードする（既存ファイルはスキップ）。ZIPパスのリストを返す"""
     os.makedirs(cache_dir, exist_ok=True)
     items = query_latest(session, type_code, mesh_codes)
@@ -131,10 +131,10 @@ def fetch_meshes(session: requests.Session, type_code: str, mesh_codes: list, ca
 
 
 def merge_layers(zip_paths: list, output_path: str,
-                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
-                  include_layer_names=None, driver_format="ESRI Shapefile",
-                  output_layer=None, dst_crs="EPSG:4326",
-                  clip_to_extent=True) -> bool:
+                 lon_min: float, lat_min: float, lon_max: float, lat_max: float,
+                 include_layer_names=None, driver_format="ESRI Shapefile",
+                 output_layer=None, dst_crs="EPSG:4326",
+                 clip_to_extent=True) -> bool:
     """複数ZIP内のGMLレイヤーを1つのベクタファイルへ範囲クリップしつつ統合する。
     include_layer_names未指定の場合はZIP内の全レイヤーを対象にする。
     driver_formatは"ESRI Shapefile"（既存のフォルダ読み込み規約=INPUT_BUILDING/INPUT_NETWORKに合わせる）

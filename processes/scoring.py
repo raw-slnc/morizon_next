@@ -2,11 +2,8 @@
 # Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtCore import QThread, pyqtSignal
+from qgis.core import QgsRasterLayer
 
 from . import raster_writer
 from . import raster_styler

@@ -2,11 +2,25 @@
 # Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtCore import QRectF
+from qgis.PyQt.QtGui import QColor, QFont
+from qgis.core import (
+    Qgis,
+    QgsCoordinateTransform,
+    QgsGeometry,
+    QgsLayoutItem,
+    QgsLayoutItemLegend,
+    QgsLayoutItemMap,
+    QgsLayoutItemScaleBar,
+    QgsLayoutPoint,
+    QgsLayoutSize,
+    QgsPointXY,
+    QgsPrintLayout,
+    QgsProject,
+    QgsReadWriteContext,
+    QgsRectangle,
+    QgsUnitTypes,
+)
 from qgis.PyQt.QtXml import QDomDocument
 from qgis.utils import iface
 import os

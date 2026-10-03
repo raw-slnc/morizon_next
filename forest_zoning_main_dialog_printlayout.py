@@ -3,14 +3,12 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 # QGIS-API
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.core import QgsMapLayerProxyModel, QgsProject
 
 from . import processes
 from . import utils
+from .settings_manager import PrintlayoutBackgroundManager
 from .constants import (
     OUTPUT_ZONING,
     OUTPUT_AGGREGATE,
@@ -64,11 +62,34 @@ class ForestZoningMainDialogPrintlayout:
         self.main.printlayoutAggregateLayerCombobox.layerChanged.connect(
             self.refresh_create_aggregate_printlayout_ui
         )
+        self.background_manager = PrintlayoutBackgroundManager()
+        self.main.printlayoutBackgroundNetworkOnlyCheckBox.setChecked(
+            self.background_manager.load_network_only()
+        )
+        self.main.printlayoutBackgroundNetworkOnlyCheckBox.toggled.connect(
+            self.background_manager.store_network_only
+        )
+        self.main.printlayoutBackgroundNetworkOnlyCheckBox.toggled.connect(
+            self.refresh_create_zoning_printlayout_ui
+        )
+        self.main.printlayoutBackgroundNetworkOnlyCheckBox.toggled.connect(
+            self.refresh_create_aggregate_printlayout_ui
+        )
         self.refresh_create_zoning_printlayout_ui()
         self.refresh_create_aggregate_printlayout_ui()
 
+    @staticmethod
+    def _set_layers_button_enabled(button, combobox, default_layer):
+        """既定のレイヤーが入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする"""
+        button.setEnabled(default_layer is not None and combobox.currentLayer() is not default_layer)
+
     def refresh_create_zoning_printlayout_ui(self):
         self.update_printlayout_layer_scope()
+        self._set_layers_button_enabled(
+            self.main.zoningPrintlayoutSetLayersButton,
+            self.main.printlayoutZoningLayerCombobox,
+            self._default_zoning_layer(),
+        )
         error_texts = self.get_create_zoning_printlayout_error()
         has_no_error = len(error_texts) == 0
         self.main.createZoningPrintlayoutErrorLabel.setText("\n".join(error_texts))
@@ -84,6 +105,11 @@ class ForestZoningMainDialogPrintlayout:
 
     def refresh_create_aggregate_printlayout_ui(self):
         self.update_printlayout_layer_scope()
+        self._set_layers_button_enabled(
+            self.main.aggregatePrintlayoutSetLayersButton,
+            self.main.printlayoutAggregateLayerCombobox,
+            self._default_aggregate_layer(),
+        )
         error_texts = self.get_create_aggregate_printlayout_error()
         has_no_error = len(error_texts) == 0
         self.main.createAggregatePrintlayoutErrorLabel.setText("\n".join(error_texts))
@@ -97,12 +123,23 @@ class ForestZoningMainDialogPrintlayout:
             error_texts.append("ゾーン統計量を指定してください")
         return error_texts
 
-    def set_zoning_layer_printlayout_combobox(self):
-        self.update_printlayout_layer_scope()
-        zoning_layer = utils.find_morizon_layer_by_name(
+    @staticmethod
+    def _default_zoning_layer():
+        return utils.find_morizon_layer_by_name(
             OUTPUT_ZONING.get("DISPLAY_NAME"),
             allowed_extensions={".tif", ".tiff"},
         )
+
+    @staticmethod
+    def _default_aggregate_layer():
+        return utils.find_morizon_layer_by_name(
+            OUTPUT_AGGREGATE.get("DISPLAY_NAME"),
+            allowed_extensions={".shp", ".gpkg"},
+        )
+
+    def set_zoning_layer_printlayout_combobox(self):
+        self.update_printlayout_layer_scope()
+        zoning_layer = self._default_zoning_layer()
         if zoning_layer is not None:
             self.main.printlayoutZoningLayerCombobox.setLayer(zoning_layer)
         else:
@@ -111,10 +148,7 @@ class ForestZoningMainDialogPrintlayout:
 
     def set_aggregate_layer_printlayout_combobox(self):
         self.update_printlayout_layer_scope()
-        aggregate_layer = utils.find_morizon_layer_by_name(
-            OUTPUT_AGGREGATE.get("DISPLAY_NAME"),
-            allowed_extensions={".shp", ".gpkg"},
-        )
+        aggregate_layer = self._default_aggregate_layer()
         if aggregate_layer is not None:
             self.main.printlayoutAggregateLayerCombobox.setLayer(aggregate_layer)
         else:
@@ -132,6 +166,22 @@ class ForestZoningMainDialogPrintlayout:
             allowed_names={OUTPUT_AGGREGATE.get("DISPLAY_NAME")},
             allowed_extensions={".shp", ".gpkg"},
         )
+        # 背景：「ネットワーク経由のレイヤーに候補を絞る」なら、ファイル等の手元のレイヤーを候補から外す
+        excepted = []
+        if self.main.printlayoutBackgroundNetworkOnlyCheckBox.isChecked():
+            excepted = [
+                layer for layer in QgsProject.instance().mapLayers().values()
+                if not self._is_network_layer(layer)
+            ]
+        self.main.printlayoutBackgroundLayerCombobox.setExceptedLayerList(excepted)
+
+    @staticmethod
+    def _is_network_layer(layer) -> bool:
+        """WMS/WMTS/XYZタイル・WCS・ArcGIS等のサービスや、URLを直接読んでいるレイヤーか"""
+        if layer.providerType() in ("wms", "wcs", "arcgismapserver"):
+            return True
+        source = layer.source().lower()
+        return source.startswith(("http://", "https://", "/vsicurl/")) or "url=http" in source
 
     def run_printlayout(self, target_name):
         project = QgsProject.instance()

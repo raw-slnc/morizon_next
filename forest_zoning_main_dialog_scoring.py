@@ -7,11 +7,9 @@ import json
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QMessageBox
+from qgis.core import QgsMapLayer, QgsMapLayerProxyModel, QgsProject
+from qgis.gui import QgsMapLayerComboBox
 from qgis.utils import iface
 
 from .settings_manager import SettingsManager
@@ -189,6 +187,9 @@ class ForestZoningMainDialogScoring:
                 self.scoring_objs_dict.values(),
             )
         )
+        for obj in self.scoring_objs_dict.values():
+            obj.combobox.layerChanged.connect(self.refresh_set_layers_button)
+        self.main.scoringSaveareaLayerCombobox.layerChanged.connect(self.refresh_set_layers_button)
 
         # 更新ボタン
         self.main.scoringSiteidxStyleReloadPushbutton.clicked.connect(
@@ -339,9 +340,16 @@ class ForestZoningMainDialogScoring:
         MORIZON管理フォルダ内のレイヤーを検索し、スコアリングタブの各コンボボックスに対応するレイヤーをセットする
         """
         self.update_scoring_layer_scope()
-        name_suffix = "[スコアリング]"
+        for combobox, layer in self.default_scoring_layers().items():
+            combobox.setLayer(layer)
 
-        # "<DISPLAY_NAME>name_suffix"と一致するレイヤー名が存在する場合対応するコンボボックスにセットする
+    def default_scoring_layers(self) -> dict:
+        """各コンボボックスに入る既定のレイヤー（コンボボックス → レイヤー。見つからない欄は含めない）"""
+        name_suffix = "[スコアリング]"
+        result = {}
+
+        # "<DISPLAY_NAME>name_suffix"と一致するレイヤー名が存在する場合対応するコンボボックスに入れる
+        # （地位は カラマツ → ヒノキ → スギ の順に探し、後に見つかったものを使う）
         for name, combobox in (
             (
                 OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
@@ -378,10 +386,19 @@ class ForestZoningMainDialogScoring:
         ):
             layer = utils.find_morizon_layer_by_name(name, allowed_extensions={".tif", ".tiff"})
             if layer is not None:
-                combobox.setLayer(layer)
+                result[combobox] = layer
+        return result
+
+    def refresh_set_layers_button(self):
+        """既定のレイヤーがすべて入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする"""
+        self.main.scoringSetLayersPushbutton.setEnabled(any(
+            combobox.currentLayer() is not layer
+            for combobox, layer in self.default_scoring_layers().items()
+        ))
 
     def refresh_scoring_ui(self):
         self.update_scoring_layer_scope()
+        self.refresh_set_layers_button()
 
         # 入力内容のエラーチェック
         error_texts = self.get_scoring_error_texts()

@@ -6,11 +6,7 @@ import os
 import shutil
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 

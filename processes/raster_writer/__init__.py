@@ -16,3 +16,19 @@ from . import (
 )
 
 from .utils import replace_with_clipped_wgs84_extent, resampling
+
+# 外から raster_writer.<名前> で使う部品（読み込むこと自体が目的）
+__all__ = [
+    "siteidx",
+    "cost",
+    "distance",
+    "shc",
+    "slope",
+    "savearea",
+    "profit",
+    "risk",
+    "zoning",
+    "aggregate",
+    "replace_with_clipped_wgs84_extent",
+    "resampling",
+]

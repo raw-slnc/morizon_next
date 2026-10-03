@@ -5,11 +5,7 @@
 import os
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsContrastEnhancement, QgsRasterLayer, QgsRasterMinMaxOrigin
 
 from ...constants import (
     OUTPUT_RISK,
@@ -45,6 +41,8 @@ def write_qml(risk_filepath: str, output_dir: str) -> str:
                 replace_colorramp_labels(temp_qml_value_rounded.name,
                                          temp_qml_label_replaced.name,
                                          labels=["低", "高"])
-                output_filepath = add_tiny_value_to_thresholds(temp_qml_label_replaced.name,
-                                                               os.path.join(output_dir, OUTPUT_RISK["FILE_NAME"] + '.qml'))
+                output_filepath = add_tiny_value_to_thresholds(
+                    temp_qml_label_replaced.name,
+                    os.path.join(output_dir, OUTPUT_RISK["FILE_NAME"] + '.qml'),
+                )
     return output_filepath

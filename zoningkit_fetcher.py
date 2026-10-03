@@ -240,8 +240,8 @@ def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_c
 
 
 def clip_siteindex_to_extent(zone_cache: dict, output_dir: str,
-                              lon_min: float, lat_min: float,
-                              lon_max: float, lat_max: float) -> dict:
+                             lon_min: float, lat_min: float,
+                             lon_max: float, lat_max: float) -> dict:
     """
     ゾーン全体分のNPP/SRAD/VTEX（zone_cacheが指すキャッシュ済みファイル）から、
     指定範囲(WGS84)だけを切り出し、もりぞんのフォルダ規則に合わせて

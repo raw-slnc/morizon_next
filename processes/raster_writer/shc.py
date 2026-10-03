@@ -6,11 +6,7 @@ import os
 import shutil
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 
@@ -49,7 +45,12 @@ def generate(dem_filepath: str, output_dir: str) -> str:
         NODATA_VALUE = "-3.40282347e+38"
         OUTLIER_THRESHOLD = "3"
         normalized_curvature_filepath = os.path.join(temp_dir, "normalized_curvature.tif")
-        calc = QgsRasterCalculator(f'{NODATA_VALUE} * ("{curvature_entry.ref}" < {curvature_stddev} * -{OUTLIER_THRESHOLD} OR {curvature_stddev} * {OUTLIER_THRESHOLD} < "{curvature_entry.ref}") + ("{curvature_entry.ref}" >= {curvature_stddev} * -{OUTLIER_THRESHOLD} AND {curvature_stddev} * {OUTLIER_THRESHOLD} >= "{curvature_entry.ref}") * "{curvature_entry.ref}"',
+        calc = QgsRasterCalculator(f'{NODATA_VALUE} * ("{curvature_entry.ref}"'
+                                   f' < {curvature_stddev} * -{OUTLIER_THRESHOLD}'
+                                   f' OR {curvature_stddev} * {OUTLIER_THRESHOLD} < "{curvature_entry.ref}")'
+                                   f' + ("{curvature_entry.ref}" >= {curvature_stddev} * -{OUTLIER_THRESHOLD}'
+                                   f' AND {curvature_stddev} * {OUTLIER_THRESHOLD} >= "{curvature_entry.ref}")'
+                                   f' * "{curvature_entry.ref}"',
                                    normalized_curvature_filepath,
                                    "GTiff",
                                    curvature_rlayer.extent(),

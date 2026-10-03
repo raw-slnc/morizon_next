@@ -6,11 +6,7 @@ import os
 import shutil
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsRasterLayer, QgsVectorLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 
@@ -35,7 +31,7 @@ def generate(basis_dem_filepath: str,
     try:
         fixed_basin_vlayer = create_basin_polygon(basis_dem_filepath, temp_dir)
         basis_deminfo = get_tiff_info(basis_dem_filepath)
-        target_extent = f'{basis_deminfo["extent"][0]},{basis_deminfo["extent"][1]},{basis_deminfo["extent"][2]},{basis_deminfo["extent"][3]}'
+        target_extent = ",".join(str(value) for value in basis_deminfo["extent"][:4])
 
         # すべての流域を焼きこんだラスター
         basin_rasiterized_filepath = os.path.join(temp_dir, "basin_all.tif")

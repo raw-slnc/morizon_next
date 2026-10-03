@@ -2,7 +2,6 @@
 # Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
-from os import error
 from qgis.PyQt.QtCore import QSettings
 
 # QSettings holds variables as list or dict or str.
@@ -22,7 +21,7 @@ def DEFAULT_SETTINGS():
         'siteidx_karamatsu_params': ['22.510', '11.61', '0.129', '1264.0', '0.2939', '44.3', '1.125'],
         'ruggedness_param': '49',
         'shc_param': '49',
-        'cost_algorithm': 'ruggedness' # ruggedness or shc
+        'cost_algorithm': 'ruggedness'  # ruggedness or shc
     }
 
 
@@ -121,6 +120,29 @@ class OutputLayerStyleManager:
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
         qsettings.setValue(self.APPLY_MULTIPLY_KEY, bool(apply_multiply))
+        qsettings.endGroup()
+
+
+class PrintlayoutBackgroundManager:
+    """
+    印刷タブの背景の「ネットワーク経由のレイヤーに候補を絞る」の状態。
+    操作の好みなので settings.json（解析の設定）には含めず、QGISの設定に保存する
+    """
+
+    SETTING_GROUP = '/MORIZON/printlayout_background'
+    NETWORK_ONLY_KEY = 'network_only'
+
+    def load_network_only(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.NETWORK_ONLY_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_network_only(self, network_only: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.NETWORK_ONLY_KEY, bool(network_only))
         qsettings.endGroup()
 
 

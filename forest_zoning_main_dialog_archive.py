@@ -382,8 +382,9 @@ class ForestZoningMainDialogArchive:
         """管理フォルダにあるデータをそのまま読み直す（ファイルは消さない）"""
         if not self._require_project():
             return
-        # 初期状態にしてから読み込むので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
+        # 初期状態にしてから読み込むので、最初にレイヤーを初期化する（読み直すデータが無ければ元に戻す）
+        detached = self.main.detach_layers_to_initialize()
+        if detached is None:
             return
         managed_dir = utils.get_morizon_managed_dir()
         if not os.path.isdir(os.path.join(managed_dir, DIR_DATA)):
@@ -391,7 +392,9 @@ class ForestZoningMainDialogArchive:
                 self.main, "保存ファイル読み込み",
                 f"読み直すデータがありません。\n{os.path.join(managed_dir, DIR_DATA)}"
             )
+            self.main.restore_initialized_layers(detached)
             return
+        self.main.discard_initialized_layers(detached)
         self.load_managed_data()
 
     def load_from_zip(self):

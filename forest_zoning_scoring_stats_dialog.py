@@ -21,11 +21,8 @@ except ImportError:
 
 # QGIS-API
 from qgis.PyQt import uic
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtWidgets import QDialog, QLabel, QSpinBox
+from qgis.core import QgsRasterLayer
 from .settings_manager import SettingsManager
 
 

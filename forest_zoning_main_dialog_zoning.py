@@ -6,11 +6,8 @@ import os
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.core import QgsMapLayerProxyModel, QgsProject
 from qgis.utils import iface
 
 from .processes.raster_styler import (
@@ -102,6 +99,12 @@ class ForestZoningMainDialogZoning:
         self.main.zoningErrorLabel.setText("\n".join(error_texts))
         self.main.zoningRunButton.setEnabled(has_no_error)
 
+        # 既定のレイヤーがすべて入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする
+        self.main.zoningSetLayersButton.setEnabled(any(
+            combobox.currentLayer() is not layer
+            for combobox, layer in self.default_zoning_layers().items()
+        ))
+
         for combobox, reload_button in (
             (self.main.zoningProfitLayerCombobox, self.main.zoningProfitUpdateButton),
             (self.main.zoningRiskLayerCombobox, self.main.zoningRiskUpdateButton),
@@ -141,14 +144,20 @@ class ForestZoningMainDialogZoning:
         MORIZON管理フォルダ内のレイヤーを検索し、ゾーニングタブの各コンボボックスに対応するレイヤーをセットする
         """
         self.update_zoning_layer_scope()
+        for combobox, layer in self.default_zoning_layers().items():
+            combobox.setLayer(layer)
 
+    def default_zoning_layers(self) -> dict:
+        """各コンボボックスに入る既定のレイヤー（コンボボックス → レイヤー。見つからない欄は含めない）"""
+        result = {}
         for name, combobox in (
             (OUTPUT_PROFIT["DISPLAY_NAME"], self.main.zoningProfitLayerCombobox),
             (OUTPUT_RISK["DISPLAY_NAME"], self.main.zoningRiskLayerCombobox),
         ):
             layer = utils.find_morizon_layer_by_name(name, allowed_extensions={".tif", ".tiff"})
             if layer is not None:
-                combobox.setLayer(layer)
+                result[combobox] = layer
+        return result
 
     def select_restored_layers(self):
         """保存データの読み込み後、収益性・災害リスクの選択欄を作り直したレイヤーに合わせる"""

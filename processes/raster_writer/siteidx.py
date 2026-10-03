@@ -4,11 +4,7 @@
 
 import os
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 
 from .utils import adjust_extent_and_resolution
@@ -94,7 +90,11 @@ def generate(basis_dem_filepath: str,
     ):
         # 地位指数 = 定数 + (NPP - NPP1) * NPP2 - (SRAD - SRAD1) * 0.01 * SRAD2 - (VTEX - VTEX1) * 0.01 * VTEX2
         # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 AND 1) を使う
-        expression = f'({siteidx_params[0]} + (npp@1 - {siteidx_params[1]}) * {siteidx_params[2]} - (srad@1 - {siteidx_params[3]}) * 0.01 * {siteidx_params[4]} - (vtex@1 - {siteidx_params[5]}) * 0.01 * {siteidx_params[6]}) * (dem@1 AND 1)'
+        expression = (
+            f'({siteidx_params[0]} + (npp@1 - {siteidx_params[1]}) * {siteidx_params[2]}'
+            f' - (srad@1 - {siteidx_params[3]}) * 0.01 * {siteidx_params[4]}'
+            f' - (vtex@1 - {siteidx_params[5]}) * 0.01 * {siteidx_params[6]}) * (dem@1 AND 1)'
+        )
         # 計算に失敗したとき前回の出力が残って使われないよう、先に削除しておく
         if os.path.exists(output_filepath):
             os.remove(output_filepath)
@@ -104,7 +104,7 @@ def generate(basis_dem_filepath: str,
                                    dem_rlayer.extent(),
                                    dem_rlayer.width(),
                                    dem_rlayer.height(),
-                                  (npp_entry, srad_entry, vtex_entry, dem_entry))
+                                   (npp_entry, srad_entry, vtex_entry, dem_entry))
         result = calc.processCalculation()
         if not _is_raster_calculator_success(result):
             raise RuntimeError(

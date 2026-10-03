@@ -72,7 +72,7 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
     output = processing.run("gdal:warpreproject", {
         "TARGET_CRS": basis_deminfo["crs"],
         "TARGET_RESOLUTION": basis_deminfo["resolution"],
-        "TARGET_EXTENT": f'{basis_deminfo["extent"][0]},{basis_deminfo["extent"][1]},{basis_deminfo["extent"][2]},{basis_deminfo["extent"][3]}',
+        "TARGET_EXTENT": ",".join(str(value) for value in basis_deminfo["extent"][:4]),
         "TARGET_EXTENT_CRS": basis_deminfo["crs"],
         "RESAMPLING": resampling_alg,
         "INPUT": target_tiff_filepath,

@@ -3,19 +3,22 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
-import re
 import shutil
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
-
-
-from qgis.utils import iface
+from qgis.PyQt.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, QPoint, QTimer, QUrl, Qt
+from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QInputDialog,
+    QMessageBox,
+    QProgressDialog,
+)
+from qgis.core import QgsLayerTreeGroup, QgsProject, QgsRectangle
 
 from .progress_dialog import ProgressDialog
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog
@@ -411,11 +414,13 @@ class ForestZoningMainDialogElements:
         入力は DATA の中から探し、出力はそのフォルダの YOUSO/・ZONING/・AGGREGATE/ に書く（原版のキットと同じ使い方）。
         フォルダの中身は人がそろえたものなので、使うファイルの一覧を確かめてから始める
         """
-        # 初期状態から始める操作なので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
+        # 初期状態から始める操作なので、最初にレイヤーを初期化する（途中で取りやめたら元に戻す）
+        detached = self.main.detach_layers_to_initialize()
+        if detached is None:
             return
         selected_dir = QFileDialog.getExistingDirectory(self.main, "フォルダを選択")
         if not selected_dir:
+            self.main.restore_initialized_layers(detached)
             return
         # DATA だけが選ばれた場合、出力（YOUSO/ 等）はその隣（DATA の親）に作る
         workspace_root, data_dir = morizon_data.resolve_workspace(selected_dir)
@@ -425,6 +430,7 @@ class ForestZoningMainDialogElements:
                 "入力データが見つかりませんでした。\n"
                 "DATA フォルダ（DEM・SiteIndex などを含むフォルダ）か、それを含むフォルダを選んでください。"
             )
+            self.main.restore_initialized_layers(detached)
             return
         if morizon_data.has_outputs(workspace_root):
             # 出力がある＝途中まで進んだフォルダなので、保存ファイルの読み込み（フォルダ）と同じく読み込んで反映する
@@ -432,6 +438,7 @@ class ForestZoningMainDialogElements:
                 self.main, "フォルダ選択から開始する",
                 f"既存データがあります。読み込んで反映されます。\n{os.path.basename(workspace_root)}"
             )
+            self.main.discard_initialized_layers(detached)
             self.main.archive.load_workspace_data(workspace_root)
             return
         found = morizon_data.find_inputs(data_dir)
@@ -458,7 +465,9 @@ class ForestZoningMainDialogElements:
             QMessageBox.StandardButton.Ok,
         )
         if answer != QMessageBox.StandardButton.Ok:
+            self.main.restore_initialized_layers(detached)
             return
+        self.main.discard_initialized_layers(detached)
         self.main.use_external_workspace(workspace_root)
         self.main.set_inputs_from_data_dir(data_dir)
 
@@ -549,8 +558,9 @@ class ForestZoningMainDialogElements:
                 "先にQGISプロジェクトを保存してください（保存先フォルダにDEM等を格納します）。"
             )
             return
-        # 初期状態から始める操作なので、最初にレイヤーを初期化する
-        if not self.main.initialize_layers():
+        # 初期状態から始める操作なので、最初にレイヤーを初期化する（実行の前に取りやめたら元に戻す）
+        detached = self.main.detach_layers_to_initialize()
+        if detached is None:
             return
         # 取得したデータはプロジェクト内（morizon_next）に置くので、作業フォルダをプロジェクト内にする。
         # 作業フォルダの切り替えと前の解析の破棄（データの判断）は、押してすぐ1回にまとめて確かめ、
@@ -571,10 +581,12 @@ class ForestZoningMainDialogElements:
                 QMessageBox.StandardButton.Cancel,
             )
             if answer != QMessageBox.StandardButton.Ok:
+                self.main.restore_initialized_layers(detached)
                 return
 
         dlg = DemBrowserDialog(self.main)
         if dlg.exec() != QDialog.DialogCode.Accepted:
+            self.main.restore_initialized_layers(detached)
             return
         extent_wgs84 = dlg.get_extent_wgs84()
         source = dlg.get_selected_source()
@@ -582,10 +594,12 @@ class ForestZoningMainDialogElements:
             # 国土地理院は解像度の混在を避けるため、範囲全体をカバーできる解像度に先に絞る
             tile_sources = self._resolve_gsi_tile_sources(extent_wgs84)
             if tile_sources is None:
+                self.main.restore_initialized_layers(detached)
                 return
             source.tile_sources = tile_sources
 
         # ここから実行（確かめた内容）
+        self.main.discard_initialized_layers(detached)
         if switch_to_internal:
             self.main.use_project_workspace(refill_inputs=True)
         if discard:

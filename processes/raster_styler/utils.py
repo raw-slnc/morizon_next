@@ -4,13 +4,14 @@
 
 import tempfile
 import xml.etree.ElementTree as ET
-import sys
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.PyQt.QtGui import QColor, QPainter
+from qgis.core import (
+    QgsColorRampShader,
+    QgsPresetSchemeColorRamp,
+    QgsRasterLayer,
+    QgsSingleBandPseudoColorRenderer,
+)
 
 from ...settings_manager import SettingsManager, OutputLayerStyleManager
 
@@ -181,11 +182,14 @@ def write_qml_by_thresholds_and_colors(thresholds: tuple,
     items_str = ""
     for i in range(len(colors)):
         if i == 0:
-            items_str += f'<item value="{thresholds[i]}" color="{colors[i]}" label="{scores[i]}点(&lt;= {thresholds[i]})" alpha="255"/>'
+            items_str += (f'<item value="{thresholds[i]}" color="{colors[i]}"'
+                          f' label="{scores[i]}点(&lt;= {thresholds[i]})" alpha="255"/>')
         elif i == len(colors) - 1:
-            items_str += f'<item value="inf" color="{colors[i]}" label="{scores[i]}点(> {thresholds[i-1]})" alpha="255"/>'
+            items_str += (f'<item value="inf" color="{colors[i]}"'
+                          f' label="{scores[i]}点(> {thresholds[i-1]})" alpha="255"/>')
         else:
-            items_str += f'<item value="{thresholds[i]}" color="{colors[i]}" label="{scores[i]}点({thresholds[i-1]} - {thresholds[i]})" alpha="255"/>'
+            items_str += (f'<item value="{thresholds[i]}" color="{colors[i]}"'
+                          f' label="{scores[i]}点({thresholds[i-1]} - {thresholds[i]})" alpha="255"/>')
 
     qml_str = __make_qml_str_with(items_str)
     return __write_qmlfile(qml_str, output_filepath)

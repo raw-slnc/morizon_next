@@ -9,8 +9,8 @@ import os
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
 from qgis.PyQt.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QSlider,
-    QSizePolicy,
+    QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QLineEdit, QPushButton, QSlider, QSizePolicy,
 )
 
 from .constants import RAWDATA_COLORS_COST
@@ -482,11 +482,11 @@ class CostCsvEditorWidget(QWidget):
         for r in RUGGEDNESS_THRESHOLDS:
             y = int(self.PLOT_HEIGHT * (1 - r / r_max))
             painter.drawText(0, max(0, y - 6), self.GUTTER_LEFT - 3, 12,
-                              Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(r))
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(r))
         for s in SLOPE_THRESHOLDS:
             x = self.GUTTER_LEFT + int(self.PLOT_WIDTH * (s / s_max))
             painter.drawText(x - 12, self.PLOT_HEIGHT + 1, 24, self.GUTTER_BOTTOM,
-                              Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, str(s))
+                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, str(s))
         painter.end()
 
         self.panelLabel.setPixmap(pixmap)

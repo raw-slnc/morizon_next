@@ -7,11 +7,7 @@ import os
 import shutil
 import tempfile
 
-from qgis.PyQt.QtCore import *
-from qgis.PyQt.QtGui import *
-from qgis.PyQt.QtWidgets import *
-from qgis.core import *
-from qgis.gui import *
+from qgis.core import QgsFeatureRequest, QgsGeometry, QgsRasterLayer, QgsRectangle, QgsVectorLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 import processing
 
@@ -106,7 +102,7 @@ def generate(basis_dem_filepath: str,
 
         output_filepath = os.path.join(output_dir, OUTPUT_DISTANCE['FILE_NAME'] + ".tif")
 
-        calc = QgsRasterCalculator(f'dis@1 * (dem@1 AND 1)',
+        calc = QgsRasterCalculator('dis@1 * (dem@1 AND 1)',
                                    output_filepath,
                                    'GTiff',
                                    dem_rlayer.extent(),
