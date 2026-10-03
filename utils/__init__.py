@@ -4,6 +4,7 @@
 
 from functools import lru_cache
 import json
+import math
 import xml.etree.ElementTree as ET
 import tempfile
 import os
@@ -22,6 +23,18 @@ from qgis.PyQt import sip
 import processing
 
 from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED
+
+
+def _finite_float_or_none(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _stats_are_finite(stats: dict) -> bool:
+    return all(_finite_float_or_none(value) is not None for value in stats.values())
 
 
 @lru_cache(maxsize=None)
@@ -74,24 +87,25 @@ def get_raster_stats(rlayer: QgsRasterLayer) -> dict:
         if "=" not in item.text:
             continue
 
-        prefix, value = item.text.split("=")
+        prefix, value = item.text.split("=", 1)
         if prefix in metadata_stats.keys() and metadata_stats[prefix] is None:
-            metadata_stats[prefix] = float(value)
+            metadata_stats[prefix] = _finite_float_or_none(value)
 
     # メタデータに統計値が含まれていない場合は計算する
+    band_stats = rlayer.dataProvider().bandStatistics(1)
     stats = {
         "MAX": metadata_stats["STATISTICS_MAXIMUM"]
         if metadata_stats["STATISTICS_MAXIMUM"] is not None
-        else rlayer.dataProvider().bandStatistics(1).maximumValue,
+        else _finite_float_or_none(band_stats.maximumValue),
         "MIN": metadata_stats["STATISTICS_MINIMUM"]
         if metadata_stats["STATISTICS_MINIMUM"] is not None
-        else rlayer.dataProvider().bandStatistics(1).minimumValue,
+        else _finite_float_or_none(band_stats.minimumValue),
         "MEAN": metadata_stats["STATISTICS_MEAN"]
         if metadata_stats["STATISTICS_MEAN"] is not None
-        else rlayer.dataProvider().bandStatistics(1).mean,
+        else _finite_float_or_none(band_stats.mean),
         "STD_DEV": metadata_stats["STATISTICS_STDDEV"]
         if metadata_stats["STATISTICS_STDDEV"] is not None
-        else rlayer.dataProvider().bandStatistics(1).stdDev,
+        else _finite_float_or_none(band_stats.stdDev),
     }
 
     return stats
@@ -685,6 +699,8 @@ def is_valid_elements_layer(rlayer: QgsRasterLayer) -> bool:
     if not is_usable_raster_layer(rlayer):
         return False
     stats = get_raster_stats(rlayer)
+    if not _stats_are_finite(stats):
+        return False
     return stats["MIN"] <= stats["MEAN"] and stats["MEAN"] <= stats["MAX"]
 
 
@@ -695,6 +711,8 @@ def is_valid_scoring_layer(rlayer: QgsRasterLayer) -> bool:
     if not is_usable_raster_layer(rlayer):
         return False
     stats = get_raster_stats(rlayer)
+    if not _stats_are_finite(stats):
+        return False
     is_tile = stats["MIN"] >= stats["MAX"]
     has_negative = stats["MIN"] < 0
     not_integer = stats["MIN"] != int(stats["MIN"]) or stats["MAX"] != int(stats["MAX"])
