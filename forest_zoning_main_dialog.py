@@ -72,13 +72,18 @@ class ForestZoningMainDialog(QDialog):
             self._restore_pending = True
 
     # タブの切り替え（Ctrl+Tab／Ctrl+Shift+Tab）。Qt のタブはこのキーで切り替わるが、フォーカスのある部品が
-    # キーを先に受け取ると届かない（レイヤーの選択欄で止まった）。画面全体のショートカットにして、どこからでも切り替える
+    # キーを先に受け取ると届かない（レイヤーの選択欄で止まった）。画面全体のショートカットにして、どこからでも切り替える。
+    # 実際のキーボードの Ctrl+Shift+Tab は、OS のキー情報から「Ctrl+Shift+Tab」と「Ctrl+Backtab」の両方に当てはまる。
+    # 以前は2つとも登録していたため Qt はどちらを実行するか決められず（activatedAmbiguously）、何もしなかった。
+    # そのため Ctrl+Shift+Tab だけを登録する。念のため、決められないときも同じ切り替えをする
+    # （決められないときは、押すたびにどれか1つにだけ届く）
     def _init_tab_shortcuts(self):
         self._tab_shortcuts = []
-        for sequence, step in (("Ctrl+Tab", 1), ("Ctrl+Shift+Tab", -1), ("Ctrl+Backtab", -1)):
+        for sequence, step in (("Ctrl+Tab", 1), ("Ctrl+Shift+Tab", -1)):
             shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
             shortcut.activated.connect(lambda step=step: self._step_tab(step))
+            shortcut.activatedAmbiguously.connect(lambda step=step: self._step_tab(step))
             self._tab_shortcuts.append(shortcut)
 
     def _step_tab(self, step: int):
