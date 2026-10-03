@@ -12,6 +12,8 @@ from qgis.core import *
 from qgis.gui import *
 
 from .forest_zoning_main_dialog import ForestZoningMainDialog
+from . import utils
+from .constants import DIR_SHARED
 
 PLUGIN_NAME = "Morizon Next"
 
@@ -116,8 +118,41 @@ class ForestZoning:
 
     # ダイアログは一度作ると開き直しても使い回すため、切り替わったプロジェクトに合わせ直す
     def onProjectRead(self, *args):
+        # 読み込みの処理が終わりきってから取り除くため、1イベントループ後に回す。
+        # ダイアログの再開（レイヤーの作り直し）は取り除いた後に行う
+        QTimer.singleShot(0, self._on_project_read_deferred)
+
+    def _on_project_read_deferred(self):
+        self.remove_saved_plugin_layers()
         if self.main_dialog is not None:
             self.main_dialog.on_project_read()
+
+    @staticmethod
+    def remove_saved_plugin_layers():
+        """プロジェクトに保存されていたプラグインのレイヤーを、開いた時点で取り除く（ファイルは残す）。
+        前回のレイヤーは描画させず、ダイアログを開いたときの再開で作業フォルダから作り直す。
+        対象は再開時の初期化と同じ（プラグインのレイヤーと、作業フォルダのファイルを自分で追加したレイヤー。
+        共有キャッシュは除く）。この時点では作業フォルダの設定が前のプロジェクトのままなので、
+        開いたプロジェクトに書き込まれた記録から作業フォルダを決める。
+        取り除いただけでは変更ありの扱いにしない（何もせず閉じても保存を聞かれないように）"""
+        project = QgsProject.instance()
+        layers = utils.output_layers()
+        record = utils.read_project_workspace()
+        if record == utils.WORKSPACE_INTERNAL:
+            workspace_dir = utils.get_morizon_managed_dir() if project.homePath() else ""
+        else:
+            workspace_dir = record or ""
+        if workspace_dir:
+            ids = {layer.id() for layer in layers}
+            layers += [layer for layer in utils.project_layers_under_dir(
+                           workspace_dir, [os.path.join(workspace_dir, DIR_SHARED)])
+                       if layer.id() not in ids]
+        if not layers:
+            return
+        was_dirty = project.isDirty()
+        utils.remove_project_layers(layers)
+        if not was_dirty:
+            project.setDirty(False)
 
     def onProjectCleared(self, *args):
         if self.main_dialog is not None:

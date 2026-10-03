@@ -344,6 +344,12 @@ class ForestZoningMainDialog(QDialog):
         self.initialize_layers(confirm=False)
         self.archive.load_managed_data()
 
+    def _resume_from_external(self, root):
+        """外部のフォルダのデータから再開する（プロジェクトに保存されていたレイヤーは開いた時点で取り除かれているので、
+        プロジェクト内からの再開と同じく、作業フォルダのデータからレイヤーを作り直す）"""
+        self.initialize_layers(confirm=False)
+        self.archive.load_workspace_data(root)
+
     def _reset_to_initial(self):
         """初期状態にする（レイヤーを初期化し、作業フォルダなし。プロジェクトの記録も消す）"""
         self.initialize_layers(confirm=False)
@@ -365,8 +371,7 @@ class ForestZoningMainDialog(QDialog):
             return
         if os.path.isdir(record):
             if self._ask_resume(f"外部のフォルダ（{os.path.basename(record) or record}）"):
-                self.use_external_workspace(record)
-                self.set_inputs_from_data_dir(morizon_data.resolve_data_dir(record))
+                self._resume_from_external(record)
             else:
                 self._reset_to_initial()
             return
