@@ -12,6 +12,7 @@ from qgis.core import QgsRasterLayer
 
 from . import raster_writer
 from . import raster_styler
+from .processing_feedback import LogForwardingFeedback
 from ..utils import (
     get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias,
     move_output_layers_to_main_thread,
@@ -32,6 +33,7 @@ class ProcessingThread(QThread):
     processStarted = pyqtSignal(int)
     addProgress = pyqtSignal(int)
     postMessage = pyqtSignal(str)
+    postLog = pyqtSignal(str)
     processFinished = pyqtSignal(dict)
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
@@ -46,14 +48,17 @@ class ProcessingThread(QThread):
         self.no_road_distance_created = False
 
         self.abort_flag = False
+        self.feedback = None
 
     def set_abort_flag(self, flag=True):
         self.abort_flag = flag
+        if flag and self.feedback is not None:
+            self.feedback.cancel()
 
     def _clip_final_output(self, filepath: str) -> str:
         if filepath and self.final_extent_wgs84 is not None:
             return raster_writer.replace_with_clipped_wgs84_extent(
-                filepath, self.final_extent_wgs84
+                filepath, self.final_extent_wgs84, feedback=self.feedback
             )
         return filepath
 
@@ -77,6 +82,9 @@ class ProcessingThread(QThread):
         ascii_tmpdir = AsciiSafeProcessingTmpdir()
         ascii_tmpdir.enter()
         intermediate_dir = tempfile.mkdtemp()
+        # Processing の外部コマンド出力を、OS共通の経路で進捗ダイアログへ渡す。
+        # 各 raster_writer まで同じ feedback を引き回すことが重要。
+        self.feedback = LogForwardingFeedback(self.postLog.emit)
 
         self.input_files_dict = {
             key: (get_ascii_safe_alias(path) if path else path)
@@ -85,7 +93,7 @@ class ProcessingThread(QThread):
 
         try:
             is_resampling = is_resampling_needed(
-                get_tiff_info(self.input_files_dict["dem"]))
+                get_tiff_info(self.input_files_dict["dem"], feedback=self.feedback))
 
             sum_of_processes = len(list(filter(
                 lambda val: val, self.target_elements_dict.values()))) + int(is_resampling)
@@ -100,7 +108,8 @@ class ProcessingThread(QThread):
                 self.postMessage.emit('DEMをリサンプリング中')
                 resampled_dem_filepath = os.path.join(intermediate_dir, "dem_resampled_10m.tif")
                 dem_for_processes = raster_writer.resampling(
-                    self.input_files_dict["dem"], 10, output_filepath=resampled_dem_filepath)
+                    self.input_files_dict["dem"], 10,
+                    output_filepath=resampled_dem_filepath, feedback=self.feedback)
                 if not os.path.exists(dem_for_processes):
                     raise RuntimeError(f"リサンプリング後のDEMを作成できませんでした: {dem_for_processes}")
 
@@ -118,7 +127,8 @@ class ProcessingThread(QThread):
                                                                    self.input_files_dict["npp"],
                                                                    self.input_files_dict["srad"],
                                                                    self.input_files_dict["vtex"],
-                                                                   self.output_dir)
+                                                                   self.output_dir,
+                                                                   feedback=self.feedback)
                 siteidx_filepaths = [
                     self._clip_final_output(path) for path in siteidx_filepaths
                 ]
@@ -157,7 +167,8 @@ class ProcessingThread(QThread):
 
                 cost_filepath = raster_writer.cost.generate(dem_for_processes,
                                                             self.input_files_dict["costcsv"],
-                                                            self.output_dir)
+                                                            self.output_dir,
+                                                            feedback=self.feedback)
                 cost_filepath = self._clip_final_output(cost_filepath)
                 cost_rawdata_qml_filepath = raster_styler.cost.write_rawdata_qml(self.input_files_dict["costcsv"],
                                                                                  self.output_dir)
@@ -187,6 +198,7 @@ class ProcessingThread(QThread):
                     dem_for_processes,
                     self.input_files_dict["network"],
                     self.output_dir,
+                    feedback=self.feedback,
                 )
                 if no_road_distance_created:
                     self.no_road_distance_created = True
@@ -223,7 +235,8 @@ class ProcessingThread(QThread):
                 progress_counter += 1
 
                 shc_filepath = raster_writer.shc.generate(dem_for_processes,
-                                                          self.output_dir)
+                                                          self.output_dir,
+                                                          feedback=self.feedback)
                 shc_filepath = self._clip_final_output(shc_filepath)
                 shc_rawdata_qml_filepath = raster_styler.shc.write_rawdata_qml(shc_filepath,
                                                                                self.output_dir)
@@ -249,7 +262,8 @@ class ProcessingThread(QThread):
                 progress_counter += 1
 
                 slope_filepath = raster_writer.slope.generate(dem_for_processes,
-                                                              self.output_dir)
+                                                              self.output_dir,
+                                                              feedback=self.feedback)
                 slope_filepath = self._clip_final_output(slope_filepath)
                 slope_rawdata_qml_filepath = raster_styler.slope.write_rawdata_qml(
                     self.output_dir)
@@ -276,7 +290,8 @@ class ProcessingThread(QThread):
 
                 savearea_filepath = raster_writer.savearea.generate(dem_for_processes,
                                                                     self.input_files_dict["building"],
-                                                                    self.output_dir)
+                                                                    self.output_dir,
+                                                                    feedback=self.feedback)
                 if savearea_filepath is None:
                     self.postMessage.emit(
                         f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 対象範囲に建物データが無いためスキップしました')

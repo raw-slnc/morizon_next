@@ -24,10 +24,6 @@ from qgis.PyQt import uic
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon, QKeyEvent
 from qgis.PyQt.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSizePolicy
-from qgis.core import QgsApplication
-
-# 処理中の窓のログに拾う、QGIS のログのタブ（プロセシングと、そこから動かす外部のプログラム）
-_LOG_TAGS = ("Processing", "GDAL", "GRASS", "SAGA")
 
 
 class _StatusLine(QLabel):
@@ -64,7 +60,7 @@ class ProgressDialog(QDialog):
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self
         )
-        self._init_log()
+        self._init_log_line()
         self.setWindowIcon(
             QIcon(os.path.join(os.path.dirname(__file__), "imgs", "icon.png"))
         )
@@ -119,31 +115,23 @@ class ProgressDialog(QDialog):
         self.adjustSize()
 
     # ── ログのステータス表示 ──────────────────────────────────────────────
-    # 動いていることを見せるため、工程の開始のメッセージと、QGIS のログに流れるプロセシング・外部のプログラムの
-    # 記録のうち、最新の1行だけを時刻付きで出す（読ませるためではないので、積み上げない）。
-    # QGIS のログは、この窓が開いている間だけ拾う（閉じたら受け取りをやめる）
+    # 動いていることを見せるため、工程の開始メッセージと、Processing・外部プログラムの
+    # 記録のうち最新の1行だけを時刻付きで出す（読ませるためではないので、積み上げない）。
+    # 詳細ログは、実行中の処理スレッドの postLog から受け取る。
+    #
+    # 保守メモ:
+    # 以前は QgsApplication.messageLog().messageReceived を監視していたが、外部コマンドの
+    # stdout は Linux では届いても Windows では届かない場合があった。また、全体ログの
+    # 監視では他プラグインのメッセージまで表示する。このため、processing.run() に渡した
+    # QgsProcessingFeedback から、このダイアログ専用の postLog で直接受け取る形にしている。
 
-    def _init_log(self):
+    def _init_log_line(self):
         self.logLine = _StatusLine()
         layout = self.layout()
         layout.insertWidget(layout.indexOf(self.detailLabel) + 1, self.logLine)
-        QgsApplication.messageLog().messageReceived.connect(self._on_qgis_log)
-        self.finished.connect(self._stop_log)
 
     def append_log(self, text: str):
         self.logLine.setText(f"{datetime.now().strftime('%H:%M:%S')}  {text}")
-
-    def _on_qgis_log(self, message, tag, _level):
-        if any(name.lower() in (tag or "").lower() for name in _LOG_TAGS):
-            lines = [line for line in str(message).splitlines() if line.strip()]
-            if lines:
-                self.append_log(f"[{tag}] {lines[-1]}")
-
-    def _stop_log(self, *_args):
-        try:
-            QgsApplication.messageLog().messageReceived.disconnect(self._on_qgis_log)
-        except (TypeError, RuntimeError):
-            pass
 
     def set_detail(self, detail: str):
         self.detailLabel.setText(detail)
@@ -168,6 +156,10 @@ def run_with_progress(thread, show_detail=False, show_set_progress=False, aborta
     if show_set_progress:
         thread.setProgress.connect(progress_dialog.set_progress)
     thread.postMessage.connect(progress_dialog.set_messsage)
+    # postLog は Processing の詳細ログを持つ計算スレッドだけが実装する。
+    # 取得・保存など従来のスレッドには無いので、後方互換のため存在確認して接続する。
+    if hasattr(thread, "postLog"):
+        thread.postLog.connect(progress_dialog.append_log)
     if show_detail:
         thread.postDetail.connect(progress_dialog.set_detail)
     thread.setAbortable.connect(progress_dialog.set_abortable)

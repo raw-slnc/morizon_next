@@ -6,7 +6,6 @@ from qgis.PyQt.QtCore import QThread, pyqtSignal
 from qgis.core import (
     QgsProcessingContext,
     QgsProcessingException,
-    QgsProcessingFeedback,
     QgsVectorLayer,
 )
 import os
@@ -19,14 +18,16 @@ from .. import layer_db
 from ..utils import is_resampling_needed, get_tiff_info, move_output_layers_to_main_thread
 from . import raster_writer
 from . import raster_styler
+from .processing_feedback import LogForwardingFeedback
 from ..constants import OUTPUT_AGGREGATE
 
 
-class _StepFeedback(QgsProcessingFeedback):
+class _StepFeedback(LogForwardingFeedback):
     """処理ツールの進捗（工程内の%）を、全体の進捗バー（0〜100）と詳細表示に中継する"""
 
     def __init__(self, thread):
-        super().__init__()
+        # 進捗率だけでなく、Processing のコマンド・コンソール出力も同じ窓へ中継する。
+        super().__init__(thread.postLog.emit)
         self._thread = thread
         self._start = 0.0
         self._weight = 0.0
@@ -52,6 +53,7 @@ class ProcessingThread(QThread):
     addProgress = pyqtSignal(int)
     postMessage = pyqtSignal(str)
     postDetail = pyqtSignal(str)
+    postLog = pyqtSignal(str)
     processFinished = pyqtSignal(dict)
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
@@ -110,11 +112,19 @@ class ProcessingThread(QThread):
             else:
                 # DEMから流域ポリゴンを生成して集計する場合（解析範囲の中だけなので抽出しない）
                 self.feedback.begin(0, 20, "流域ポリゴンを作成中")
-                is_resampling = is_resampling_needed(get_tiff_info(self.input_layer))
+                is_resampling = is_resampling_needed(
+                    get_tiff_info(self.input_layer, feedback=self.feedback)
+                )
                 if is_resampling:
-                    self.input_layer = raster_writer.resampling(self.input_layer, 10)
-                basin_polygon = raster_writer.savearea.create_basin_polygon(self.input_layer)
-                polygon_vlayer = raster_writer.savearea.dissolve_basin_vlayer(basin_polygon)
+                    self.input_layer = raster_writer.resampling(
+                        self.input_layer, 10, feedback=self.feedback
+                    )
+                basin_polygon = raster_writer.savearea.create_basin_polygon(
+                    self.input_layer, feedback=self.feedback
+                )
+                polygon_vlayer = raster_writer.savearea.dissolve_basin_vlayer(
+                    basin_polygon, feedback=self.feedback
+                )
             self._check_abort()
 
             self.feedback.begin(20, 65, f"区分ごとのセル数を集計中（{polygon_vlayer.featureCount()}件）")

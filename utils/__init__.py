@@ -720,7 +720,7 @@ def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
     return _remove_layers_and_empty_groups(project_layers_under_dir(directory, excluded_dirs))
 
 
-def get_tiff_info(tiff_filepath: str) -> dict:
+def get_tiff_info(tiff_filepath: str, feedback=None) -> dict:
     """
     DEMの各種情報をgdalinfoを用いて取得する
 
@@ -733,6 +733,7 @@ def get_tiff_info(tiff_filepath: str) -> dict:
     gdalinfo_html = processing.run(
         "gdal:gdalinfo",
         {"EXTRA": "-json", "INPUT": tiff_filepath, "OUTPUT": "TEMPORARY_OUTPUT"},
+        feedback=feedback,
     )["OUTPUT"]
 
     with open(gdalinfo_html) as f:

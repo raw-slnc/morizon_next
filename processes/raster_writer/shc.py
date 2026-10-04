@@ -17,16 +17,21 @@ from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorith
 from . import terrain_numpy
 
 
-def generate(dem_filepath: str, output_dir: str) -> str:
+def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
     """
     DEMから地形の複雑性ラスターを生成する
     """
     temp_dir = tempfile.mkdtemp()
     try:
         if ShcMethodManager().load_use_saga():
-            curvature_filepath = _plan_curvature_by_saga(dem_filepath, temp_dir)
+            curvature_filepath = _plan_curvature_by_saga(
+                dem_filepath, temp_dir, feedback=feedback
+            )
         else:
             # 原版の設計どおりの平滑化（σ=3, 半径12セル）と平面曲率をプラグイン内で計算する
+            if feedback is not None:
+                # numpy 計算は Processing を通らないため、無表示にならないよう工程を通知する。
+                feedback.pushInfo("DEMを平滑化し、平面曲率を計算しています")
             curvature_filepath = terrain_numpy.write_plan_curvature(
                 dem_filepath, os.path.join(temp_dir, "curvature_plan.tif")
             )
@@ -45,6 +50,8 @@ def generate(dem_filepath: str, output_dir: str) -> str:
         NODATA_VALUE = "-3.40282347e+38"
         OUTLIER_THRESHOLD = "3"
         normalized_curvature_filepath = os.path.join(temp_dir, "normalized_curvature.tif")
+        if feedback is not None:
+            feedback.pushInfo("平面曲率の外れ値を処理しています")
         calc = QgsRasterCalculator(f'{NODATA_VALUE} * ("{curvature_entry.ref}"'
                                    f' < {curvature_stddev} * -{OUTLIER_THRESHOLD}'
                                    f' OR {curvature_stddev} * {OUTLIER_THRESHOLD} < "{curvature_entry.ref}")'
@@ -79,15 +86,17 @@ def generate(dem_filepath: str, output_dir: str) -> str:
             'quantile': '',
             'selection': None,
             'size': calculation_size
-        })
+        }, feedback=feedback)
         _assert_raster_ready(output_filepath, OUTPUT_SHC["DISPLAY_NAME"])
 
-        return replace_with_adjusted_extent_and_resolution(dem_filepath, output_filepath)
+        return replace_with_adjusted_extent_and_resolution(
+            dem_filepath, output_filepath, feedback=feedback
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str) -> str:
+def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str, feedback=None) -> str:
     """従来の SAGA による平滑化・平面曲率（設定タブの「SAGA ON」のときだけ使う）。
     注意: NextGen プロバイダー（SAGA 9）では GaussianFilter のパラメータ名が KERNEL_RADIUS / SIGMA に
     変わっており、ここで渡す MODE / RADIUS は使われない（原版の SAGA 2.3 向けの指定のまま残している）"""
@@ -98,7 +107,7 @@ def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str) -> str:
         "RADIUS": 12,
         "SIGMA": 3,
         "RESULT": smoothed_filepath
-    })
+    }, feedback=feedback)
     _assert_raster_ready(smoothed_filepath, "平滑化DEM")
 
     curvature_outputs = {
@@ -121,7 +130,7 @@ def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str) -> str:
         'METHOD': 6,
         'UNIT_ASPECT': 1,
         'UNIT_SLOPE': 1
-    })
+    }, feedback=feedback)
     curvature_filepath = curvature_outputs["C_PLAN"]
     _assert_raster_ready(curvature_filepath, "平面曲率")
     return curvature_filepath

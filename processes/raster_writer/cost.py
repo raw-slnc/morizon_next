@@ -17,7 +17,7 @@ from . import shc
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 
 
-def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str) -> str:
+def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback=None) -> str:
     """
     作業システムラスターを生成する
 
@@ -35,16 +35,17 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str) -> str:
         # 起伏量か地形の複雑さのいずれかを、傾斜量と対になるデータelement_filepathとして出力(#193)
         if SettingsManager().get_setting("cost_algorithm") == "ruggedness":
             element_filepath = _generate_ruggedness(
-                dem_filepath, os.path.join(temp_dir, "ruggedness.tif")
+                dem_filepath, os.path.join(temp_dir, "ruggedness.tif"), feedback=feedback
             )
         else:
             shc_dir = os.path.join(temp_dir, "shc")
             os.makedirs(shc_dir, exist_ok=True)
-            element_filepath = shc.generate(dem_filepath, shc_dir)
+            element_filepath = shc.generate(dem_filepath, shc_dir, feedback=feedback)
 
         slope_filepath = os.path.join(temp_dir, "slope.tif")
         processing.run(
-            "qgis:slope", {"INPUT": dem_filepath, "OUTPUT": slope_filepath}
+            "qgis:slope", {"INPUT": dem_filepath, "OUTPUT": slope_filepath},
+            feedback=feedback,
         )
         _assert_raster_ready(slope_filepath, "傾斜")
 
@@ -77,17 +78,22 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str) -> str:
             ele_rlayer.height(),
             (ele_entry, slp_entry),
         )
+        if feedback is not None:
+            # QgsRasterCalculator 自体は ProcessingFeedback を受け取れない。
+            feedback.pushInfo("作業システムラスターを計算しています")
         result = calc.processCalculation()
         if not _is_raster_calculator_success(result):
             raise RuntimeError(f"作業システムラスターの計算に失敗しました: {result}")
         _assert_raster_ready(output_filepath, OUTPUT_COST["DISPLAY_NAME"])
 
-        return replace_with_adjusted_extent_and_resolution(dem_filepath, output_filepath)
+        return replace_with_adjusted_extent_and_resolution(
+            dem_filepath, output_filepath, feedback=feedback
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
+def _generate_ruggedness(dem_filepath: str, output_filepath: str, feedback=None) -> str:
     """
     起伏量ラスターを生成する
 
@@ -122,6 +128,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
             "size": size,
             "weight": "",
         },
+        feedback=feedback,
     )
     _assert_raster_ready(min_filepath, "起伏量最小値")
 
@@ -143,6 +150,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
             "size": size,
             "weight": "",
         },
+        feedback=feedback,
     )
     _assert_raster_ready(max_filepath, "起伏量最大値")
 
@@ -168,6 +176,8 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str) -> str:
         min_rlayer.height(),
         (min_entry, max_entry),
     )
+    if feedback is not None:
+        feedback.pushInfo("起伏量ラスターを計算しています")
     result = calc.processCalculation()
     if not _is_raster_calculator_success(result):
         raise RuntimeError(f"起伏量ラスターの計算に失敗しました: {result}")

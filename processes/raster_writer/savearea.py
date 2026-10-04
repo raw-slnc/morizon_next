@@ -17,7 +17,8 @@ from .utils import resolve_algorithm_id
 
 def generate(basis_dem_filepath: str,
              building_filepath: str,
-             output_dir: str):
+             output_dir: str,
+             feedback=None):
     """
     保全対象を含む流域ラスターを生成する。building_filepathにフィーチャが
     1件も無い場合（対象範囲に建物データが存在しない等）はNoneを返し、
@@ -29,8 +30,10 @@ def generate(basis_dem_filepath: str,
 
     temp_dir = tempfile.mkdtemp()
     try:
-        fixed_basin_vlayer = create_basin_polygon(basis_dem_filepath, temp_dir)
-        basis_deminfo = get_tiff_info(basis_dem_filepath)
+        fixed_basin_vlayer = create_basin_polygon(
+            basis_dem_filepath, temp_dir, feedback=feedback
+        )
+        basis_deminfo = get_tiff_info(basis_dem_filepath, feedback=feedback)
         target_extent = ",".join(str(value) for value in basis_deminfo["extent"][:4])
 
         # すべての流域を焼きこんだラスター
@@ -50,25 +53,25 @@ def generate(basis_dem_filepath: str,
             'HEIGHT': basis_deminfo["resolution"],
             'WIDTH': basis_deminfo["resolution"],
             'OUTPUT': basin_rasiterized_filepath,
-        })
+        }, feedback=feedback)
         _assert_raster_ready(basin_rasiterized_filepath, "流域ラスタ")
 
         fixed_building_vlayer = processing.run("native:fixgeometries", {
             "INPUT": building_filepath,
             "OUTPUT": "TEMPORARY_OUTPUT"
-        })["OUTPUT"]
+        }, feedback=feedback)["OUTPUT"]
 
         overlap_calculated_polygon_vlayer = processing.run("qgis:calculatevectoroverlaps", {
             "INPUT": fixed_basin_vlayer,
             "LAYERS": [fixed_building_vlayer],
             "OUTPUT": "TEMPORARY_OUTPUT"
-        })["OUTPUT"]
+        }, feedback=feedback)["OUTPUT"]
 
         filtered_polygon_vlayer = processing.run("qgis:extractbyexpression", {
             "INPUT": overlap_calculated_polygon_vlayer,
             "EXPRESSION": f'\"{fixed_building_vlayer.name()}_area\" > 0',
             "OUTPUT": "TEMPORARY_OUTPUT"
-        })["OUTPUT"]
+        }, feedback=feedback)["OUTPUT"]
 
         # 建物ポリゴンを含む流域だけを焼きこんだラスター
         filtered_rasterized_filepath = os.path.join(temp_dir, "basin_with_building.tif")
@@ -87,7 +90,7 @@ def generate(basis_dem_filepath: str,
             'HEIGHT': basis_deminfo["resolution"],
             'WIDTH': basis_deminfo["resolution"],
             'OUTPUT': filtered_rasterized_filepath,
-        })
+        }, feedback=feedback)
         _assert_raster_ready(filtered_rasterized_filepath, "建物流域ラスタ")
 
         output_filepath = os.path.join(
@@ -124,6 +127,9 @@ def generate(basis_dem_filepath: str,
             basin_rasterized_rlayer.width(),
             basin_rasterized_rlayer.height(),
             (basin_rasterized_entry, filtered_rasterized_entry))
+        if feedback is not None:
+            # QgsRasterCalculator は ProcessingFeedback を受け取れないため工程を手動通知する。
+            feedback.pushInfo("保全対象を含む流域ラスターを計算しています")
         result = calc.processCalculation()
         if not _is_raster_calculator_success(result):
             raise RuntimeError(f"保全対象ラスターの計算に失敗しました: {result}")
@@ -134,7 +140,7 @@ def generate(basis_dem_filepath: str,
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def create_basin_polygon(basis_dem_filepath, temp_dir=None):
+def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
     """DEMを利用して流域ポリゴンを生成する。必要ならジオメトリの修復を試みる。"""
     owns_temp_dir = temp_dir is None
     if temp_dir is None:
@@ -169,7 +175,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None):
             'stream': None,
             'tci': None,
             'threshold': 500
-        })
+        }, feedback=feedback)
         _assert_raster_ready(basin_filepath, "流域")
 
         vectorized_basin_filepath = os.path.join(temp_dir, "basin.gpkg")
@@ -177,24 +183,24 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None):
             "INPUT": basin_filepath,
             "BAND": 1,
             "OUTPUT": vectorized_basin_filepath
-        })
+        }, feedback=feedback)
         fixed_basin_vlayer = processing.run("native:fixgeometries", {
             "INPUT": vectorized_basin_filepath,
             "OUTPUT": "TEMPORARY_OUTPUT"
-        })["OUTPUT"]
+        }, feedback=feedback)["OUTPUT"]
         return fixed_basin_vlayer
     finally:
         if owns_temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def dissolve_basin_vlayer(basin_vlayer_filepath):
+def dissolve_basin_vlayer(basin_vlayer_filepath, feedback=None):
     """流域ポリゴンをDNフィルドで"dissolveする"""
     return processing.run("native:dissolve", {
         'FIELD': ['DN'],
         'INPUT': basin_vlayer_filepath,
         'OUTPUT': 'TEMPORARY_OUTPUT'
-    })["OUTPUT"]
+    }, feedback=feedback)["OUTPUT"]
 
 
 def _assert_raster_ready(filepath: str, label: str):

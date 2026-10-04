@@ -20,7 +20,8 @@ def generate(basis_dem_filepath: str,
              npp_filepath: str,
              srad_filepath: str,
              vtex_filepath: str,
-             output_dir: str) -> list:
+             output_dir: str,
+             feedback=None) -> list:
     """
     基準DEMと子要素3ラスターから地位指数スコアラスター群を生成する
 
@@ -38,13 +39,16 @@ def generate(basis_dem_filepath: str,
     # 基準DEMと同じ領域・解像度で切り抜き
     adjusted_npp_filepath = adjust_extent_and_resolution(basis_dem_filepath,
                                                          npp_filepath,
-                                                         resampling_alg_name="nearest")
+                                                         resampling_alg_name="nearest",
+                                                         feedback=feedback)
     adjusted_srad_filepath = adjust_extent_and_resolution(basis_dem_filepath,
                                                           srad_filepath,
-                                                          resampling_alg_name="nearest")
+                                                          resampling_alg_name="nearest",
+                                                          feedback=feedback)
     adjusted_vtex_filepath = adjust_extent_and_resolution(basis_dem_filepath,
                                                           vtex_filepath,
-                                                          resampling_alg_name="nearest")
+                                                          resampling_alg_name="nearest",
+                                                          feedback=feedback)
 
     # ラスター計算のためにEntry生成
     npp_rlayer = QgsRasterLayer(adjusted_npp_filepath)
@@ -88,6 +92,9 @@ def generate(basis_dem_filepath: str,
         (output_hinoki_filepath, settings["siteidx_hinoki_params"]),
         (output_karamatsu_filepath, settings["siteidx_karamatsu_params"]),
     ):
+        if feedback is not None:
+            # QgsRasterCalculator は ProcessingFeedback を受け取れないため工程を手動通知する。
+            feedback.pushInfo(f"地位指数を計算しています: {os.path.basename(output_filepath)}")
         # 地位指数 = 定数 + (NPP - NPP1) * NPP2 - (SRAD - SRAD1) * 0.01 * SRAD2 - (VTEX - VTEX1) * 0.01 * VTEX2
         # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 AND 1) を使う
         expression = (

@@ -43,7 +43,8 @@ def resolve_algorithm_id(*candidate_ids: str) -> str:
 def resampling(tiff_filepath: str,
                target_resolution: int,
                output_filepath=None,
-               resampling_alg_name="cubicspline") -> str:
+               resampling_alg_name="cubicspline",
+               feedback=None) -> str:
     """
     TIFFを指定のZ解像度へリサンプリングする、EXTENTは変更されない
     """
@@ -51,17 +52,18 @@ def resampling(tiff_filepath: str,
         "EXTRA": f"-tr {target_resolution} {target_resolution} -r {resampling_alg_name}",
         "INPUT": tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT"
-    })["OUTPUT"]
+    }, feedback=feedback)["OUTPUT"]
 
 
 def adjust_extent_and_resolution(basis_tiff_filepath: str,
                                  target_tiff_filepath: str,
                                  output_filepath=None,
-                                 resampling_alg_name="cubicspline") -> str:
+                                 resampling_alg_name="cubicspline",
+                                 feedback=None) -> str:
     """
     任意のラスターを、基準ラスターと同じ領域・解像度に調整して出力する
     """
-    basis_deminfo = get_tiff_info(basis_tiff_filepath)
+    basis_deminfo = get_tiff_info(basis_tiff_filepath, feedback=feedback)
     resampling_alg_dict = {
         "nearest": 0,
         "bilinear": 1,
@@ -77,13 +79,14 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
         "RESAMPLING": resampling_alg,
         "INPUT": target_tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT",
-    })["OUTPUT"]
+    }, feedback=feedback)["OUTPUT"]
     return output
 
 
 def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
                                                 target_tiff_filepath: str,
-                                                resampling_alg_name="nearest") -> str:
+                                                resampling_alg_name="nearest",
+                                                feedback=None) -> str:
     """
     既存の出力ラスターを、基準ラスターと同じ領域・解像度に揃えて置き換える
     """
@@ -96,6 +99,7 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
             target_tiff_filepath,
             output_filepath=temp_filepath,
             resampling_alg_name=resampling_alg_name,
+            feedback=feedback,
         )
         os.replace(adjusted_filepath, target_tiff_filepath)
     finally:
@@ -104,7 +108,8 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
 
 
 def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
-                                      extent_wgs84) -> str:
+                                      extent_wgs84,
+                                      feedback=None) -> str:
     """
     ラスターをWGS84指定範囲でピクセル単位に切り出して置き換える。
     解析途中ではなく、最終成果物を表示・後段入力の範囲へ揃える用途。
@@ -115,7 +120,7 @@ def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
         raise RuntimeError("GDAL is not available")
 
     lon_min, lat_min, lon_max, lat_max = extent_wgs84
-    target_info = get_tiff_info(target_tiff_filepath)
+    target_info = get_tiff_info(target_tiff_filepath, feedback=feedback)
     target_crs = target_info["crs"]
     wgs84_crs = QgsCoordinateReferenceSystem("EPSG:4326")
     transform = QgsCoordinateTransform(wgs84_crs, target_crs, QgsProject.instance())
@@ -127,6 +132,9 @@ def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
     temp_dir = tempfile.mkdtemp(dir=target_dir)
     temp_filepath = os.path.join(temp_dir, "clipped.tif")
     try:
+        if feedback is not None:
+            # gdal.Translate() は Processing を通らないので、工程名だけ明示して無表示を避ける。
+            feedback.pushInfo("最終出力を指定範囲で切り出しています")
         ds = gdal.Translate(
             temp_filepath,
             target_tiff_filepath,

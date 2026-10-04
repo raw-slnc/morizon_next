@@ -21,7 +21,8 @@ NO_ROAD_DISTANCE_VALUE = 1000000.0
 
 def generate(basis_dem_filepath: str,
              line_vector_filepath: str,
-             output_dir: str):
+             output_dir: str,
+             feedback=None):
     """
     線分への距離ラスターを生成する。line_vector_filepathにフィーチャが
     1件も無い場合（対象範囲に道路データが存在しない等）は、DEMの有効範囲を大きな
@@ -31,9 +32,11 @@ def generate(basis_dem_filepath: str,
     if not line_vlayer.isValid():
         raise RuntimeError(f"道路データを読み込めませんでした: {line_vector_filepath}")
     if line_vlayer.featureCount() == 0:
-        return _generate_no_road_distance_raster(basis_dem_filepath, output_dir), True
+        return _generate_no_road_distance_raster(
+            basis_dem_filepath, output_dir, feedback=feedback
+        ), True
 
-    basis_dem_info = get_tiff_info(basis_dem_filepath)
+    basis_dem_info = get_tiff_info(basis_dem_filepath, feedback=feedback)
 
     temp_dir = tempfile.mkdtemp()
     try:
@@ -44,16 +47,20 @@ def generate(basis_dem_filepath: str,
                 "INPUT": line_vector_filepath,
                 "TARGET_CRS": basis_dem_info["crs"],
                 "OUTPUT": line_vector_for_rasterize,
-            })
+            }, feedback=feedback)
             line_vlayer = QgsVectorLayer(line_vector_for_rasterize, "line_vector_reprojected", "ogr")
             if not line_vlayer.isValid():
                 raise RuntimeError(f"道路データをDEM座標系へ変換できませんでした: {line_vector_filepath}")
             if line_vlayer.featureCount() == 0:
-                return _generate_no_road_distance_raster(basis_dem_filepath, output_dir), True
+                return _generate_no_road_distance_raster(
+                    basis_dem_filepath, output_dir, feedback=feedback
+                ), True
 
         line_vector_extent = line_vlayer.extent()
         if line_vector_extent.isEmpty():
-            return _generate_no_road_distance_raster(basis_dem_filepath, output_dir), True
+            return _generate_no_road_distance_raster(
+                basis_dem_filepath, output_dir, feedback=feedback
+            ), True
 
         # DEMと線分を覆うEXTENTを計算する
         x_min = min(basis_dem_info["extent"][0], line_vector_extent.xMinimum())
@@ -61,7 +68,9 @@ def generate(basis_dem_filepath: str,
         y_min = min(basis_dem_info["extent"][2], line_vector_extent.yMinimum())
         y_max = max(basis_dem_info["extent"][3], line_vector_extent.yMaximum())
         if x_max <= x_min or y_max <= y_min:
-            return _generate_no_road_distance_raster(basis_dem_filepath, output_dir), True
+            return _generate_no_road_distance_raster(
+                basis_dem_filepath, output_dir, feedback=feedback
+            ), True
         x_min, x_max, y_min, y_max = _restrict_region(
             line_vlayer, basis_dem_info, x_min, x_max, y_min, y_max)
 
@@ -78,17 +87,20 @@ def generate(basis_dem_filepath: str,
             "HEIGHT": basis_dem_info["resolution"],
             "EXTENT": f'{x_min},{x_max},{y_min},{y_max}',
             "OUTPUT": line_raster_filepath,
-        })
+        }, feedback=feedback)
         _assert_raster_ready(line_raster_filepath, "道路ラスタ")
 
-        _generate_distance_raster(line_raster_filepath, distance_filepath)
+        _generate_distance_raster(
+            line_raster_filepath, distance_filepath, feedback=feedback
+        )
         _assert_raster_ready(distance_filepath, "道路距離")
 
         adjusted_dis_filepath = adjust_extent_and_resolution(
             basis_dem_filepath,
             distance_filepath,
             output_filepath=adjusted_dis_filepath,
-            resampling_alg_name="nearest")
+            resampling_alg_name="nearest",
+            feedback=feedback)
 
         # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 AND 1) を使う
         distance_rlayer = _make_raster_layer(adjusted_dis_filepath, "道路距離")
@@ -112,6 +124,9 @@ def generate(basis_dem_filepath: str,
                                    dem_rlayer.width(),
                                    dem_rlayer.height(),
                                    (distance_entry, dem_entry))
+        if feedback is not None:
+            # QgsRasterCalculator は ProcessingFeedback を受け取れないため工程を手動通知する。
+            feedback.pushInfo("DEMの有効範囲に道路距離を反映しています")
         result = calc.processCalculation()
         if not _is_raster_calculator_success(result):
             raise RuntimeError(f"道路距離ラスターの計算に失敗しました: {result}")
@@ -122,7 +137,8 @@ def generate(basis_dem_filepath: str,
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _generate_no_road_distance_raster(basis_dem_filepath: str, output_dir: str) -> str:
+def _generate_no_road_distance_raster(
+        basis_dem_filepath: str, output_dir: str, feedback=None) -> str:
     """道路地物が無い場合、DEM有効セルを十分大きな距離値で埋めた地利ラスターを作る。"""
     dem_rlayer = _make_raster_layer(basis_dem_filepath, "DEM")
     dem_entry = QgsRasterCalculatorEntry()
@@ -131,6 +147,8 @@ def _generate_no_road_distance_raster(basis_dem_filepath: str, output_dir: str) 
     dem_entry.bandNumber = 1
 
     output_filepath = os.path.join(output_dir, OUTPUT_DISTANCE['FILE_NAME'] + ".tif")
+    if feedback is not None:
+        feedback.pushInfo("道路が無いため、対象範囲を道路なしとして計算しています")
     calc = QgsRasterCalculator(f'{NO_ROAD_DISTANCE_VALUE} + dem@1 * 0',
                                output_filepath,
                                'GTiff',
@@ -187,7 +205,8 @@ def _assert_raster_ready(filepath: str, label: str):
         raise RuntimeError(f"{label}が空です: {filepath}")
 
 
-def _generate_distance_raster(line_raster_filepath: str, distance_filepath: str):
+def _generate_distance_raster(
+        line_raster_filepath: str, distance_filepath: str, feedback=None):
     """道路ラスタから、各セルの中心から一番近い道路のセルの中心までの水平距離（m）のラスターを作る。
 
     原版は GRASS の r.grow.distance を使っていたが、近い道路を探す計算が近似で、一番近い道路を見落として
@@ -206,7 +225,7 @@ def _generate_distance_raster(line_raster_filepath: str, distance_filepath: str)
         "EXTRA": "",
         "DATA_TYPE": 5,
         "OUTPUT": distance_filepath,
-    })
+    }, feedback=feedback)
 
 
 def _make_raster_layer(filepath: str, label: str) -> QgsRasterLayer:
