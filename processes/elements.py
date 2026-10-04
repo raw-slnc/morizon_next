@@ -43,6 +43,7 @@ class ProcessingThread(QThread):
         self.target_elements_dict = target_elements_dict
         self.output_dir = output_dir
         self.final_extent_wgs84 = final_extent_wgs84
+        self.no_road_distance_created = False
 
         self.abort_flag = False
 
@@ -182,9 +183,15 @@ class ProcessingThread(QThread):
                 self.addProgress.emit(1)
                 progress_counter += 1
 
-                distance_filepath = raster_writer.distance.generate(dem_for_processes,
-                                                                    self.input_files_dict["network"],
-                                                                    self.output_dir)
+                distance_filepath, no_road_distance_created = raster_writer.distance.generate(
+                    dem_for_processes,
+                    self.input_files_dict["network"],
+                    self.output_dir,
+                )
+                if no_road_distance_created:
+                    self.no_road_distance_created = True
+                    self.postMessage.emit(
+                        f'{OUTPUT_DISTANCE["DISPLAY_NAME"]}: 道路地物が無いため全域1点相当として作成しました')
                 if distance_filepath is None:
                     self.postMessage.emit(
                         f'{OUTPUT_DISTANCE["DISPLAY_NAME"]}: 対象範囲に道路データが無いためスキップしました')

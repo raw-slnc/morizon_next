@@ -16,7 +16,7 @@ from .processes.raster_styler import (
 )
 from . import processes
 from . import utils
-from .progress_dialog import ProgressDialog
+from .progress_dialog import run_with_progress
 from .constants import (
     DIR_ZONING,
     OUTPUT_PROFIT,
@@ -91,9 +91,8 @@ class ForestZoningMainDialogZoning:
     def refresh_zoning_ui(self):
         """
         UIの変更の都度発火してUIの状態を更新する関数
+        （候補の作り直しはしない。選択欄の合図の中から呼ばれるため。合わせ直しはメイン画面の refresh_all_tabs）
         """
-        self.update_zoning_layer_scope()
-
         error_texts = self.get_zoning_error_texts()
         has_no_error = len(error_texts) == 0
         self.main.zoningErrorLabel.setText("\n".join(error_texts))
@@ -281,24 +280,14 @@ class ForestZoningMainDialogZoning:
             input_thresholds_dict,
             self.main.zoningOutputDirFileWidget.filePath(),
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        progress_dialog.set_abortable(False)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.add_layers_to_project)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
-
-        if thread.abort_flag:
+        # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
+        # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
+        outcome = run_with_progress(thread, abortable=False)
+        if "result" in outcome:
+            self.add_layers_to_project(outcome["result"])
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
+        elif thread.abort_flag:
             QMessageBox.information(self.main, "中断", "処理を中断しました。")
         else:
             QMessageBox.information(self.main, "終了", "処理が終了しました。")

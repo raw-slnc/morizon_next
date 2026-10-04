@@ -16,6 +16,7 @@ from qgis.core import (
     QgsLayoutSize,
     QgsPointXY,
     QgsPrintLayout,
+    QgsMapLayerStyle,
     QgsProject,
     QgsReadWriteContext,
     QgsRectangle,
@@ -26,7 +27,7 @@ from qgis.utils import iface
 import os
 
 
-def generate(target_name, background_layer, target_layer):
+def generate(target_name, background_layers, target_layer):
     # レイアウトファイルの読み込み
     project = QgsProject.instance()
     composition = QgsPrintLayout(project)
@@ -49,7 +50,15 @@ def generate(target_name, background_layer, target_layer):
 
     map = QgsLayoutItemMap(layout)
     map.setRect(QRectF(10, 10, 10, 10))
-    map.setLayers([target_layer, background_layer])
+    layers = [target_layer] + [
+        record["layer"] for record in background_layers if record.get("layer") is not None
+    ]
+    map.setLayers(layers)
+    map.setKeepLayerSet(True)
+    layer_style_overrides = _layer_style_overrides(background_layers)
+    if layer_style_overrides:
+        map.setLayerStyleOverrides(layer_style_overrides)
+        map.setKeepLayerStyles(True)
     map.setFrameEnabled(True)
 
     # マップの表示の調整
@@ -95,6 +104,44 @@ def generate(target_name, background_layer, target_layer):
 
     # レイアウトを開く
     iface.openLayoutDesigner(layout=layout)
+
+
+def _layer_style_overrides(background_layers):
+    overrides = {}
+    for record in background_layers:
+        layer = record.get("layer")
+        opacity = record.get("opacity", 1.0)
+        if layer is None:
+            continue
+        style_xml = _style_xml_with_opacity(layer, opacity)
+        if style_xml:
+            overrides[layer.id()] = style_xml
+    return overrides
+
+
+def _style_xml_with_opacity(layer, opacity):
+    original_style = QgsMapLayerStyle()
+    original_style.readFromLayer(layer)
+    try:
+        if not _set_layer_opacity(layer, opacity):
+            return None
+        override_style = QgsMapLayerStyle()
+        override_style.readFromLayer(layer)
+        return override_style.xmlData()
+    finally:
+        original_style.writeToLayer(layer)
+        layer.triggerRepaint()
+
+
+def _set_layer_opacity(layer, opacity):
+    renderer = layer.renderer() if hasattr(layer, "renderer") else None
+    if renderer is not None and hasattr(renderer, "setOpacity"):
+        renderer.setOpacity(opacity)
+        return True
+    if hasattr(layer, "setOpacity"):
+        layer.setOpacity(opacity)
+        return True
+    return False
 
 
 def get_target_layer_extent(target_layer):

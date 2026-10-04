@@ -131,6 +131,14 @@ class PrintlayoutBackgroundManager:
 
     SETTING_GROUP = '/MORIZON/printlayout_background'
     NETWORK_ONLY_KEY = 'network_only'
+    ZONING_USE_SUB_KEY = 'zoning_use_sub'
+    ZONING_SUB_OPACITY_KEY = 'zoning_sub_opacity'
+    ZONING_MAIN_OPACITY_KEY = 'zoning_main_opacity'
+    AGGREGATE_USE_SUB_KEY = 'aggregate_use_sub'
+    AGGREGATE_SUB_OPACITY_KEY = 'aggregate_sub_opacity'
+    AGGREGATE_MAIN_OPACITY_KEY = 'aggregate_main_opacity'
+    BACKGROUND_SUB_LAYER_KEY = 'background_sub_layer'
+    BACKGROUND_MAIN_LAYER_KEY = 'background_main_layer'
 
     def load_network_only(self) -> bool:
         qsettings = QSettings()
@@ -143,6 +151,56 @@ class PrintlayoutBackgroundManager:
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
         qsettings.setValue(self.NETWORK_ONLY_KEY, bool(network_only))
+        qsettings.endGroup()
+
+    def load_bool(self, key: str, default: bool) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(key, default, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_bool(self, key: str, value: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(key, bool(value))
+        qsettings.endGroup()
+
+    def load_int(self, key: str, default: int) -> int:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(key, default, type=int)
+        qsettings.endGroup()
+        return int(value)
+
+    def store_int(self, key: str, value: int):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(key, int(value))
+        qsettings.endGroup()
+
+    def load_layer_ref(self, key: str) -> dict:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(key, {})
+        qsettings.endGroup()
+        return value if isinstance(value, dict) else {}
+
+    def store_layer_ref(self, key: str, layer, store_none: bool = True):
+        if layer is None:
+            if not store_none:
+                return
+            value = {}
+        else:
+            value = {
+                'id': layer.id(),
+                'name': layer.name(),
+                'source': layer.source(),
+                'provider': layer.providerType(),
+            }
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(key, value)
         qsettings.endGroup()
 
 

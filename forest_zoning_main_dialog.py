@@ -66,6 +66,7 @@ class ForestZoningMainDialog(QDialog):
         self._restore_pending = False
         self.lock_output_dirs()
         self._init_workspace_status()
+        self._init_layer_watch()
         self.use_no_workspace(persist=False)
         # 開いているプロジェクトがあれば、画面を表示したときに再開の分岐へ進む
         if QgsProject.instance().fileName():
@@ -345,8 +346,51 @@ class ForestZoningMainDialog(QDialog):
         """別名で保存などで保存先が変わったとき：作業フォルダの場所の表示を合わせ直す"""
         self._after_workspace_changed()
 
+    # ── 選択欄の候補・ボタンの状態を合わせ直す場面 ──────────────────────────
+    # 各タブの選択欄の候補（Morizon Next の出力）が変わるのは、Morizon Next 自身が出力を作った・外したときと、
+    # 作業フォルダが変わったときだけ。利用者が見るのは画面を開いた・タブを切り替えたとき。
+    # そのときだけ、まとめて1回（イベント処理が一巡した後に）合わせ直す。
+    # プロジェクト全体のレイヤーの増減は見張らない。他のプラグインの操作に反応して動く必要は無く、
+    # レイヤーの追加・削除の途中で選択欄に触れると QGIS ごと落ちた（raster_loader・FOL の操作で確認）。
+    # 選択欄の中身が変わったときのボタン等の更新は、各タブが選択欄ごとにつないでいる（候補は作り直さない）
+
+    def _init_layer_watch(self):
+        self._refresh_pending = False
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(100)
+        self._refresh_timer.timeout.connect(self.refresh_all_tabs)
+        self.tabWidget.currentChanged.connect(lambda _index: self.schedule_refresh_all_tabs())
+        utils.set_outputs_changed_callback(self.schedule_refresh_all_tabs)
+
+    def stop_layer_watch(self):
+        """プラグインを外すときに呼ぶ（この画面は破棄されるので、知らせの受け先から外す）"""
+        self._refresh_timer.stop()
+        utils.set_outputs_changed_callback(None)
+
+    def schedule_refresh_all_tabs(self):
+        if self.isVisible():
+            self._refresh_timer.start()
+        else:
+            self._refresh_pending = True
+
+    def refresh_all_tabs(self):
+        self._refresh_pending = False
+        self.scoring.update_scoring_layer_scope()
+        self.zoning.update_zoning_layer_scope()
+        self.aggregate.update_aggregate_layer_scope()
+        self.printlayout.update_printlayout_layer_scope()
+        self.elements.refresh_elements_ui()
+        self.scoring.refresh_scoring_ui()
+        self.zoning.refresh_zoning_ui()
+        self.aggregate.refresh_aggregate_ui()
+        self.printlayout.refresh_create_zoning_printlayout_ui()
+        self.printlayout.refresh_create_aggregate_printlayout_ui()
+
     def showEvent(self, event):
         super().showEvent(event)
+        # 閉じている間の変化（他のプラグインが足したレイヤーを含む）を、開いたときにまとめて合わせ直す
+        self._refresh_timer.start()
         if self._restore_pending:
             self._restore_pending = False
             QTimer.singleShot(0, self.restore_project_workspace)
@@ -422,10 +466,9 @@ class ForestZoningMainDialog(QDialog):
         self.apply_workspace_output_dirs()
         self.update_workspace_status()
         self.update_input_availability()
-        self.scoring.update_scoring_layer_scope()
-        self.zoning.update_zoning_layer_scope()
-        self.aggregate.update_aggregate_layer_scope()
-        self.printlayout.update_printlayout_layer_scope()
+        # 候補が変わるので、選択欄の候補とボタンや注意書きの状態をまとめて合わせ直す
+        # （プロジェクトの合図からも呼ばれるため、その場では選択欄に触れない）
+        self.schedule_refresh_all_tabs()
 
     # 作業フォルダの表示（タブ列の「設定」の右隣）
     def _init_workspace_status(self):

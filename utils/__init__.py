@@ -15,8 +15,10 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsLayerTreeGroup,
     QgsMapLayer,
+    QgsMapLayerProxyModel,
     QgsProject,
     QgsRasterLayer,
+    QgsVectorLayer,
 )
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt import sip
@@ -121,7 +123,6 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
         raise Exception("classes_count must be larger than 2.")
 
     rlayer_filepath = rlayer.dataProvider().dataSourceUri()
-    output_dir = os.path.dirname(rlayer_filepath)
 
     # processes は utils を使うため、utils の先頭では読み込まない（読み込み順によって循環して失敗する）
     from ..processes import raster_styler
@@ -133,14 +134,16 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
     )
     rlayer_from_path.setRenderer(renderer)
 
-    # 等量区分QMLを書き出す
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".qml") as temp_qml:
-        rlayer_from_path.saveNamedStyle(temp_qml.name)
+    # 等量区分QMLを書き出して読む。作業用のQMLは一時フォルダの中だけで作って消す
+    # （以前はレイヤーのファイルと同じフォルダに書いていたため、ファイルを持たないレイヤー（/vsimem/ など）や
+    # 書き込めない場所のレイヤーで失敗し、書ける場所でも利用者のデータのフォルダに作業用のファイルを書いていた）
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_qml = os.path.join(temp_dir, "quantile.qml")
+        rlayer_from_path.saveNamedStyle(temp_qml)
         qml_filepath = raster_styler.round_label_precision(
-            temp_qml.name, os.path.join(output_dir, "tmp_init_score.qml"), precision=4
+            temp_qml, os.path.join(temp_dir, "tmp_init_score.qml"), precision=4
         )
-
-    tree = ET.parse(qml_filepath)
+        tree = ET.parse(qml_filepath)
     root = tree.getroot()
     items = root.find("pipe/rasterrenderer/rastershader/colorrampshader").findall(
         "item"
@@ -155,7 +158,6 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
             threshold = 0
         thresholds.append(threshold)
 
-    os.remove(qml_filepath)
     return thresholds
 
 
@@ -207,31 +209,71 @@ def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
     }
 
 
+# 選択欄の候補は「表示してよい一覧」で絞る。指定が空だと「制限なし」になるため、プロジェクトに入れない目印を必ず含める
+_no_layer_marker = None
+
+
+def _scope_marker():
+    global _no_layer_marker
+    if _no_layer_marker is None:
+        _no_layer_marker = QgsVectorLayer("Point?crs=EPSG:4326", "_morizon_next_none", "memory")
+    return _no_layer_marker
+
+
 def set_morizon_layer_scope(combobox: QgsMapLayerComboBox,
                             allowed_names=None,
                             allowed_extensions=None,
                             keep_current=True):
     """QgsMapLayerComboBoxの候補をMORIZON管理フォルダ配下の成果物に限定する。
-    候補が無ければ空にする(現在の選択がMORIZON管理フォルダ配下でないなら、
-    選択を維持せず除外する)。"""
-    project_layers = list(QgsProject.instance().mapLayers().values())
-    current_layer = combobox.currentLayer() if keep_current else None
-    if current_layer is not None and not is_morizon_managed_layer(
-        current_layer,
-        allowed_names=allowed_names,
-        allowed_extensions=allowed_extensions,
-    ):
-        current_layer = None
-    excepted_layers = [
-        layer for layer in project_layers
-        if layer is not current_layer
-        if not is_morizon_managed_layer(
+    候補が無ければ空にする(現在の選択がMORIZON管理フォルダ配下でないなら、選択を維持せず外す)。
+
+    「表示してよい一覧」で絞るので、他のプラグインや手動で後から追加されたレイヤーは一覧に入らない
+    （以前の「除外の一覧」は作った時点のレイヤーしか外せず、後から追加されたものを空の選択欄が拾っていた）。
+    呼ぶのは、画面を開いた・タブを切り替えた・自分の出力を作った/外した・作業フォルダが変わった・
+    ボタン操作のときだけにすること。選択欄やプロジェクトの合図の中（レイヤーの追加・削除の途中）から呼ぶと、
+    QGIS が選択欄の一覧を更新している途中に触れることになり、QGIS ごと落ちる。
+    選択欄の中の一覧（exceptedLayerList など）は読み出さないこと。削除されたレイヤーが壊れた参照のまま残り、
+    読み出した時点で落ちる"""
+    allowed_layers = [
+        layer for layer in QgsProject.instance().mapLayers().values()
+        if is_morizon_managed_layer(
             layer,
             allowed_names=allowed_names,
             allowed_extensions=allowed_extensions,
         )
     ]
-    combobox.setExceptedLayerList(excepted_layers)
+    previous_layer = combobox.currentLayer()
+    keep_layer = None
+    if keep_current and previous_layer is not None:
+        keep_layer = next((layer for layer in allowed_layers if layer is previous_layer), None)
+    # 候補を入れ直すと、選択が変わっていなくても「選択が変わった」の合図が出ることがある（Windows で確認）。
+    # その合図で、しきい値の計算し直し（初期値に戻る）が走っていたため、入れ直しても選択が変わらなければ合図を出さない
+    model = sip.cast(combobox.model(), QgsMapLayerProxyModel)
+    combobox.blockSignals(True)
+    try:
+        combobox.setExceptedLayerList([])  # 以前の作りで入れた除外の一覧を空にする（壊れた参照を残さない）
+        model.setLayerAllowlist([_scope_marker()] + allowed_layers)
+        if keep_layer is not None and combobox.currentLayer() is not keep_layer:
+            combobox.setLayer(keep_layer)
+    finally:
+        combobox.blockSignals(False)
+    if combobox.currentLayer() is not previous_layer:
+        combobox.layerChanged.emit(combobox.currentLayer())
+
+
+# 自分の出力が増えた・減ったことを画面へ知らせる（画面は、まとめて後で選択欄の候補などを合わせ直す）。
+# プロジェクト全体のレイヤーの増減は見張らない（他のプラグインの操作に反応しないため）
+_outputs_changed_callback = None
+
+
+def set_outputs_changed_callback(callback):
+    global _outputs_changed_callback
+    _outputs_changed_callback = callback
+
+
+def _notify_outputs_changed():
+    if _outputs_changed_callback is not None:
+        _outputs_changed_callback()
 
 
 def find_morizon_layer_by_name(layer_name: str, allowed_extensions=None):
@@ -402,8 +444,9 @@ STAGE_AGGREGATE = "aggregate"
 
 
 def tag_output_layer(layer, stage: str, key: str = ""):
-    """出力レイヤーに印（工程と、要素などの区別）を付ける"""
+    """出力レイヤーに印（工程と、要素などの区別）を付ける（出力をプロジェクトに加える直前に呼ばれる）"""
     layer.setCustomProperty(OUTPUT_TAG_KEY, f"{stage}|{key}")
+    _notify_outputs_changed()
 
 
 @lru_cache(maxsize=1)
@@ -508,6 +551,7 @@ def detach_layers(layers) -> list:
         record.pop("parent", None)
     if taken:
         _refresh_map_canvas()
+        _notify_outputs_changed()
     return taken
 
 
@@ -532,6 +576,7 @@ def restore_detached_layers(records):
         node.setItemVisibilityChecked(record["checked"])
         node.setExpanded(record["expanded"])
     _refresh_map_canvas()
+    _notify_outputs_changed()
 
 
 def discard_detached_layers(records):
@@ -546,17 +591,40 @@ def discard_detached_layers(records):
         project.removeMapLayer(layer.id())
     if records:
         records.clear()
+        _notify_outputs_changed()
+
+
+# レイヤーを作り直すとき（外してから作る一連の流れ）に「Morizon Next」グループの場所を引き継ぐため、
+# 中身が空になって取り除いたときの場所（最上位の何番目か・チェック・展開）を覚えておく。
+# プロジェクトを開いたときは、保存されていたレイヤーを外す時点で覚えるので、再開で作り直すと前回あった場所に戻る。
+# 前のプロジェクトの場所を持ち越さないよう、プロジェクトが閉じられたとき（cleared）に forget_output_group_place で忘れる
+_output_group_place = None
+
+
+def forget_output_group_place():
+    global _output_group_place
+    _output_group_place = None
 
 
 def get_morizon_output_group():
-    """出力レイヤーをまとめるグループ（プロジェクトの最上位の「Morizon Next」）。無ければ一番上に作る。
+    """出力レイヤーをまとめるグループ（プロジェクトの最上位の「Morizon Next」）。
+    無ければ、直前に取り除いた場所があればそこに、無ければ一番上に作る。
     中身が空になったときは _remove_layers_and_empty_groups が取り除く"""
+    global _output_group_place
     root = QgsProject.instance().layerTreeRoot()
     for child in root.children():
         if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME:
+            _output_group_place = None
             return child
-    group = root.insertGroup(0, OUTPUT_GROUP_NAME)
-    group.setExpanded(True)
+    if _output_group_place is None:
+        group = root.insertGroup(0, OUTPUT_GROUP_NAME)
+        group.setExpanded(True)
+        return group
+    index, checked, expanded = _output_group_place
+    _output_group_place = None
+    group = root.insertGroup(min(index, len(root.children())), OUTPUT_GROUP_NAME)
+    group.setItemVisibilityChecked(checked)
+    group.setExpanded(expanded)
     return group
 
 
@@ -576,6 +644,7 @@ def _remove_layers_and_empty_groups(layers) -> int:
     _remove_empty_groups(parent_groups)
     if layers:
         _refresh_map_canvas()
+        _notify_outputs_changed()
     return len(layers)
 
 
@@ -591,6 +660,12 @@ def _remove_empty_groups(parent_groups):
         parent = group.parent()
         if parent is None:
             continue
+        if parent is root and group.name() == OUTPUT_GROUP_NAME:
+            # 作り直すときに同じ場所へ作れるよう、場所を覚えておく（get_morizon_output_group）
+            global _output_group_place
+            _output_group_place = (
+                root.children().index(group), group.itemVisibilityChecked(), group.isExpanded()
+            )
         parent.removeChildNode(group)
         parent_groups.append(parent)
 

@@ -65,15 +65,6 @@ class ForestZoning:
             parent=self.win,
         )
 
-        QgsProject.instance().layerTreeRoot().addedChildren.connect(
-            self.onLayersChanged
-        )
-        QgsProject.instance().layerTreeRoot().removedChildren.connect(
-            self.onLayersChanged
-        )
-        self.iface.layerTreeView().layerTreeModel().dataChanged.connect(
-            self.onLayersChanged
-        )  # nopep8
         # 作業フォルダはプロジェクトに書き込んであるので、プロジェクトを読み終えたとき（readProject）に再開の分岐へ進む。
         # 新規・閉じる（cleared）では作業フォルダなし。別名で保存などで保存先が変わったとき（homePathChanged・
         # fileNameChanged）は、プロジェクト内の作業フォルダの場所が変わるので表示を合わせ直す
@@ -87,23 +78,12 @@ class ForestZoning:
             self.iface.removePluginRasterMenu(self.menu, action)
             self.iface.removeRasterToolBarIcon(action)
 
-        self._safe_disconnect(
-            QgsProject.instance().layerTreeRoot().addedChildren,
-            self.onLayersChanged,
-        )
-        self._safe_disconnect(
-            QgsProject.instance().layerTreeRoot().removedChildren,
-            self.onLayersChanged,
-        )
-        self._safe_disconnect(
-            self.iface.layerTreeView().layerTreeModel().dataChanged,
-            self.onLayersChanged,
-        )
         self._safe_disconnect(QgsProject.instance().readProject, self.onProjectRead)
         self._safe_disconnect(QgsProject.instance().cleared, self.onProjectCleared)
         self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectPathChanged)
         self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectPathChanged)
         if self.main_dialog is not None:
+            self.main_dialog.stop_layer_watch()
             self.main_dialog.close()
             self.main_dialog.deleteLater()
             self.main_dialog = None
@@ -122,6 +102,7 @@ class ForestZoning:
         QTimer.singleShot(0, self._on_project_read_deferred)
 
     def _on_project_read_deferred(self):
+        # 外したときに「Morizon Next」グループの場所を覚えるので、再開で作り直すと前回あった場所に戻る
         self.remove_saved_plugin_layers()
         if self.main_dialog is not None:
             self.main_dialog.on_project_read()
@@ -154,6 +135,7 @@ class ForestZoning:
             project.setDirty(False)
 
     def onProjectCleared(self, *args):
+        utils.forget_output_group_place()
         if self.main_dialog is not None:
             self.main_dialog.on_project_cleared()
 
@@ -161,25 +143,9 @@ class ForestZoning:
         if self.main_dialog is not None:
             self.main_dialog.on_project_path_changed()
 
-    def onLayersChanged(self, *args):
-        if not self.is_visible_main_dialog():
-            return
-
-        self.main_dialog.elements.refresh_elements_ui()
-        self.main_dialog.scoring.refresh_scoring_ui()
-        self.main_dialog.zoning.refresh_zoning_ui()
-        self.main_dialog.aggregate.refresh_aggregate_ui()
-        self.main_dialog.printlayout.refresh_create_zoning_printlayout_ui()
-        self.main_dialog.printlayout.refresh_create_aggregate_printlayout_ui()
-
     def show_main_dialog(self):
         if self.main_dialog is None:
             self.main_dialog = ForestZoningMainDialog()
         self.main_dialog.show()
         self.main_dialog.raise_()
         self.main_dialog.activateWindow()
-
-    def is_visible_main_dialog(self):
-        if self.main_dialog is None:
-            return False
-        return self.main_dialog.isVisible()

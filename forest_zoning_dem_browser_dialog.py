@@ -12,7 +12,60 @@ from qgis.utils import iface
 from . import dem_sources
 
 
-class DemBrowserDialog(QDialog):
+class _ComboOkCancelFocusMixin:
+    """選択欄1つと OK／キャンセルだけのダイアログで、キーボードのフォーカスを確実に動かす共通処理。
+    （DEMブラウザで直した処理を、DEM解像度の選択でも使うため切り出した）
+    使う側は self._focus_combo（選択欄）・self.button_box（OK／キャンセル）・self._focus_order（Tab で回る順）を用意する"""
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # showEvent直後にQDialogButtonBox側がOKをdefault扱いへ戻すことがあるため、
+        # 表示後のイベント処理に回してから初期フォーカスを確定させる。
+        QTimer.singleShot(0, self._set_initial_focus)
+        QTimer.singleShot(50, self._set_initial_focus)
+
+    def _set_initial_focus(self):
+        self._clear_button_defaults()
+        self._focus_combo.setFocus()
+
+    def _clear_button_defaults(self):
+        for standard_button in (
+            QDialogButtonBox.StandardButton.Ok,
+            QDialogButtonBox.StandardButton.Cancel,
+        ):
+            button = self.button_box.button(standard_button)
+            button.setAutoDefault(False)
+            button.setDefault(False)
+
+    def keyPressEvent(self, event):
+        current = QApplication.focusWidget()
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+            cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+            if current == ok_button:
+                ok_button.click()
+                return
+            if current == cancel_button:
+                cancel_button.click()
+                return
+            if current == self._focus_combo and not self._focus_combo.view().isVisible():
+                self._focus_combo.showPopup()
+                return
+        super().keyPressEvent(event)
+
+    def focusNextPrevChild(self, next):
+        current = QApplication.focusWidget()
+        if current in self._focus_order:
+            self._clear_button_defaults()
+            step = 1 if next else -1
+            idx = (self._focus_order.index(current) + step) % len(self._focus_order)
+            reason = Qt.FocusReason.TabFocusReason if next else Qt.FocusReason.BacktabFocusReason
+            self._focus_order[idx].setFocus(reason)
+            return True
+        return super().focusNextPrevChild(next)
+
+
+class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
     """
     DEM取得元を選択して取得するダイアログ。
 
@@ -103,54 +156,8 @@ class DemBrowserDialog(QDialog):
             button.setAutoDefault(False)
             button.setDefault(False)
             button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._focus_combo = self.sourceCombobox
         self._focus_order = [self.sourceCombobox, ok_button, cancel_button]
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        # showEvent直後にQDialogButtonBox側がOKをdefault扱いへ戻すことがあるため、
-        # 表示後のイベント処理に回してから初期フォーカスを確定させる。
-        QTimer.singleShot(0, self._set_initial_focus)
-        QTimer.singleShot(50, self._set_initial_focus)
-
-    def _set_initial_focus(self):
-        self._clear_button_defaults()
-        self.sourceCombobox.setFocus()
-
-    def _clear_button_defaults(self):
-        for standard_button in (
-            QDialogButtonBox.StandardButton.Ok,
-            QDialogButtonBox.StandardButton.Cancel,
-        ):
-            button = self.button_box.button(standard_button)
-            button.setAutoDefault(False)
-            button.setDefault(False)
-
-    def keyPressEvent(self, event):
-        current = QApplication.focusWidget()
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
-            cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
-            if current == ok_button:
-                ok_button.click()
-                return
-            if current == cancel_button:
-                cancel_button.click()
-                return
-            if current == self.sourceCombobox and not self.sourceCombobox.view().isVisible():
-                self.sourceCombobox.showPopup()
-                return
-        super().keyPressEvent(event)
-
-    def focusNextPrevChild(self, next):
-        current = QApplication.focusWidget()
-        if current in self._focus_order:
-            self._clear_button_defaults()
-            step = 1 if next else -1
-            idx = (self._focus_order.index(current) + step) % len(self._focus_order)
-            reason = Qt.FocusReason.TabFocusReason if next else Qt.FocusReason.BacktabFocusReason
-            self._focus_order[idx].setFocus(reason)
-            return True
-        return super().focusNextPrevChild(next)
 
     def _update_info_label(self):
         source = self.get_selected_source()
@@ -186,3 +193,42 @@ class DemBrowserDialog(QDialog):
     def get_selected_source(self):
         """選択された取得元（dem_sources.base.DemSource）"""
         return self._sources[self.sourceCombobox.currentIndex()]
+
+
+class DemResolutionDialog(_ComboOkCancelFocusMixin, QDialog):
+    """国土地理院DEMで、取得範囲全体をカバーできる解像度が複数あるときに1つを選ぶダイアログ。
+    Qt 標準の入力ダイアログ（QInputDialog.getItem）ではキーボードのフォーカスが動かなかったため、
+    DEMブラウザと同じ作りにしている"""
+
+    def __init__(self, labels, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("DEM解像度の選択")
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "複数のDEMタイル方式が取得範囲全体をカバーしています。\n"
+            "解析範囲内で統一して使用する解像度を選択してください。"
+        ))
+        self.resolutionCombobox = QComboBox()
+        self.resolutionCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.resolutionCombobox.addItems(labels)
+        layout.addWidget(self.resolutionCombobox)
+
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        for button in (ok_button, cancel_button):
+            button.setAutoDefault(False)
+            button.setDefault(False)
+            button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._focus_combo = self.resolutionCombobox
+        self._focus_order = [self.resolutionCombobox, ok_button, cancel_button]
+
+    def selected_label(self) -> str:
+        return self.resolutionCombobox.currentText()

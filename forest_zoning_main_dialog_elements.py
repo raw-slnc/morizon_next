@@ -14,14 +14,14 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QDialog,
     QFileDialog,
-    QInputDialog,
+    QLabel,
     QMessageBox,
     QProgressDialog,
 )
 from qgis.core import QgsLayerTreeGroup, QgsProject, QgsRectangle
 
-from .progress_dialog import ProgressDialog
-from .forest_zoning_dem_browser_dialog import DemBrowserDialog
+from .progress_dialog import run_with_progress
+from .forest_zoning_dem_browser_dialog import DemBrowserDialog, DemResolutionDialog
 from .dem_loader import GSITileDEMLoader
 from .settings_manager import OutputLayerStyleManager, ShcMethodManager
 from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZoningMainDialogArchive
@@ -50,6 +50,17 @@ from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
 from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget
+
+
+# 公式の手引（G空間情報センターで公開されているPDF）。ダイアログには題名だけを出し、開くのはボタンから。
+# 末尾の ?preview=1 はサイトがPDFをページ内に表示するときの指定で、付けないとダウンロードになる
+MORIZON_GUIDE_URL = (
+    "https://www.geospatial.jp/ckan/dataset/84476079-c049-4b8f-b46a-3280e9bc2cc4"
+    "/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061/download/shinrin_zoning_tebiki_r8.pdf?preview=1"
+)
+MORIZON_GUIDE_TITLE = "収益性と災害リスクを考慮した森林ゾーニングの手引き（令和8年3月）"
+# 上の手引で、道路データと地利について書かれたページ
+MORIZON_GUIDE_ROAD_PAGES = "p.42〜43/p.71〜72"
 
 
 class _AlignRightToPathField(QObject):
@@ -622,22 +633,18 @@ class ForestZoningMainDialogElements:
              extent_wgs84.xMaximum(), extent_wgs84.yMaximum()),
             output_path,
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.postDetail.connect(progress_dialog.set_detail)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.set_dem_filepath)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"DEMの取得に失敗しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
+        result = self._run_fetch(thread, "DEMの取得に失敗しました。", show_set_progress=False)
+        if result is not None:
+            self.set_dem_filepath(result)
+
+    def _run_fetch(self, thread, failure_message, show_set_progress=False):
+        """取得の処理スレッドを進捗ダイアログ付きで実行し、成功なら結果の辞書、失敗なら None を返す（失敗は知らせる）。
+        結果の反映や次の知らせは、進捗の窓を消して下の画面を描き直してから行う（run_with_progress）"""
+        outcome = run_with_progress(thread, show_detail=True, show_set_progress=show_set_progress)
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"{failure_message}\n\n{outcome['error']}")
+            return None
+        return outcome.get("result")
 
     def _resolve_gsi_tile_sources(self, extent_wgs84):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -689,14 +696,10 @@ class ForestZoningMainDialogElements:
             return [selected["source"]]
 
         labels = [result["label"] for result in available]
-        selected_label, ok = QInputDialog.getItem(
-            self.main, "DEM解像度の選択",
-            "複数のDEMタイル方式が取得範囲全体をカバーしています。\n"
-            "解析範囲内で統一して使用する解像度を選択してください。",
-            labels, 0, False,
-        )
-        if not ok:
+        dialog = DemResolutionDialog(labels, self.main)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
+        selected_label = dialog.selected_label()
         for result in available:
             if result["label"] == selected_label:
                 return [result["source"]]
@@ -746,23 +749,9 @@ class ForestZoningMainDialogElements:
             extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
             extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.setProgress.connect(progress_dialog.set_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.postDetail.connect(progress_dialog.set_detail)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.set_siteindex_filepaths)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"地位指数データの取得に失敗しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
+        result = self._run_fetch(thread, "地位指数データの取得に失敗しました。", show_set_progress=True)
+        if result is not None:
+            self.set_siteindex_filepaths(result)
 
     def set_siteindex_filepaths(self, result: dict):
         if "NPP" in result:
@@ -813,22 +802,9 @@ class ForestZoningMainDialogElements:
             dem_filepath=self.main.elementsDemFileWidget.filePath(),
             clip_to_extent=True,
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.postDetail.connect(progress_dialog.set_detail)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.set_building_road_filepaths)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"建物・道路データの取得に失敗しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
+        result = self._run_fetch(thread, "建物・道路データの取得に失敗しました。")
+        if result is not None:
+            self.set_building_road_filepaths(result)
 
     @staticmethod
     def _expand_extent_for_fgd_fetch(extent_wgs84):
@@ -851,6 +827,13 @@ class ForestZoningMainDialogElements:
             missing.append("建物ポリゴン")
         if result.get("road"):
             self.main.elementsNetworkFileWidget.setFilePath(result["road"])
+            if result.get("road_empty"):
+                self._show_no_road_warning(
+                    "道路地物がありません",
+                    "基盤地図情報から取得した道路データに、地利計算に使える有効な道路地物がありませんでした。\n"
+                    "要素計算の地利は、DEM全域を道路から遠い条件（1点相当）として作成します。\n\n"
+                    "実際の林道・作業道を反映する場合は、独自の道路データを作成して読み込んでください。",
+                )
         else:
             missing.append("道路縁")
         self.refresh_elements_ui()
@@ -863,9 +846,33 @@ class ForestZoningMainDialogElements:
                 + "\n\n対象範囲に有効なジオメトリが無いか、基盤地図情報の変換に失敗しています。",
             )
             return
-        QMessageBox.information(
-            self.main, "完了", "建物ポリゴン・道路縁データを取得しました。"
-        )
+        if result.get("road_empty"):
+            QMessageBox.information(
+                self.main, "完了", "建物ポリゴンを取得し、道路縁は空データとして設定しました。"
+            )
+        else:
+            QMessageBox.information(
+                self.main, "完了", "建物ポリゴン・道路縁データを取得しました。"
+            )
+
+    def _show_no_road_warning(self, title: str, message: str):
+        box = QMessageBox(self.main)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(title)
+        text = f"{message}\n\n- 公式の手引 -\n{MORIZON_GUIDE_TITLE}\n参照ページ：{MORIZON_GUIDE_ROAD_PAGES}"
+        box.setText(text)
+        # どの行も途中で折り返されない幅にする。フォントや大きさは OS・環境で違うため、
+        # 実際に表示するフォントで各行の幅を測り、一番長い行に合わせる
+        label = box.findChild(QLabel, "qt_msgbox_label")
+        if label is not None:
+            metrics = label.fontMetrics()
+            widest = max(metrics.horizontalAdvance(line) for line in text.split("\n"))
+            label.setMinimumWidth(widest + metrics.averageCharWidth())
+        guide_button = box.addButton("公式の手引を開く", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if box.clickedButton() == guide_button:
+            QDesktopServices.openUrl(QUrl(MORIZON_GUIDE_URL))
 
     def clear_elements_settings(self):
         """
@@ -1032,25 +1039,23 @@ class ForestZoningMainDialogElements:
             self.main.elementsOutputDirFileWidget.filePath(),
             final_extent_wgs84=self._get_final_extent_for_current_dem(),
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.add_elements_layer_to_project)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
-
-        if thread.abort_flag:
+        # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
+        # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
+        outcome = run_with_progress(thread)
+        if "result" in outcome:
+            self.add_elements_layer_to_project(outcome["result"])
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
+        elif thread.abort_flag:
             QMessageBox.information(self.main, "中断", "処理を中断しました。")
         else:
+            if getattr(thread, "no_road_distance_created", False):
+                self._show_no_road_warning(
+                    "地利を全域1点相当で作成しました",
+                    "設定された道路データには、地利計算に使える有効な道路地物がありませんでした。\n"
+                    "地利はDEM全域を道路から遠い条件（1点相当）として作成しました。\n\n"
+                    "実際の林道・作業道を反映する場合は、独自の道路データの作成をおすすめします。",
+                )
             QMessageBox.information(self.main, "終了", "処理が終了しました。")
 
         self.main.show()

@@ -88,3 +88,33 @@ class ProgressDialog(QDialog):
 
     def set_abortable(self, abortable=True):
         self.abortButton.setEnabled(abortable)
+
+
+def run_with_progress(thread, show_detail=False, show_set_progress=False, abortable=True) -> dict:
+    """処理スレッドを進捗ダイアログ付きで実行し、終わったら {"result": 結果} か {"error": メッセージ} を返す。
+    結果の反映（レイヤーの追加）や知らせは、呼び出し側がこの関数から戻った後に行うこと。
+    進捗の窓が開いている間に行うと、閉じた窓の絵が描き直されずに残像として残るため、
+    ここで窓を消して下の画面を描き直してから戻る"""
+    outcome = {}
+    progress_dialog = ProgressDialog(thread.set_abort_flag)
+    if not abortable:
+        progress_dialog.set_abortable(False)
+    thread.processStarted.connect(progress_dialog.set_sum_of_processes)
+    thread.addProgress.connect(progress_dialog.add_progress)
+    if show_set_progress:
+        thread.setProgress.connect(progress_dialog.set_progress)
+    thread.postMessage.connect(progress_dialog.set_messsage)
+    if show_detail:
+        thread.postDetail.connect(progress_dialog.set_detail)
+    thread.setAbortable.connect(progress_dialog.set_abortable)
+    thread.processFinished.connect(lambda result: outcome.update(result=result))
+    thread.processFinished.connect(progress_dialog.close)
+    thread.processFailed.connect(lambda message: outcome.update(error=message))
+    thread.processFailed.connect(progress_dialog.close)
+    thread.start()
+    progress_dialog.exec()
+    thread.wait()
+    progress_dialog.hide()
+    progress_dialog.deleteLater()
+    QApplication.processEvents()
+    return outcome

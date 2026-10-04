@@ -57,7 +57,8 @@ class BuildingRoadFetchThread(QThread):
                     pass
         return self._dem_crs
 
-    def _fetch_and_merge(self, type_code: str, label: str, output_path: str, include_layer_names=None):
+    def _fetch_and_merge(self, type_code: str, label: str, output_path: str,
+                         include_layer_names=None, allow_empty_output=False):
         def on_progress(done, total, file_name):
             if done == 1:
                 self.processStarted.emit(total + 1)
@@ -71,6 +72,11 @@ class BuildingRoadFetchThread(QThread):
         if self.abort_flag:
             raise InterruptedError()
         if not zip_paths:
+            if allow_empty_output:
+                fgd_fetcher.create_empty_line_shapefile(
+                    output_path, self._get_dem_crs(), os.path.splitext(os.path.basename(output_path))[0]
+                )
+                return output_path, True
             return None
 
         self.postDetail.emit(f"{label} を範囲でまとめています…")
@@ -83,7 +89,14 @@ class BuildingRoadFetchThread(QThread):
             clip_to_extent=self.clip_to_extent,
         )
         self.addProgress.emit(1)
-        return output_path if ok else None
+        if ok:
+            return (output_path, False) if allow_empty_output else output_path
+        if allow_empty_output:
+            fgd_fetcher.create_empty_line_shapefile(
+                output_path, self._get_dem_crs(), os.path.splitext(os.path.basename(output_path))[0]
+            )
+            return output_path, True
+        return None
 
     def run(self):
         try:
@@ -92,10 +105,16 @@ class BuildingRoadFetchThread(QThread):
 
             self.postMessage.emit("道路縁データを取得中…")
             road_path = os.path.join(self.output_dir, "ROAD", "road_edge.shp")
-            result["road"] = self._fetch_and_merge(
+            road_result = self._fetch_and_merge(
                 fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁", road_path,
                 include_layer_names=fgd_fetcher.ROAD_LAYERS,
+                allow_empty_output=True,
             )
+            if isinstance(road_result, tuple):
+                result["road"], result["road_empty"] = road_result
+            else:
+                result["road"] = road_result
+                result["road_empty"] = False
             if self.abort_flag:
                 self.processFailed.emit("処理を中断しました。")
                 return

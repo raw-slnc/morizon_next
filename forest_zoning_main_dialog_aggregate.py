@@ -14,7 +14,7 @@ from . import processes
 from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
-from .progress_dialog import ProgressDialog
+from .progress_dialog import run_with_progress
 
 
 class ForestZoningMainDialogAggregate:
@@ -163,30 +163,20 @@ class ForestZoningMainDialogAggregate:
             output_path=output_path,
             style_threshold=self.main.aggregateStyleThresholdspinBox.value()
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.postDetail.connect(progress_dialog.set_detail)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(self.add_layers_to_project)
-        thread.processFinished.connect(progress_dialog.close)
-        failures = []
-        thread.processFailed.connect(failures.append)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.start()
-        progress_dialog.exec()
-        thread.wait()
+        # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
+        outcome = run_with_progress(thread, show_detail=True)
+        if "result" in outcome:
+            self.add_layers_to_project(outcome["result"])
 
         self.main.show()
 
-        if failures:
-            QMessageBox.information(self.main, "エラー", f"集計を完了できませんでした。\n\n{failures[0]}")
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"集計を完了できませんでした。\n\n{outcome['error']}")
         else:
             QMessageBox.information(self.main, "完了", f"処理が完了しました。\n{thread.summary}")
 
     def refresh_aggregate_ui(self):
-        self.update_aggregate_layer_scope()
+        # 候補の作り直しはしない（選択欄の合図の中から呼ばれるため。合わせ直しはメイン画面の refresh_all_tabs）
 
         # 既定のレイヤーが入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする
         default_layer = utils.find_morizon_layer_by_name(

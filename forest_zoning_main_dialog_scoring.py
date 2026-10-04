@@ -13,7 +13,7 @@ from qgis.gui import QgsMapLayerComboBox
 from qgis.utils import iface
 
 from .settings_manager import SettingsManager
-from .progress_dialog import ProgressDialog
+from .progress_dialog import run_with_progress
 
 from .forest_zoning_scoring_stats_dialog import ForestZoningScoringStatsDialog
 from .processes.raster_styler import (
@@ -397,7 +397,7 @@ class ForestZoningMainDialogScoring:
         ))
 
     def refresh_scoring_ui(self):
-        self.update_scoring_layer_scope()
+        # 候補の作り直しはしない（選択欄の合図の中から呼ばれるため。合わせ直しはメイン画面の refresh_all_tabs）
         self.refresh_set_layers_button()
 
         # 入力内容のエラーチェック
@@ -838,23 +838,14 @@ class ForestZoningMainDialogScoring:
             target_score_dict,
             self.main.scoringOutputDirFileWidget.filePath(),
         )
-        progress_dialog = ProgressDialog(thread.set_abort_flag)
-        thread.processStarted.connect(progress_dialog.set_sum_of_processes)
-        thread.addProgress.connect(progress_dialog.add_progress)
-        thread.postMessage.connect(progress_dialog.set_messsage)
-        thread.setAbortable.connect(progress_dialog.set_abortable)
-        thread.processFinished.connect(progress_dialog.close)
-        thread.processFinished.connect(self.add_layers_to_project)
-        thread.processFailed.connect(progress_dialog.close)
-        thread.processFailed.connect(
-            lambda error_message: QMessageBox.information(
-                self.main, "エラー", f"エラーが発生しました。\n\n{error_message}"
-            )
-        )
-        thread.start()
-        progress_dialog.exec()
-
-        if thread.abort_flag:
+        # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
+        # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
+        outcome = run_with_progress(thread)
+        if "result" in outcome:
+            self.add_layers_to_project(outcome["result"])
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
+        elif thread.abort_flag:
             QMessageBox.information(self.main, "中断", "処理を中断しました。")
         else:
             QMessageBox.information(self.main, "終了", "処理が終了しました。")
