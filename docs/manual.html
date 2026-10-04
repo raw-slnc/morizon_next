@@ -100,6 +100,7 @@ figure { margin: 18px 0; }
 figure svg { display: block; max-width: 960px; margin: 0 auto; }
 figcaption { font-size: 13px; color: var(--muted); text-align: center; margin-top: 4px; }
 svg text { font-family: inherit; }
+.aside { color: var(--risk); font-size: 14px; }
 .placeholder { color: var(--muted); border: 1px dashed var(--line); padding: 14px 16px; border-radius: 6px; }
 ul, ol { padding-left: 24px; }
 li { margin: 3px 0; }
@@ -162,6 +163,17 @@ li { margin: 3px 0; }
 <p>原版では、解析に入る前に、DEM の変換・結合、建物や道路のダウンロードと座標変換、作業システム表の Excel 編集などをすべて手作業で行う必要がありました。MORIZON NEXT では、QGIS の地図で範囲を表示してボタンを押せば、これらのデータがそろいます。</p>
 <p>このマニュアルは、原版の「収益性と災害リスクを考慮した森林ゾーニングの手引き」（令和8年3月、以下「手引」）を置き換えるものではありません。操作に必要なことと、判断に必要な考え方に絞って書いています。詳しい背景を知りたいところには、手引の該当ページを <span class="ref" style="display:inline;margin:0">p.00</span> の形で示しました。</p>
 <p>最初の章は<strong>データの準備</strong>です。データごとに「なぜこのデータが必要なのか」を説明しながら進めるので、読み終えるころには、この解析が何を計算しているのかもつかめるはずです。</p>
+
+<div class="how"><span class="label">はじめに覚えること</span>
+最初に知っておくこと・することは、次の4つだけです。
+<ol>
+  <li>QGIS プロジェクトを保存してから始める（<a href="#data-area">1.2</a>）。</li>
+  <li>QGIS の地図に、対象地を一回り広く表示する（<a href="#data-area">1.2</a>）。</li>
+  <li>要素計算タブの「DEMブラウザから開始する」を押して、データをそろえる（<a href="#data">1章</a>）。</li>
+  <li>タブの順に、要素計算 → スコアリング → ゾーニング → ゾーン統計量 → 印刷 と進める（<a href="#ops">2章</a>）。</li>
+</ol>
+フォルダの場所や構成、保存データの中身などは、プラグインが自動で扱います。最初は読み飛ばして構いません。データを別の PC に移すとき、保存データを他のソフトで使うときなど、必要になったときに参照してください。
+</div>
 </section>
 
 <section id="data">
@@ -292,6 +304,7 @@ li { margin: 3px 0; }
 データがプロジェクトと一緒にまとまっていれば、フォルダごと別の PC に持っていくだけで作業を続けられます。システムの一時フォルダや、プロジェクトと無関係な場所にデータが散らばることもありません。フォルダ名やユーザー名に日本語が含まれていても問題ありません。
 </div>
 
+<p class="aside">ここから「1つの QGIS プロジェクトで扱う解析は1つです」の手前までは、自動で作られるフォルダの参考です。読み飛ばして、必要なときに参照してください。</p>
 <p>取得が終わると、フォルダの中は次のようになります。</p>
 <pre class="how" style="font-family:Consolas,monospace;font-size:13.5px;line-height:1.6;white-space:pre;overflow-x:auto">(プロジェクトフォルダ)/
 ├─ ○○.qgz                     … QGIS プロジェクト
