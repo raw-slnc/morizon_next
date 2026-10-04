@@ -11,6 +11,7 @@ from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 from qgis.core import QgsMapLayerProxyModel, QgsProject
 
 from . import processes
+from . import layer_db
 from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
@@ -128,6 +129,7 @@ class ForestZoningMainDialogAggregate:
 
         # ゾーン統計量のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
         utils.remove_output_layers(utils.STAGE_AGGREGATE)
+        db_path = layer_db.db_file(utils.get_morizon_layer_db_dir(), layer_db.KIND_AGGREGATE)
 
         # .shpがすでに存在している場合、同名の.shp/.dbf/.shx/.prjファイルを削除する
         if os.path.exists(output_path):
@@ -148,6 +150,8 @@ class ForestZoningMainDialogAggregate:
             else:
                 QMessageBox.information(self.main, "エラー", "指定したファイルが使用中のため、上書きできません。")
                 return
+        # 描画用の DB の前の結果も空にする（shp と DB の両方を消し込む）
+        layer_db.clear(db_path, layer_db.KIND_AGGREGATE)
 
         self.main.hide()
 
@@ -161,7 +165,8 @@ class ForestZoningMainDialogAggregate:
             zoning_layer_path=zoning_rlayer,
             input_layer=input_layer,
             output_path=output_path,
-            style_threshold=self.main.aggregateStyleThresholdspinBox.value()
+            style_threshold=self.main.aggregateStyleThresholdspinBox.value(),
+            db_path=db_path,
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         outcome = run_with_progress(thread, show_detail=True)

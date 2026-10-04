@@ -29,6 +29,7 @@ from .constants import (
     OUTPUT_SLOPE,
     OUTPUT_ZONING,
 )
+from . import layer_db
 from .processes import raster_styler
 
 SCORING_SUFFIX = "[スコアリング]"
@@ -174,13 +175,21 @@ def find_aggregate_shp(directory):
     return os.path.join(directory, shps[0]) if shps else None
 
 
-def build_aggregate_layers(shp_path, style_threshold, problems):
-    """集計結果のshpから {表示名: レイヤー}（集計タブの出力と同じ形）"""
-    if not shp_path:
+def build_aggregate_layers(shp_path, db_path, style_threshold, problems):
+    """集計結果から {表示名: レイヤー}（集計タブの出力と同じ形）。
+    保存データ（shp と、あれば同じ名前の GPKG）から描画用の DB を作り直し、レイヤーは DB から作る（layer_db.py）"""
+    try:
+        source = layer_db.import_saved(db_path, layer_db.KIND_AGGREGATE, shp_path)
+    except Exception as e:
+        problems.append(f"{OUTPUT_AGGREGATE['DISPLAY_NAME']}：データを取り込めませんでした（{e}）")
         return {}
-    layer = QgsVectorLayer(shp_path, OUTPUT_AGGREGATE["DISPLAY_NAME"])
+    if source == "none":
+        return {}
+    layer = QgsVectorLayer(
+        layer_db.layer_uri(db_path, layer_db.KIND_AGGREGATE), OUTPUT_AGGREGATE["DISPLAY_NAME"], "ogr"
+    )
     if not layer.isValid():
-        problems.append(f"{OUTPUT_AGGREGATE['DISPLAY_NAME']}：ファイルを開けませんでした（{shp_path}）")
+        problems.append(f"{OUTPUT_AGGREGATE['DISPLAY_NAME']}：データを開けませんでした（{db_path}）")
         return {}
     directory = os.path.dirname(shp_path)
     file_name = os.path.splitext(os.path.basename(shp_path))[0]

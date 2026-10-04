@@ -7,13 +7,16 @@ import os
 from qgis.PyQt import uic
 from contextlib import contextmanager
 
-from qgis.PyQt.QtCore import QEvent, Qt, QTimer
-from qgis.PyQt.QtGui import QIcon, QKeySequence
+from qgis.PyQt.QtCore import Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QDesktopServices, QIcon, QKeySequence
 try:
     from qgis.PyQt.QtGui import QShortcut  # Qt6
 except ImportError:
     from qgis.PyQt.QtWidgets import QShortcut  # Qt5
-from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QLabel, QMessageBox, QSpinBox
+from qgis.PyQt.QtWidgets import (
+    QDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
+    QWidget,
+)
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import QgsProject
 
@@ -470,12 +473,94 @@ class ForestZoningMainDialog(QDialog):
         # （プロジェクトの合図からも呼ばれるため、その場では選択欄に触れない）
         self.schedule_refresh_all_tabs()
 
-    # 作業フォルダの表示（タブ列の「設定」の右隣）
+    # ── 操作マニュアル（プラグインに同梱の docs/manual.html を既定のブラウザで開く） ──
+    MANUAL_PATH = os.path.join(os.path.dirname(__file__), "docs", "manual.html")
+
+    def open_manual(self):
+        if not os.path.isfile(self.MANUAL_PATH):
+            QMessageBox.information(self, "マニュアル", f"マニュアルが見つかりません。\n{self.MANUAL_PATH}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(self.MANUAL_PATH)):
+            QMessageBox.information(
+                self, "マニュアル", f"マニュアルを開けませんでした。次のファイルを直接開いてください。\n{self.MANUAL_PATH}"
+            )
+
+    # 作業フォルダの表示。作業フォルダの中に出力先が決まる4つのタブ（要素計算・スコアリング・ゾーニング・
+    # ゾーン統計量）で、「出力先フォルダ」の行のすぐ上に出す（印刷・設定は作業フォルダに関わらないので出さない）
+    # 行の右寄せに「作業フォルダを開く」（作業フォルダをファイルマネージャーで開く）を置く
     def _init_workspace_status(self):
-        self.workspaceStatusLabel = QLabel(self.tabWidget)
-        self.workspaceStatusLabel.setStyleSheet("color:#555;")
-        self.tabWidget.installEventFilter(self)
-        self.tabWidget.tabBar().installEventFilter(self)
+        self._workspace_status_labels = []
+        self._workspace_open_buttons = []
+        for output_label in self._output_dir_labels:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            status = QLabel()
+            status.setStyleSheet("color:#555;")
+            open_button = QPushButton("作業フォルダを開く")
+            open_button.setToolTip("作業フォルダをファイルマネージャーで開きます")
+            open_button.clicked.connect(self.open_workspace_folder)
+            row_layout.addWidget(status)
+            row_layout.addStretch(1)
+            row_layout.addWidget(open_button)
+            if output_label is self._output_dir_labels[0]:
+                # 要素計算タブだけ、「作業フォルダを開く」の左に「道路と建物を出力」（入力の道路縁・建築物をレイヤーに出す）
+                road_building_button = QPushButton("道路と建物を出力")
+                road_building_button.setToolTip(
+                    "取得・読み込みした道路縁と建築物を、「Morizon Next」グループの「災害リスク」の下に表示します"
+                )
+                road_building_button.clicked.connect(self.elements.show_road_building_layers)
+                row_layout.insertWidget(row_layout.indexOf(open_button), road_building_button)
+            if self._insert_above_row(output_label, row):
+                self._workspace_status_labels.append(status)
+                self._workspace_open_buttons.append(open_button)
+
+    def open_workspace_folder(self):
+        folder = utils.get_workspace_dir() if self.has_workspace() else ""
+        if not folder or not os.path.isdir(folder):
+            QMessageBox.information(self, "作業フォルダを開く", "作業フォルダがありません。")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(folder)):
+            QMessageBox.information(
+                self, "作業フォルダを開く", f"作業フォルダを開けませんでした。次のフォルダを直接開いてください。\n{folder}"
+            )
+
+    def _insert_above_row(self, widget_in_row, new_widget) -> bool:
+        """widget_in_row がある行のすぐ上に new_widget を置く"""
+        parent = widget_in_row.parentWidget()
+        root = parent.layout() if parent is not None else None
+        row = self._layout_containing(root, widget_in_row) if root is not None else None
+        container = self._layout_parent(root, row) if row is not None else None
+        if container is None:
+            return False
+        index = container.indexOf(row)
+        if isinstance(container, QGridLayout):
+            # グリッドの1マスには1つしか置けないので、その行を「表示＋行」の縦の組に置き換える
+            position = container.getItemPosition(index)
+            container.removeItem(row)
+            row.setParent(None)
+            box = QVBoxLayout()
+            box.setContentsMargins(0, 0, 0, 0)
+            box.addWidget(new_widget)
+            box.addLayout(row)
+            container.addLayout(box, *position)
+        else:
+            container.insertWidget(index, new_widget)
+        return True
+
+    @classmethod
+    def _layout_parent(cls, layout, target):
+        """layout とその中のレイアウトから、target（レイアウト）を直接持つレイアウトを探す"""
+        for index in range(layout.count()):
+            child = layout.itemAt(index).layout()
+            if child is None:
+                continue
+            if child is target:
+                return layout
+            found = cls._layout_parent(child, target)
+            if found is not None:
+                return found
+        return None
 
     def update_workspace_status(self):
         external = utils.get_external_workspace()
@@ -490,23 +575,10 @@ class ForestZoningMainDialog(QDialog):
             tooltip = ("「DEMブラウザから開始する」「フォルダ選択から開始する」「保存ファイルを読み込む」で始めます"
                        if QgsProject.instance().homePath() else
                        "QGISプロジェクトが未保存です。保存してから始めてください")
-        self.workspaceStatusLabel.setText(text)
-        self.workspaceStatusLabel.setToolTip(tooltip)
-        self.workspaceStatusLabel.adjustSize()
-        self._place_workspace_status()
-
-    def _place_workspace_status(self):
-        bar = self.tabWidget.tabBar()
-        if bar.count() == 0:
-            return
-        last = bar.tabRect(bar.count() - 1)
-        top_left = bar.mapTo(self.tabWidget, last.topRight())
-        label = self.workspaceStatusLabel
-        label.move(top_left.x() + 12, top_left.y() + (last.height() - label.height()) // 2)
-        label.raise_()
-
-    def eventFilter(self, obj, event):
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
-            if hasattr(self, "workspaceStatusLabel"):
-                self._place_workspace_status()
-        return super().eventFilter(obj, event)
+        for status in self._workspace_status_labels:
+            status.setText(text)
+            status.setToolTip(tooltip)
+        # 作業フォルダが無いときは開けない
+        folder = utils.get_workspace_dir() if self.has_workspace() else ""
+        for open_button in self._workspace_open_buttons:
+            open_button.setEnabled(bool(folder) and os.path.isdir(folder))

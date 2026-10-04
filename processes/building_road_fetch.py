@@ -3,11 +3,14 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
+import shutil
+import tempfile
 
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
+from qgis.core import QgsVectorLayer
 
-from .. import fgd_fetcher
+from .. import fgd_fetcher, layer_db
 from ..utils import get_tiff_info
 
 
@@ -22,8 +25,10 @@ class BuildingRoadFetchThread(QThread):
 
     def __init__(self, session, mesh_codes: list, cache_dir: str, output_dir: str,
                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
-                 dem_filepath: str = None, clip_to_extent=True):
+                 dem_filepath: str = None, clip_to_extent=True, db_dir: str = ""):
+        """db_dir は描画用の DB の場所（layer_db.py）"""
         super().__init__()
+        self.db_dir = db_dir
         self.session = session
         self.mesh_codes = mesh_codes
         self.cache_dir = cache_dir
@@ -57,46 +62,59 @@ class BuildingRoadFetchThread(QThread):
                     pass
         return self._dem_crs
 
-    def _fetch_and_merge(self, type_code: str, label: str, output_path: str,
+    def _fetch_and_merge(self, type_code: str, label: str, output_path: str, kind: str,
                          include_layer_names=None, allow_empty_output=False):
+        """基盤地図情報を取得し、描画用の DB（layer_db.py）に入れてから、作業フォルダへ互換用の shp を書き出す
+        （DB → shp の順）。まとめる作業は一時フォルダの GPKG で行う（shp だと属性名が10バイトで切り詰められる）"""
         def on_progress(done, total, file_name):
             if done == 1:
                 self.processStarted.emit(total + 1)
             self.addProgress.emit(1)
             self.postDetail.emit(f"{label} {done}/{total}件取得済み（{file_name}）")
 
+        db_path = layer_db.db_file(self.db_dir, kind)
         zip_paths = fgd_fetcher.fetch_meshes(
             self.session, type_code, self.mesh_codes, self.cache_dir,
             progress_cb=on_progress, cancel_cb=lambda: self.abort_flag,
         )
         if self.abort_flag:
             raise InterruptedError()
-        if not zip_paths:
-            if allow_empty_output:
-                fgd_fetcher.create_empty_line_shapefile(
-                    output_path, self._get_dem_crs(), os.path.splitext(os.path.basename(output_path))[0]
-                )
-                return output_path, True
-            return None
 
-        self.postDetail.emit(f"{label} を範囲でまとめています…")
-        ok = fgd_fetcher.merge_layers(
-            zip_paths, output_path,
-            self.lon_min, self.lat_min, self.lon_max, self.lat_max,
-            include_layer_names=include_layer_names,
-            driver_format="ESRI Shapefile",
-            dst_crs=self._get_dem_crs(),
-            clip_to_extent=self.clip_to_extent,
-        )
-        self.addProgress.emit(1)
-        if ok:
-            return (output_path, False) if allow_empty_output else output_path
-        if allow_empty_output:
-            fgd_fetcher.create_empty_line_shapefile(
-                output_path, self._get_dem_crs(), os.path.splitext(os.path.basename(output_path))[0]
+        temp_dir = tempfile.mkdtemp(prefix=f"morizon_{kind}_")
+        try:
+            ok = False
+            if zip_paths:
+                self.postDetail.emit(f"{label} を範囲でまとめています…")
+                work_path = os.path.join(temp_dir, f"{kind}.gpkg")
+                ok = fgd_fetcher.merge_layers(
+                    zip_paths, work_path,
+                    self.lon_min, self.lat_min, self.lon_max, self.lat_max,
+                    include_layer_names=include_layer_names,
+                    driver_format="GPKG",
+                    output_layer=kind,
+                    dst_crs=self._get_dem_crs(),
+                    clip_to_extent=self.clip_to_extent,
+                )
+                self.addProgress.emit(1)
+            if not ok:
+                if not allow_empty_output:
+                    layer_db.clear(db_path, kind)
+                    return None
+                # 道路地物が無いことを後続の処理へ明示的に渡すため、空のデータを作る
+                work_path = fgd_fetcher.create_empty_line_shapefile(
+                    os.path.join(temp_dir, f"{kind}.shp"), self._get_dem_crs(), kind
+                )
+            work_layer = QgsVectorLayer(
+                layer_db.layer_uri(work_path, kind) if work_path.endswith(".gpkg") else work_path, kind, "ogr"
             )
-            return output_path, True
-        return None
+            layer_db.store(db_path, kind, work_layer)
+            del work_layer
+            layer_db.export_shp(db_path, kind, output_path)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        if allow_empty_output:
+            return output_path, not ok
+        return output_path
 
     def run(self):
         try:
@@ -106,7 +124,7 @@ class BuildingRoadFetchThread(QThread):
             self.postMessage.emit("道路縁データを取得中…")
             road_path = os.path.join(self.output_dir, "ROAD", "road_edge.shp")
             road_result = self._fetch_and_merge(
-                fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁", road_path,
+                fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁", road_path, layer_db.KIND_ROAD,
                 include_layer_names=fgd_fetcher.ROAD_LAYERS,
                 allow_empty_output=True,
             )
@@ -122,7 +140,7 @@ class BuildingRoadFetchThread(QThread):
             self.postMessage.emit("建物ポリゴンデータを取得中…")
             building_path = os.path.join(self.output_dir, "TATEMONO", "building.shp")
             result["building"] = self._fetch_and_merge(
-                fgd_fetcher.TYPE_CODE_BUILDING, "建物", building_path,
+                fgd_fetcher.TYPE_CODE_BUILDING, "建物", building_path, layer_db.KIND_BUILDING,
                 include_layer_names=fgd_fetcher.BUILDING_LAYERS,
             )
             if self.abort_flag:

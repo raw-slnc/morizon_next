@@ -24,7 +24,7 @@ from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt import sip
 import processing
 
-from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED
+from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED, DIR_LAYER
 
 
 def _finite_float_or_none(value):
@@ -180,7 +180,8 @@ def find(values: list, x) -> int:
 def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
                              allowed_extensions=None) -> bool:
     """
-    MORIZON NEXTが今の作業フォルダ（プロジェクト内の morizon_next、または外部のフォルダ）で管理する成果物レイヤーか判定する。
+    MORIZON NEXTが今の作業フォルダ（プロジェクト内の morizon_next、または外部のフォルダ）、
+    または描画用の DB（morizon_next/LAYER/<qgz 名>）で管理する成果物レイヤーか判定する。
     外部レイヤーを広く走査しないため、タブ内の候補絞り込みと自動設定で使う。
     """
     if layer is None:
@@ -191,16 +192,8 @@ def is_morizon_managed_layer(layer: QgsMapLayer, allowed_names=None,
     if not source:
         return False
     normalized_source = os.path.normpath(source)
-    managed_dir = get_workspace_dir()
-    if not managed_dir:
-        return False
-    try:
-        in_managed_dir = os.path.commonpath(
-            [normalized_source, managed_dir]
-        ) == managed_dir
-    except ValueError:
-        in_managed_dir = False
-    if not in_managed_dir:
+    roots = [root for root in (get_workspace_dir(), get_morizon_layer_db_dir()) if root]
+    if not any(is_under_dir(normalized_source, root) for root in roots):
         return False
     if allowed_extensions is None:
         return True
@@ -373,7 +366,8 @@ def _project_folder_name() -> str:
     name = os.path.splitext(os.path.basename(file_name))[0] if file_name else ""
     if not name:
         return "untitled"
-    return name + "_project" if name == DIR_SHARED else name
+    # キャッシュ（shared）・描画用の DB（LAYER）のフォルダと重ならないようにする
+    return name + "_project" if name in (DIR_SHARED, DIR_LAYER) else name
 
 
 def get_morizon_root_dir(*subdirs) -> str:
@@ -386,6 +380,14 @@ def get_morizon_managed_dir(*subdirs) -> str:
     """プロジェクト内の作業フォルダ（<qgz のフォルダ>/morizon_next/<qgz のファイル名>）。subdirsを渡すとその下のパス。
     構成は constants.py の DIR_DATA 等を参照"""
     return get_morizon_root_dir(_project_folder_name(), *subdirs)
+
+
+def get_morizon_layer_db_dir() -> str:
+    """描画用の DB（GPKG）を置くフォルダ（<qgz のフォルダ>/morizon_next/LAYER/<qgz のファイル名>）。
+    プロジェクトが未保存なら空文字（layer_db.py）"""
+    if not QgsProject.instance().homePath():
+        return ""
+    return get_morizon_root_dir(DIR_LAYER, _project_folder_name())
 
 
 def get_morizon_shared_dir(*subdirs) -> str:
@@ -441,6 +443,7 @@ STAGE_ELEMENTS = "elements"
 STAGE_SCORING = "scoring"
 STAGE_ZONING = "zoning"
 STAGE_AGGREGATE = "aggregate"
+STAGE_ROAD_BUILDING = "road_building"  # 要素計算タブの「道路と建物を出力」で出す、入力の道路縁・建築物
 
 
 def tag_output_layer(layer, stage: str, key: str = ""):

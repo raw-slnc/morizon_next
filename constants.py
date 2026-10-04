@@ -11,6 +11,7 @@ DIR_YOUSO = "YOUSO"          # 要素計算の出力
 DIR_ZONING = "ZONING"        # スコアリング（収益性・災害リスク）とゾーニングの出力
 DIR_AGGREGATE = "AGGREGATE"  # 集計の出力（原版には無い。MORIZON NEXTで追加）
 DIR_SHARED = "shared"        # 解析をまたいで使い回すキャッシュ。保存・破棄の対象外
+DIR_LAYER = "LAYER"          # 描画用の DB（GPKG）。morizon_next/LAYER/<qgz 名>/ に置く（layer_db.py）
 DATA_INFO_FILE_NAME = "MORIZON_NEXT.txt"  # 保存データの最上位に置く説明
 # 出力レイヤーをまとめるレイヤーツリーのグループ（プロジェクトの最上位）
 OUTPUT_GROUP_NAME = "Morizon Next"

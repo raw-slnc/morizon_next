@@ -3,14 +3,16 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
+import shutil
+import tempfile
 import zipfile
 from datetime import datetime
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QApplication, QFileDialog, QLabel, QMenu, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMenu, QMessageBox, QWidget
 from qgis.core import QgsProject
 
-from . import morizon_data, morizon_restore, processes, utils
+from . import layer_db, morizon_data, morizon_restore, processes, utils
 from .progress_dialog import ProgressDialog
 from .constants import (
     DATA_INFO_FILE_NAME,
@@ -86,13 +88,22 @@ class ForestZoningMainDialogArchive:
         )
         self.main.elementsLoadSavedPushButton.clicked.connect(self.show_load_menu)
 
+        # タブ行の右端：「保存ファイル出力」と、その右に「マニュアル」（コーナーには1つしか置けないので横に並べて入れる）
         save_link = QLabel('<a href="#">保存ファイル出力</a>')
-        save_link.setContentsMargins(0, 0, 8, 0)
         save_link.setToolTip(
             "入力データと出力結果をZIPに保存し、プロジェクト内の個別データをクリアします"
         )
         save_link.linkActivated.connect(self.run_archive)
-        self.main.tabWidget.setCornerWidget(save_link, Qt.Corner.TopRightCorner)
+        manual_link = QLabel('<a href="#">マニュアル</a>')
+        manual_link.setToolTip("操作マニュアル（HTML）をブラウザで開きます")
+        manual_link.linkActivated.connect(lambda _href: self.main.open_manual())
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 8, 0)
+        corner_layout.setSpacing(12)
+        corner_layout.addWidget(save_link)
+        corner_layout.addWidget(manual_link)
+        self.main.tabWidget.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
     def _run_thread(self, thread) -> dict:
         """処理スレッドを進捗ダイアログ付きで実行し、結果を返す。
@@ -234,6 +245,8 @@ class ForestZoningMainDialogArchive:
         utils.remove_project_layers_under_dir(
             managed_dir, excluded_dirs=[os.path.join(managed_dir, DIR_SHARED)]
         )
+        # 描画用の DB の中身も空にする（作業フォルダの shp と DB の両方を消し込む。DB のファイルは消さない）
+        layer_db.clear_all(utils.get_morizon_layer_db_dir())
         return morizon_data.clear_managed_dir(managed_dir)
 
     def clear_managed_data(self) -> list:
@@ -298,7 +311,36 @@ class ForestZoningMainDialogArchive:
             )
             return
 
-        entries = self.get_archive_entries()
+        # 描画用の DB の写し（保存データに shp と一緒に入れる GPKG）は一時フォルダに作り、終わったら片付ける
+        temp_dir = tempfile.mkdtemp(prefix="morizon_archive_")
+        try:
+            self._run_archive(temp_dir)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _layer_db_entries(self, temp_dir: str) -> list:
+        """保存データに入れる、描画用の DB の写し（ZIP内のパス, ファイル）。
+        shp と同じ場所に同じ名前で置く。DB がその shp と食い違っている（DB から書き出した shp ではない）ときは入れない"""
+        db_dir = utils.get_morizon_layer_db_dir()
+        targets = (
+            (layer_db.KIND_AGGREGATE, [DIR_AGGREGATE], self.main.aggregateOutputDirFileWidget.filePath()),
+            (layer_db.KIND_ROAD, [DIR_DATA, *INPUT_NETWORK["PATH"]], self.main.elementsNetworkFileWidget.filePath()),
+            (layer_db.KIND_BUILDING, [DIR_DATA, *INPUT_BUILDING["PATH"]],
+             self.main.elementsBuildingFileWidget.filePath()),
+        )
+        entries = []
+        for kind, arc_dirs, shp_path in targets:
+            if not shp_path or not os.path.isfile(shp_path):
+                continue
+            name = os.path.splitext(os.path.basename(shp_path))[0] + ".gpkg"
+            dest = os.path.join(temp_dir, kind, name)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            if layer_db.export_copy(layer_db.db_file(db_dir, kind), kind, dest, shp_path):
+                entries.append(("/".join([*arc_dirs, name]), dest))
+        return entries
+
+    def _run_archive(self, temp_dir: str):
+        entries = self.get_archive_entries() + self._layer_db_entries(temp_dir)
         managed_dir = utils.get_morizon_managed_dir()
         archive_dir = utils.get_morizon_root_dir(ARCHIVE_DIR_NAME)
         archive_name = f"{os.path.basename(managed_dir)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
@@ -542,6 +584,9 @@ class ForestZoningMainDialogArchive:
         outcome = self._run_thread(processes.data_restore.DataRestoreThread(
             youso_dir, (found["costcsv"] or [None])[0], zoning_dir,
             aggregate_shp, self.main.aggregateStyleThresholdspinBox.value(),
+            utils.get_morizon_layer_db_dir(),
+            road_shp=(found["network"] or [None])[0],
+            building_shp=(found["building"] or [None])[0],
         ))
         problems = list(outcome.get("problems", []))
         if outcome.get("status") == "failed":

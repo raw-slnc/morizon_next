@@ -16,21 +16,55 @@
 """
 
 import os
+import sys
+from datetime import datetime
 
 # QGIS-API
 from qgis.PyQt import uic
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon, QKeyEvent
-from qgis.PyQt.QtWidgets import QApplication, QDialog, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSizePolicy
+from qgis.core import QgsApplication
+
+# 処理中の窓のログに拾う、QGIS のログのタブ（プロセシングと、そこから動かす外部のプログラム）
+_LOG_TAGS = ("Processing", "GDAL", "GRASS", "SAGA")
+
+
+class _StatusLine(QLabel):
+    """1行だけのステータス表示。幅に収まらない分は末尾を「…」で省略する（窓の幅は広げない）"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setStyleSheet("color:#666;")
+
+    def setText(self, text):
+        self._full_text = text or ""
+        self._update_elided()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elided()
+
+    def _update_elided(self):
+        super().setText(self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, max(self.width(), 0)
+        ))
 
 
 class ProgressDialog(QDialog):
     def __init__(self, set_abort_flag_callback):
         super().__init__()
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        if sys.platform.startswith("win"):
+            # Windows では、処理の途中で外部のプログラム（GRASS・GDAL など）のコマンドプロンプトが手前に開き、
+            # この窓を隠してしまう。常に手前に出して、コマンドプロンプトは後ろに回す
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self
         )
+        self._init_log()
         self.setWindowIcon(
             QIcon(os.path.join(os.path.dirname(__file__), "imgs", "icon.png"))
         )
@@ -41,6 +75,7 @@ class ProgressDialog(QDialog):
     def init_ui(self):
         self.label.setText("処理開始中...")
         self.detailLabel.setText("")
+        self.detailLabel.setVisible(False)  # 中身が空のときは隠す（空でも1行分の高さを取り、行間が空いて見えるため）
         self.progressBar.setValue(0)
         self.progressBar.setMaximum(0)
         self.abortButton.setEnabled(True)
@@ -80,10 +115,39 @@ class ProgressDialog(QDialog):
 
     def set_messsage(self, message: str):
         self.label.setText(message + "...")
+        self.append_log(message)
         self.adjustSize()
+
+    # ── ログのステータス表示 ──────────────────────────────────────────────
+    # 動いていることを見せるため、工程の開始のメッセージと、QGIS のログに流れるプロセシング・外部のプログラムの
+    # 記録のうち、最新の1行だけを時刻付きで出す（読ませるためではないので、積み上げない）。
+    # QGIS のログは、この窓が開いている間だけ拾う（閉じたら受け取りをやめる）
+
+    def _init_log(self):
+        self.logLine = _StatusLine()
+        layout = self.layout()
+        layout.insertWidget(layout.indexOf(self.detailLabel) + 1, self.logLine)
+        QgsApplication.messageLog().messageReceived.connect(self._on_qgis_log)
+        self.finished.connect(self._stop_log)
+
+    def append_log(self, text: str):
+        self.logLine.setText(f"{datetime.now().strftime('%H:%M:%S')}  {text}")
+
+    def _on_qgis_log(self, message, tag, _level):
+        if any(name.lower() in (tag or "").lower() for name in _LOG_TAGS):
+            lines = [line for line in str(message).splitlines() if line.strip()]
+            if lines:
+                self.append_log(f"[{tag}] {lines[-1]}")
+
+    def _stop_log(self, *_args):
+        try:
+            QgsApplication.messageLog().messageReceived.disconnect(self._on_qgis_log)
+        except (TypeError, RuntimeError):
+            pass
 
     def set_detail(self, detail: str):
         self.detailLabel.setText(detail)
+        self.detailLabel.setVisible(bool(detail))
         self.adjustSize()
 
     def set_abortable(self, abortable=True):

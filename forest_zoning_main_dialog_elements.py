@@ -18,7 +18,10 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QProgressDialog,
 )
-from qgis.core import QgsLayerTreeGroup, QgsProject, QgsRectangle
+from qgis.core import (
+    QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
+    QgsVectorLayer,
+)
 
 from .progress_dialog import run_with_progress
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog, DemResolutionDialog
@@ -28,6 +31,7 @@ from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZonin
 from . import saga_check
 from . import processes
 from . import morizon_data
+from . import layer_db
 from . import utils
 from .processes.raster_styler import apply_output_blend_mode
 from .constants import (
@@ -61,6 +65,13 @@ MORIZON_GUIDE_URL = (
 MORIZON_GUIDE_TITLE = "収益性と災害リスクを考慮した森林ゾーニングの手引き（令和8年3月）"
 # 上の手引で、道路データと地利について書かれたページ
 MORIZON_GUIDE_ROAD_PAGES = "p.42〜43/p.71〜72"
+
+# 「道路と建物を出力」で出すレイヤーのグループと表示。建築物は国土地理院のタイル（地理院地図）に似せた表示
+# （オレンジの塗り・外周線なし）、道路縁は細い黒線（ラスターの上でも見分けやすいように。
+# 基盤地図情報の道路縁と同じ濃い緑にするなら "0,96,42,255"）
+ROAD_BUILDING_GROUP_NAME = "道路・建物"
+ROAD_LINE_COLOR = "0,0,0,255"
+BUILDING_FILL_COLOR = "244,139,41,255"
 
 
 class _AlignRightToPathField(QObject):
@@ -801,6 +812,7 @@ class ForestZoningMainDialogElements:
             fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
             dem_filepath=self.main.elementsDemFileWidget.filePath(),
             clip_to_extent=True,
+            db_dir=utils.get_morizon_layer_db_dir(),
         )
         result = self._run_fetch(thread, "建物・道路データの取得に失敗しました。")
         if result is not None:
@@ -873,6 +885,68 @@ class ForestZoningMainDialogElements:
         box.exec()
         if box.clickedButton() == guide_button:
             QDesktopServices.openUrl(QUrl(MORIZON_GUIDE_URL))
+
+    def show_road_building_layers(self):
+        """描画用の DB（layer_db.py）の道路縁・建築物を、「Morizon Next」グループの「災害リスク」の下の
+        「道路・建物」グループに表示する。前に出したものは外してから出し直す。
+        表示の前に、要素計算タブに設定されている道路・建物の shp と DB を照らし合わせ、shp が編集されていれば
+        （計画路網を描き足したなど）DB に取り込んでから表示し、要素計算をもう一度実行するよう案内する"""
+        db_dir = utils.get_morizon_layer_db_dir()
+        targets = [
+            (layer_db.KIND_ROAD, "道路縁", "地利", self.main.elementsNetworkFileWidget.filePath(),
+             lambda: QgsLineSymbol.createSimple({
+                 "line_color": ROAD_LINE_COLOR, "line_width": "0.1", "line_width_unit": "MM",
+                 "capstyle": "square", "joinstyle": "bevel",
+             })),
+            (layer_db.KIND_BUILDING, "建築物", "保全対象を含む流域", self.main.elementsBuildingFileWidget.filePath(),
+             lambda: QgsFillSymbol.createSimple({
+                 "color": BUILDING_FILL_COLOR, "outline_style": "no", "style": "solid",
+             })),
+        ]
+        # 照らし合わせで DB を書き換えることがあるので、前に出したレイヤーは先に外す
+        utils.remove_output_layers(utils.STAGE_ROAD_BUILDING)
+        edited = []
+        for kind, name, element, shp_path, _ in targets:
+            if not shp_path or not os.path.isfile(shp_path):
+                continue  # 入力が設定されていなければ、DB はそのまま
+            try:
+                if layer_db.import_saved(layer_db.db_file(db_dir, kind), kind, shp_path) == "shp":
+                    edited.append((name, element))
+            except Exception as e:
+                QMessageBox.warning(self.main, "道路と建物を出力", f"{name}のデータを取り込めませんでした。\n\n{e}")
+        available = [target for target in targets
+                     if layer_db.has_layer(layer_db.db_file(db_dir, target[0]), target[0])]
+        if not available:
+            QMessageBox.information(
+                self.main, "道路と建物を出力",
+                "表示できる道路縁・建築物のデータがありません。\n"
+                "DEMブラウザからの取得、または保存ファイルの読み込みで作成されます。",
+            )
+            return
+
+        root = utils.get_morizon_output_group()
+        children = root.children()
+        risk_index = next((i for i, child in enumerate(children)
+                           if isinstance(child, QgsLayerTreeGroup) and child.name() == "災害リスク"), None)
+        group = root.insertGroup(len(children) if risk_index is None else risk_index + 1, ROAD_BUILDING_GROUP_NAME)
+        group.setExpanded(True)
+        for kind, name, _, _, make_symbol in available:
+            layer = QgsVectorLayer(layer_db.layer_uri(layer_db.db_file(db_dir, kind), kind), name, "ogr")
+            if not layer.isValid():
+                continue
+            layer.setRenderer(QgsSingleSymbolRenderer(make_symbol()))
+            utils.tag_output_layer(layer, utils.STAGE_ROAD_BUILDING, kind)
+            QgsProject.instance().addMapLayer(layer, False)
+            group.addLayer(layer).setExpanded(False)
+        if edited:
+            QMessageBox.information(
+                self.main, "道路と建物を出力",
+                "次のデータが編集されていたため、表示を新しい内容に更新しました。\n"
+                + "\n".join(f"・{name}" for name, _ in edited)
+                + "\n\n計算結果に反映するには、要素計算をもう一度実行してください（"
+                + "、".join(f"{name}は「{element}」" for name, element in edited)
+                + "に使われます）。",
+            )
 
     def clear_elements_settings(self):
         """

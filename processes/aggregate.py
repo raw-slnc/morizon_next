@@ -9,8 +9,13 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsVectorLayer,
 )
+import os
+import shutil
+import tempfile
+
 import processing
 
+from .. import layer_db
 from ..utils import is_resampling_needed, get_tiff_info, move_output_layers_to_main_thread
 from . import raster_writer
 from . import raster_styler
@@ -52,13 +57,15 @@ class ProcessingThread(QThread):
     processFailed = pyqtSignal(str)
 
     def __init__(self, mode: str, zoning_layer_path: str, input_layer, output_path: str,
-                 style_threshold: int):
+                 style_threshold: int, db_path: str):
+        """output_path は作業フォルダの互換用の shp、db_path は描画用の DB（layer_db.py）"""
         super().__init__()
         self.mode = mode
         self.zoning_layer_path = zoning_layer_path
         self.input_layer = input_layer
         self.output_path = output_path
         self.style_threshold = style_threshold
+        self.db_path = db_path
 
         self.abort_flag = False
         self.feedback = None
@@ -78,6 +85,9 @@ class ProcessingThread(QThread):
         self.feedback = _StepFeedback(self)
         context = QgsProcessingContext()
         zoning_layer = self.zoning_layer_path
+        # 計算は一時フォルダの GPKG で行う（shp で計算すると、引き継ぐポリゴンの属性名が10バイトで切り詰められる）
+        temp_dir = tempfile.mkdtemp(prefix="morizon_aggregate_")
+        work_path = os.path.join(temp_dir, f"{layer_db.KIND_AGGREGATE}.gpkg")
 
         try:
             # 工程ごとの進捗バー上の割合（合計100）。進捗は工程の中の%まで表示する
@@ -109,7 +119,7 @@ class ProcessingThread(QThread):
 
             self.feedback.begin(20, 65, f"区分ごとのセル数を集計中（{polygon_vlayer.featureCount()}件）")
             aggregate_filepath = raster_writer.aggregate.zonal_histogram(
-                zoning_layer, polygon_vlayer, self.output_path, context, self.feedback)
+                zoning_layer, polygon_vlayer, work_path, context, self.feedback)
             self._check_abort()
 
             self.feedback.begin(85, 15, "統計と区分ごとの割合を計算中")
@@ -119,9 +129,15 @@ class ProcessingThread(QThread):
             if removed:
                 self.summary += f"（ゾーニング図のデータが無い {removed}件 は除外）"
 
-            # スタイルを適用する
+            # DB に入れ、DB から作業フォルダへ互換用の shp を書き出す（DB → shp の順）。レイヤーは DB から作る
             self.feedback.begin(100, 0, "終了処理中")
-            vlayer = QgsVectorLayer(aggregate_filepath, OUTPUT_AGGREGATE["DISPLAY_NAME"])
+            work_layer = QgsVectorLayer(aggregate_filepath, OUTPUT_AGGREGATE["DISPLAY_NAME"], "ogr")
+            layer_db.store(self.db_path, layer_db.KIND_AGGREGATE, work_layer)
+            del work_layer
+            layer_db.export_shp(self.db_path, layer_db.KIND_AGGREGATE, self.output_path)
+            vlayer = QgsVectorLayer(
+                layer_db.layer_uri(self.db_path, layer_db.KIND_AGGREGATE), OUTPUT_AGGREGATE["DISPLAY_NAME"], "ogr"
+            )
             qml_filepath = raster_styler.aggregate.write_qml(self.output_path, self.style_threshold)
             vlayer.loadNamedStyle(qml_filepath)
             vlayer_dict[OUTPUT_AGGREGATE["DISPLAY_NAME"]] = vlayer
@@ -131,6 +147,8 @@ class ProcessingThread(QThread):
             self.processFailed.emit(str(e))
             self.processFinished.emit(move_output_layers_to_main_thread(vlayer_dict))
             return
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
         self.processFinished.emit(move_output_layers_to_main_thread(vlayer_dict))
 
