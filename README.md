@@ -4,14 +4,16 @@
 
 A QGIS plugin for forest zoning that examines forest management direction from two perspectives: forestry profitability and mountain disaster risk. It is an independent, unofficial continuation of MORIZON (もりぞん), a tool originally developed through a project commissioned by the Forestry Agency of Japan.
 
-> **開発中（0.1.0-dev）**です。機能・保存形式・画面構成は今後変わる可能性があります。
-> This plugin is under development (0.1.0-dev). Features, data layout and UI may change.
+> **最初の公開版（0.1.0）**です。機能・保存形式・画面構成は今後変わる可能性があります。
+> This is the first public release (0.1.0). Features, data layout and UI may change.
 
 ---
 
 ## 原版との違い
 
 ゾーニングの考え方と計算方法は原版（もりぞん v2.1）を受け継いでいます。主に変えたのは、解析に入る前のデータ準備と、作業の進め方です。
+
+解析の考え方と手順は原版を受け継いでいますが、一部の要素は原版とは別のプログラムで計算しています。また、QGIS・GDAL・GRASS などの版も原版のころと違うため、出力は原版と厳密には一致しません。出来形が原版に近くなるよう努めていますが、原版の結果を再現するものではなく、別の実装として扱ってください。
 
 原版では、DEM の変換・結合、建物や道路のダウンロードと座標変換、作業システム表の Excel 編集などを、すべて手作業で行う必要がありました。MORIZON NEXT では、QGIS の地図で対象範囲を表示してボタンを押せば、これらのデータがそろいます。
 

@@ -18,11 +18,13 @@ Forestry Agency of Japan. The Japan Forest Technology Association
 (日本森林技術協会) organized the zoning concept and workflow, and
 MIERUNE Inc. implemented the QGIS plugin.
 
-The file templates/sagyo_system_template_220113.xlsx is the unmodified
+The file templates/sagyo_system_template_220113.xlsx is based on the
 work-system spreadsheet template ("集材作業効率の設定220113.xlsx")
 distributed in the ZoningKit data packages of the same MORIZON tool on
-the official Forestry Agency distribution page. Only the file name has
-been changed (to ASCII).
+the official Forestry Agency distribution page. It has been modified:
+the values on the example sheet ("入力例") were changed to match the
+MORIZON NEXT default work-system settings, and the file name was changed
+(to ASCII). The changes and their dates are recorded in the Git history.
 
 2. DEM source data and bundled indexes
 
