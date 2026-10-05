@@ -77,7 +77,9 @@ def generate(basis_dem_filepath: str,
             "OUTPUT": "TEMPORARY_OUTPUT"
         }, feedback=feedback)["OUTPUT"]
 
-        # 建物ポリゴンを含む流域だけを焼きこんだラスター
+        # 建物ポリゴンを含む流域だけを焼きこんだラスター。焼きこまないセルは「データなし」でなく 0 にする
+        # （NODATA を指定しないと、現行の QGIS では 0 が「データなし」になり、下の計算で建物を含まない流域が
+        # 0 でなく「データなし」になっていた。手引 p.88 の手順どおり、データなしの値は 9999 にする）
         filtered_rasterized_filepath = os.path.join(temp_dir, "basin_with_building.tif")
         processing.run("gdal:rasterize", {
             'INPUT': filtered_polygon_vlayer,
@@ -86,9 +88,9 @@ def generate(basis_dem_filepath: str,
             'EXTENT': target_extent,
             'EXTRA': '',
             'FIELD': '',
-            'INIT': None,
+            'INIT': 0,
             'INVERT': False,
-            'NODATA': None,
+            'NODATA': 9999,
             'OPTIONS': '',
             'UNITS': 1,  # 地理単位
             'HEIGHT': basis_deminfo["resolution"],
