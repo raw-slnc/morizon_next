@@ -6,7 +6,6 @@ import os
 import shutil
 import tempfile
 
-import processing
 from qgis.core import (
     QgsApplication,
     QgsCoordinateReferenceSystem,
@@ -22,9 +21,7 @@ try:
 except ImportError:
     HAS_GDAL = False
 
-from ...utils import (
-    get_tiff_info
-)
+from ...utils import get_ascii_safe_dir, get_tiff_info, run_processing
 
 
 def resolve_algorithm_id(*candidate_ids: str) -> str:
@@ -48,7 +45,7 @@ def resampling(tiff_filepath: str,
     """
     TIFFを指定のZ解像度へリサンプリングする、EXTENTは変更されない
     """
-    return processing.run("gdal:translate", {
+    return run_processing("gdal:translate", {
         "EXTRA": f"-tr {target_resolution} {target_resolution} -r {resampling_alg_name}",
         "INPUT": tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT"
@@ -71,7 +68,7 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
     }
     resampling_alg = resampling_alg_dict.get(resampling_alg_name, 3)
 
-    output = processing.run("gdal:warpreproject", {
+    output = run_processing("gdal:warpreproject", {
         "TARGET_CRS": basis_deminfo["crs"],
         "TARGET_RESOLUTION": basis_deminfo["resolution"],
         "TARGET_EXTENT": ",".join(str(value) for value in basis_deminfo["extent"][:4]),
@@ -90,8 +87,8 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
     """
     既存の出力ラスターを、基準ラスターと同じ領域・解像度に揃えて置き換える
     """
-    target_dir = os.path.dirname(target_tiff_filepath) or None
-    temp_dir = tempfile.mkdtemp(dir=target_dir)
+    # 作業用のファイルは半角の一時フォルダに作る（出力先が全角文字を含んでも、外部の処理に渡さないため）
+    temp_dir = tempfile.mkdtemp(dir=get_ascii_safe_dir("morizon_next_tmp"))
     temp_filepath = os.path.join(temp_dir, "adjusted.tif")
     try:
         adjusted_filepath = adjust_extent_and_resolution(
@@ -101,7 +98,9 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
             resampling_alg_name=resampling_alg_name,
             feedback=feedback,
         )
-        os.replace(adjusted_filepath, target_tiff_filepath)
+        if os.path.exists(target_tiff_filepath):
+            os.remove(target_tiff_filepath)
+        shutil.move(adjusted_filepath, target_tiff_filepath)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
     return target_tiff_filepath

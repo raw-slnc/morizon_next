@@ -3,9 +3,9 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import tempfile
-import xml.etree.ElementTree as ET
 
 from qgis.PyQt.QtGui import QColor, QPainter
+from qgis.PyQt.QtXml import QDomDocument
 from qgis.core import (
     QgsColorRampShader,
     QgsPresetSchemeColorRamp,
@@ -195,6 +195,31 @@ def write_qml_by_thresholds_and_colors(thresholds: tuple,
     return __write_qmlfile(qml_str, output_filepath)
 
 
+def _read_colorramp_items(qml_filepath: str):
+    """スタイルファイル（QML）を読み、(文書, 色分けの区切り item 要素の配列) を返す。
+    QGIS が自分のスタイルファイルを扱うのと同じ Qt の XML 部品で読む（原版は Python の xml で読んでいた）"""
+    with open(qml_filepath, encoding="utf-8") as f:
+        text = f.read()
+    document = QDomDocument()
+    result = document.setContent(text)
+    if not (result[0] if isinstance(result, tuple) else bool(result)):
+        raise ValueError(f"スタイルファイルを読めません: {qml_filepath}")
+    shader = document.documentElement()
+    for name in ("pipe", "rasterrenderer", "rastershader", "colorrampshader"):
+        shader = shader.firstChildElement(name)
+    items = []
+    item = shader.firstChildElement("item")
+    while not item.isNull():
+        items.append(item)
+        item = item.nextSiblingElement("item")
+    return document, items
+
+
+def _write_qml(document, output_filepath: str):
+    with open(output_filepath, "w", encoding="utf-8") as f:
+        f.write(document.toString())
+
+
 def replace_colorramp_labels(qml_filepath: str, output_filepath: str, labels=[]) -> str:
     """
     QMLをパースして区分ごとの凡例ラベル文字列を所定の規則に置き換え、新たなQMLを生成する
@@ -211,26 +236,23 @@ def replace_colorramp_labels(qml_filepath: str, output_filepath: str, labels=[])
     Returns:
         str: 生成されたQMLのファイルパス
     """
-    tree = ET.parse(qml_filepath)
-    root = tree.getroot()
-    items = root.find(
-        'pipe/rasterrenderer/rastershader/colorrampshader').findall('item')
+    document, items = _read_colorramp_items(qml_filepath)
 
     if len(items) > len(labels):
         raise Exception("labelsの配列長は、QMLで定義されている色の数以上でなければなりません")
 
     for i in range(len(items)):
         if i == 0:
-            new_label = f"{labels[i]}(<= {items[i].attrib['value']})"
+            new_label = f"{labels[i]}(<= {items[i].attribute('value')})"
         elif i == len(items) - 1:
-            new_label = f"{labels[i]}(> {items[i-1].attrib['value']})"
+            new_label = f"{labels[i]}(> {items[i-1].attribute('value')})"
         else:
-            new_label = f"{labels[i]}({items[i-1].attrib['value']} - {items[i].attrib['value']})"
+            new_label = f"{labels[i]}({items[i-1].attribute('value')} - {items[i].attribute('value')})"
 
         # ラベル定義を上書き
-        items[i].attrib["label"] = new_label
+        items[i].setAttribute("label", new_label)
 
-    tree.write(output_filepath)
+    _write_qml(document, output_filepath)
     return output_filepath
 
 
@@ -256,20 +278,17 @@ def round_label_precision(qml_filepath: str, output_filepath: str, precision=2) 
     Returns:
         str: 出力ファイルパス
     """
-    tree = ET.parse(qml_filepath)
-    root = tree.getroot()
-    items = root.find(
-        'pipe/rasterrenderer/rastershader/colorrampshader').findall('item')
+    document, items = _read_colorramp_items(qml_filepath)
     # 小数点精度がゼロなら整数値に丸める
 
     def round_method(val):
         return round(val, precision) if precision > 0 else round(val)
 
     for item in items:
-        item.attrib['value'] = str(round_method(
-            float(item.attrib['value']))) if item.attrib['value'] != 'inf' else 'inf'
+        value = item.attribute('value')
+        item.setAttribute('value', str(round_method(float(value))) if value != 'inf' else 'inf')
 
-    tree.write(output_filepath)
+    _write_qml(document, output_filepath)
     return output_filepath
 
 
@@ -293,15 +312,12 @@ def add_tiny_value_to_thresholds(qml_filepath: str, output_filepath: str, tiny_v
     Returns:
         str: 出力ファイルパス
     """
-    tree = ET.parse(qml_filepath)
-    root = tree.getroot()
-    items = root.find(
-        'pipe/rasterrenderer/rastershader/colorrampshader').findall('item')
+    document, items = _read_colorramp_items(qml_filepath)
 
     # しきい値に小さい値を加算
     for item in items:
-        item.attrib['value'] = str(float(
-            item.attrib['value']) + tiny_value) if item.attrib['value'] != 'inf' else 'inf'
+        value = item.attribute('value')
+        item.setAttribute('value', str(float(value) + tiny_value) if value != 'inf' else 'inf')
 
-    tree.write(output_filepath)
+    _write_qml(document, output_filepath)
     return output_filepath

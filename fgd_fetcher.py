@@ -3,6 +3,7 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -187,11 +188,16 @@ def merge_layers(zip_paths: list, output_path: str,
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     _remove_shapefile_dataset(output_path)
     first = True
+    from .utils import get_ascii_safe_alias
+
     for zip_path in zip_paths:
-        for member in _zip_member_names(zip_path):
+        # 取得済みの ZIP はプロジェクトフォルダの中にあり、全角文字を含み得る。外部の ogr2ogr には
+        # 半角の別名を渡す（移植時の方針：処理の内部でだけ半角のパスで扱う）
+        zip_for_read = get_ascii_safe_alias(zip_path)
+        for member in _zip_member_names(zip_for_read):
             if not _is_feature_xml(member):
                 continue
-            src = f"/vsizip/{zip_path}/{member}"
+            src = f"/vsizip/{zip_for_read}/{member}"
             ds = gdal.OpenEx(src, gdal.OF_VECTOR)
             if ds is None:
                 continue
@@ -225,16 +231,8 @@ def merge_layers(zip_paths: list, output_path: str,
                     # DBFの既定エンコーディング(ISO-8859-1)では日本語属性が文字化けするため明示指定
                     kwargs["layerCreationOptions"] = ["ENCODING=UTF-8"]
                 translated = _translate_layer(
-                    src,
-                    output_path,
-                    name,
-                    kwargs,
-                    driver_format,
-                    output_layer,
-                    first,
-                    clip_to_extent,
-                    (lon_min, lat_min, lon_max, lat_max),
-                    dst_crs,
+                    src, output_path, name, kwargs, driver_format, output_layer,
+                    first, clip_to_extent, (lon_min, lat_min, lon_max, lat_max), dst_crs,
                 )
                 if translated is not None:
                     translated = None
@@ -313,10 +311,20 @@ def _remove_shapefile_dataset(output_path: str):
 def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
                      driver_format: str, output_layer: str, first: bool,
                      clip_to_extent: bool, extent_wgs84: tuple, dst_crs: str):
-    """GPKG へ書くときは、ディスクへの書き込みを待たない設定にする。壊れた地物を飛ばす指定
-    （skipfailures）をすると1件ごとに保存を確定するようになり、待つ設定のままでは建物4.5万件で
-    約3分かかった（待たない設定で約5秒）。書き先は呼び出し側の一時ファイルで、途中で止まって
-    壊れても捨てるだけなので、待たなくてよい"""
+    """1レイヤーを書き出す。外部の ogr2ogr があればそれを使い、無ければ QGIS に付いている GDAL の変換機能を使う。
+
+    ogr2ogr を優先する理由：QGIS の中で基盤地図情報の GML を読むと、座標の緯度と経度の順番が QGIS の外で
+    読んだときと逆に解釈され、範囲（経度・緯度）で切り出すと1件も重ならず、道路も建物も0件になった
+    （2026-10-05、QGIS 3.44 で確認。読み込みの指定で順番を入れ替えても直らなかった）。
+    ogr2ogr は QGIS の外の別プログラムとして動くので、この影響を受けない。
+
+    GPKG へ書くときは、ディスクへの書き込みを待たない設定と、確定のたびにファイルとして作っては消す
+    ジャーナルをメモリの中に置く設定にする。壊れた地物を飛ばす指定（skipfailures）をすると1件ごとに保存を
+    確定するようになり、待つ設定のままでは建物4.5万件で約3分かかった（待たない設定で約5秒、さらに
+    ジャーナルをメモリに置いて約1.8秒。Windows はファイルを作って消す動作が重く、同じマシンで Linux の
+    約9倍かかっていた）。書き先は呼び出し側の一時ファイルで、途中で止まって壊れても捨てるだけなので差し支えない。
+    ジャーナルを作らない設定（OFF）にしないのは、skipfailures が書き込みに失敗した1件を取り消すのに
+    ジャーナルを使うため（OFF だと取り消しの結果が定まらず、一時ファイルが中途半端なまま先へ進む恐れがある）"""
     ogr2ogr = shutil.which("ogr2ogr")
     if ogr2ogr:
         return _translate_layer_with_ogr2ogr(
@@ -325,14 +333,18 @@ def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
         )
 
     from osgeo import gdal
-    if driver_format != "GPKG":
-        return gdal.VectorTranslate(output_path, src, **kwargs)
-    previous = gdal.GetConfigOption("OGR_SQLITE_SYNCHRONOUS")
-    gdal.SetConfigOption("OGR_SQLITE_SYNCHRONOUS", "OFF")
+
+    # 設定はこの処理（スレッド）の中だけで切り替える。QGIS 全体に設定すると、同じ間に QGIS の別の場所で
+    # 行われる GPKG の書き込み（利用者の編集の保存など）まで、書き込みを待たなくなるため
+    options = {"OGR_SQLITE_SYNCHRONOUS": "OFF", "OGR_SQLITE_JOURNAL": "MEMORY"} if driver_format == "GPKG" else {}
+    previous = {key: gdal.GetThreadLocalConfigOption(key, None) for key in options}
+    for key, value in options.items():
+        gdal.SetThreadLocalConfigOption(key, value)
     try:
         return gdal.VectorTranslate(output_path, src, **kwargs)
     finally:
-        gdal.SetConfigOption("OGR_SQLITE_SYNCHRONOUS", previous)
+        for key, value in previous.items():
+            gdal.SetThreadLocalConfigOption(key, value)
 
 
 def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
@@ -358,15 +370,26 @@ def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
     if driver_format == "ESRI Shapefile":
         cmd.extend(["-lco", "ENCODING=UTF-8"])
     if driver_format == "GPKG":
-        cmd.extend(["--config", "OGR_SQLITE_SYNCHRONOUS", "OFF"])
+        cmd.extend(["--config", "OGR_SQLITE_SYNCHRONOUS", "OFF", "--config", "OGR_SQLITE_JOURNAL", "MEMORY"])
     cmd.extend([output_path, src, layer_name])
 
-    completed = subprocess.run(
+    kwargs = {}
+    if platform.system() == "Windows":
+        # ZIP の中のファイルごとに呼ぶので、コマンドプロンプトの窓が開かないようにする
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Why Bandit B603 (subprocess call) is suppressed here: inside QGIS, converting the GSI Fundamental
+    # Geospatial Data (GML) with the in-process GDAL reads latitude/longitude in swapped order, so clipping to
+    # the extent returns no features. ogr2ogr is therefore run as a separate process.
+    # The executable is ogr2ogr found on PATH and all arguments are built by the plugin from fixed values,
+    # internal file paths and coordinates. No user input is passed directly and no shell is used.
+    completed = subprocess.run(  # nosec B603
         cmd,
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
         text=True,
+        **kwargs,
     )
     if completed.returncode != 0:
         raise RuntimeError(

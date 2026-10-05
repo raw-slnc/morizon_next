@@ -21,8 +21,10 @@ shp から取り込むときは文字コードを判定する（.cpg があれ�
 
 import hashlib
 import os
+import shutil
 import sqlite3
 from contextlib import closing
+from datetime import datetime
 
 from osgeo import ogr
 from qgis.core import QgsCoordinateTransformContext, QgsVectorFileWriter, QgsVectorLayer
@@ -33,6 +35,7 @@ KIND_BUILDING = "building"
 KINDS = (KIND_AGGREGATE, KIND_ROAD, KIND_BUILDING)
 
 # DB から shp を書き出したときの shp の指紋を記録する表（GPKG の中の、Morizon Next だけが使う表）
+# 問い合わせ文には表の名前を直接書いている（文字列の組み立てで問い合わせ文を作らないため）
 _META_TABLE = "morizon_next_source"
 # 元のデータに行番号ではない「fid」の属性があるときに使う、GPKG の行番号の列の名前
 _FID_COLUMN = "morizon_fid"
@@ -271,16 +274,76 @@ def get_fingerprint(gpkg_path: str, kind: str):
         ).fetchone()
         if not exists:
             return None
-        row = conn.execute(f"SELECT shp_sha256 FROM {_META_TABLE} WHERE layer=?", (kind,)).fetchone()
+        row = conn.execute("SELECT shp_sha256 FROM morizon_next_source WHERE layer=?", (kind,)).fetchone()
     return row[0] if row else None
+
+
+# 基盤地図情報の取得の記録：前回の取得の条件（範囲と座標系、使った ZIP）と、そのとき書き出した shp の指紋。
+# 同じ条件で取得し直すときに、範囲でまとめ直す処理を省くため（processes/building_road_fetch.py）と、
+# 取得のあとに shp が編集されたかを見分けるために使う。取得以外で DB を入れ替えても、この記録は変えない
+def get_fetch_record(gpkg_path: str, kind: str):
+    """(範囲と座標系, 使った ZIP, shp の指紋) を返す。記録が無ければ None"""
+    if not os.path.isfile(gpkg_path):
+        return None
+    with closing(sqlite3.connect(gpkg_path)) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='morizon_next_fetch'"
+        ).fetchone()
+        if not exists:
+            return None
+        row = conn.execute(
+            "SELECT area, zips, shp_sha256 FROM morizon_next_fetch WHERE layer=?", (kind,)
+        ).fetchone()
+    return tuple(row) if row else None
+
+
+def set_fetch_record(gpkg_path: str, kind: str, area: str, zips: str, shp_sha256: str):
+    if not os.path.isfile(gpkg_path):
+        return
+    with closing(sqlite3.connect(gpkg_path)) as conn, conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS morizon_next_fetch "
+            "(layer TEXT PRIMARY KEY, area TEXT, zips TEXT, shp_sha256 TEXT)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO morizon_next_fetch (layer, area, zips, shp_sha256) VALUES (?, ?, ?, ?)",
+            (kind, area, zips, shp_sha256),
+        )
+
+
+def is_edited_since_fetch(gpkg_path: str, kind: str, shp_path: str) -> bool:
+    """作業フォルダの shp が、前回の取得のあとに編集されているか。取得の記録が無い（この仕組みより前に
+    取得した）ときは、DB に記録した指紋と比べる。どちらも無ければ編集されていないとみなす"""
+    if not shp_path or not os.path.isfile(shp_path):
+        return False
+    record = get_fetch_record(gpkg_path, kind)
+    expected = record[2] if record else get_fingerprint(gpkg_path, kind)
+    return expected is not None and shp_fingerprint(shp_path) != expected
+
+
+def backup_shp(shp_path: str) -> str:
+    """shp とその付随ファイルを、同じフォルダの backup フォルダへ日時付きの名前で写す。写した shp のパスを返す。
+    種類フォルダの直下に置くと、フォルダから入力を探す処理が2つ目の shp として拾うため、別のフォルダにする"""
+    directory = os.path.dirname(shp_path)
+    stem = os.path.splitext(os.path.basename(shp_path))[0]
+    backup_dir = os.path.join(directory, "backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_stem = f"{stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    for name in os.listdir(directory):
+        name_stem, ext = os.path.splitext(name)
+        if name_stem == stem and os.path.isfile(os.path.join(directory, name)):
+            shutil.copy2(os.path.join(directory, name), os.path.join(backup_dir, backup_stem + ext))
+    return os.path.join(backup_dir, backup_stem + ".shp")
 
 
 def _set_fingerprint(gpkg_path: str, kind: str, value):
     if not os.path.isfile(gpkg_path):
         return
     with closing(sqlite3.connect(gpkg_path)) as conn, conn:
-        conn.execute(f"CREATE TABLE IF NOT EXISTS {_META_TABLE} (layer TEXT PRIMARY KEY, shp_sha256 TEXT)")
+        conn.execute("CREATE TABLE IF NOT EXISTS morizon_next_source (layer TEXT PRIMARY KEY, shp_sha256 TEXT)")
         if value is None:
-            conn.execute(f"DELETE FROM {_META_TABLE} WHERE layer=?", (kind,))
+            conn.execute("DELETE FROM morizon_next_source WHERE layer=?", (kind,))
         else:
-            conn.execute(f"INSERT OR REPLACE INTO {_META_TABLE} (layer, shp_sha256) VALUES (?, ?)", (kind, value))
+            conn.execute(
+                "INSERT OR REPLACE INTO morizon_next_source (layer, shp_sha256) VALUES (?, ?)", (kind, value)
+            )

@@ -4,10 +4,10 @@
 
 import os
 
-import processing
 
 from ...constants import OUTPUT_SLOPE
 from .utils import replace_with_adjusted_extent_and_resolution
+from ...utils import run_processing
 
 
 def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
@@ -16,7 +16,7 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
     """
     output_filepath = os.path.join(
         output_dir, OUTPUT_SLOPE['FILE_NAME'] + ".tif")
-    processing.run("qgis:slope", {
+    run_processing("qgis:slope", {
         "INPUT": dem_filepath,
         "OUTPUT": output_filepath
     }, feedback=feedback)

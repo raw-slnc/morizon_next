@@ -12,10 +12,9 @@ import os
 import shutil
 import tempfile
 
-import processing
 
 from .. import layer_db
-from ..utils import is_resampling_needed, get_tiff_info, move_output_layers_to_main_thread
+from ..utils import is_resampling_needed, get_tiff_info, move_output_layers_to_main_thread, run_processing
 from . import raster_writer
 from . import raster_styler
 from .processing_feedback import LogForwardingFeedback
@@ -165,5 +164,5 @@ class ProcessingThread(QThread):
 
 def fix_geometry(polygon_layer: QgsVectorLayer, context=None, feedback=None):
     """任意ポリゴンによる集計をする場合、事前にジオメトリ修復を行う関数"""
-    return processing.run("native:fixgeometries", {'INPUT': polygon_layer, 'OUTPUT': 'memory:'},
+    return run_processing("native:fixgeometries", {'INPUT': polygon_layer, 'OUTPUT': 'memory:'},
                           context=context, feedback=feedback)['OUTPUT']

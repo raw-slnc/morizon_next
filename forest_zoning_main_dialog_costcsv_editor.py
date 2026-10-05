@@ -5,10 +5,6 @@
 import bisect
 import csv
 import os
-import posixpath
-import re
-import xml.etree.ElementTree as ET
-import zipfile
 
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
@@ -84,53 +80,29 @@ def read_costcsv_xlsx(xlsx_path: str):
     """原版のExcelひな形（利用者が「入力」シートを編集して保存したもの）の「CSVで出力」シートを読み、
     read_costcsv と同じ形で返す。CSVで保存し直さなくても済むようにするため。
     式の結果は、表計算ソフトが保存したときにファイルへ書き込んだ値を使う。
-    QGISの環境によって表計算ファイル用の部品が入っていないことがあるため、標準の機能だけで読む"""
-    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
-    try:
-        with zipfile.ZipFile(xlsx_path) as book:
-            workbook = ET.fromstring(book.read("xl/workbook.xml"))
-            sheets = workbook.iterfind("m:sheets/m:sheet", ns)
-            sheet = next((s for s in sheets if s.get("name") == XLSX_CSV_SHEET), None)
-            if sheet is None:
-                raise ValueError(f"「{XLSX_CSV_SHEET}」シートが見つかりません")
-            rels = ET.fromstring(book.read("xl/_rels/workbook.xml.rels"))
-            target = next(r.get("Target") for r in rels if r.get("Id") == sheet.get(rel_ns))
-            if target.startswith("/"):
-                sheet_path = target.lstrip("/")
-            else:
-                sheet_path = posixpath.normpath(posixpath.join("xl", target))
-            shared = []
-            if "xl/sharedStrings.xml" in book.namelist():
-                for si in ET.fromstring(book.read("xl/sharedStrings.xml")).iterfind("m:si", ns):
-                    shared.append("".join(t.text or "" for t in si.iter(f"{{{ns['m']}}}t")))
-            sheet_xml = ET.fromstring(book.read(sheet_path))
-    except (zipfile.BadZipFile, KeyError, StopIteration, ET.ParseError) as e:
-        raise ValueError(f"Excelファイルとして読めません（{e}）") from e
+    QGISの環境によって表計算ファイル用の部品が入っていないことがあるため、QGISに必ず付いている
+    GDAL の Excel 読み取りを使う（1行目も見出しでなく値として、すべて文字列で読む）"""
+    from osgeo import gdal
 
+    try:
+        dataset = gdal.OpenEx(
+            xlsx_path, gdal.OF_VECTOR, allowed_drivers=["XLSX"],
+            open_options=["HEADERS=DISABLE", "FIELD_TYPES=STRING"],
+        )
+    except RuntimeError as e:
+        raise ValueError(f"Excelファイルとして読めません（{e}）") from e
+    if dataset is None:
+        raise ValueError("Excelファイルとして読めません")
+    layer = dataset.GetLayerByName(XLSX_CSV_SHEET)
+    if layer is None:
+        raise ValueError(f"「{XLSX_CSV_SHEET}」シートが見つかりません")
     rows = []
-    for row in sheet_xml.iterfind("m:sheetData/m:row", ns):
-        row_index = int(row.get("r")) - 1
-        while len(rows) <= row_index:
-            rows.append([])
-        cells = rows[row_index]
-        for cell in row.iterfind("m:c", ns):
-            letters = re.match(r"[A-Z]+", cell.get("r")).group(0)
-            col_index = 0
-            for ch in letters:
-                col_index = col_index * 26 + ord(ch) - ord("A") + 1
-            col_index -= 1
-            cell_type = cell.get("t")
-            if cell_type == "inlineStr":
-                text = "".join(t.text or "" for t in cell.iter(f"{{{ns['m']}}}t"))
-            else:
-                value = cell.find("m:v", ns)
-                text = value.text if value is not None and value.text is not None else ""
-                if cell_type == "s" and text:
-                    text = shared[int(text)]
-            while len(cells) <= col_index:
-                cells.append("")
-            cells[col_index] = text.strip()
+    for feature in layer:
+        rows.append([
+            (feature.GetField(i) or "").strip() if feature.IsFieldSet(i) else ""
+            for i in range(feature.GetFieldCount())
+        ])
+    dataset = None
     if not rows or not any(rows[0]):
         raise ValueError(f"「{XLSX_CSV_SHEET}」シートに値がありません（表計算ソフトで保存し直してください）")
     return parse_costcsv_rows(rows)

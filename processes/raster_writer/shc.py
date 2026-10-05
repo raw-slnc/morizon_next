@@ -8,10 +8,10 @@ import tempfile
 
 from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
-import processing
+from osgeo import gdal
 
 from ...settings_manager import SettingsManager, ShcMethodManager
-from ...utils import get_raster_stats
+from ...utils import get_raster_stats, run_processing
 from ...constants import OUTPUT_SHC
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 from . import terrain_numpy
@@ -72,9 +72,12 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
         settings_manager = SettingsManager()
         calculation_size = int(settings_manager.get_setting("shc_param"))
         output_filepath = os.path.join(output_dir, OUTPUT_SHC["FILE_NAME"] + ".tif")
-        processing.run(resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"), {
+        # SAGA/GRASS には OS に関係なく半角の内部パスだけを渡す。最終成果物は
+        # Unicode パスを扱える Python 版 GDAL で、利用者が指定した場所へ生成する。
+        grass_output_filepath = os.path.join(temp_dir, "shc_neighbors.tif")
+        run_processing(resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"), {
             'input': normalized_curvature_filepath,
-            'output': output_filepath,
+            'output': grass_output_filepath,
             '-a': False,
             '-c': True,  # 円状隣接関係を使う
             'GRASS_RASTER_FORMAT_META': '',
@@ -87,11 +90,25 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
             'selection': None,
             'size': calculation_size
         }, feedback=feedback)
-        _assert_raster_ready(output_filepath, OUTPUT_SHC["DISPLAY_NAME"])
+        _assert_raster_ready(grass_output_filepath, OUTPUT_SHC["DISPLAY_NAME"])
 
-        return replace_with_adjusted_extent_and_resolution(
-            dem_filepath, output_filepath, feedback=feedback
+        adjusted_filepath = replace_with_adjusted_extent_and_resolution(
+            dem_filepath, grass_output_filepath, feedback=feedback
         )
+        os.makedirs(output_dir, exist_ok=True)
+        output_dataset = gdal.Translate(
+            output_filepath,
+            adjusted_filepath,
+            creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED", "TFW=YES"],
+        )
+        if output_dataset is None:
+            raise RuntimeError(
+                f'{OUTPUT_SHC["DISPLAY_NAME"]}ラスターの最終保存に失敗しました: {output_filepath}'
+            )
+        output_dataset = None
+
+        _assert_raster_ready(output_filepath, OUTPUT_SHC["DISPLAY_NAME"])
+        return output_filepath
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -101,7 +118,7 @@ def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str, feedback=None) -> 
     注意: NextGen プロバイダー（SAGA 9）では GaussianFilter のパラメータ名が KERNEL_RADIUS / SIGMA に
     変わっており、ここで渡す MODE / RADIUS は使われない（原版の SAGA 2.3 向けの指定のまま残している）"""
     smoothed_filepath = os.path.join(temp_dir, "smoothed.tif")
-    processing.run(resolve_algorithm_id("sagang:gaussianfilter", "saga:gaussianfilter"), {
+    run_processing(resolve_algorithm_id("sagang:gaussianfilter", "saga:gaussianfilter"), {
         "INPUT": dem_filepath,
         "MODE": 1,
         "RADIUS": 12,
@@ -124,7 +141,7 @@ def _plan_curvature_by_saga(dem_filepath: str, temp_dir: str, feedback=None) -> 
         'C_TOTA': os.path.join(temp_dir, "curvature_total.tif"),
         'SLOPE': os.path.join(temp_dir, "slope.tif"),
     }
-    processing.run(resolve_algorithm_id("sagang:slopeaspectcurvature", "saga:slopeaspectcurvature"), {
+    run_processing(resolve_algorithm_id("sagang:slopeaspectcurvature", "saga:slopeaspectcurvature"), {
         'ELEVATION': smoothed_filepath,
         **curvature_outputs,
         'METHOD': 6,

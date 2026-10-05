@@ -8,13 +8,13 @@ import tempfile
 
 from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
-import processing
 
 from ...settings_manager import SettingsManager
 from ..costcsv_parser import CostcsvParser
 from ...constants import OUTPUT_COST
 from . import shc
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
+from ...utils import run_processing
 
 
 def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback=None) -> str:
@@ -43,7 +43,7 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback
             element_filepath = shc.generate(dem_filepath, shc_dir, feedback=feedback)
 
         slope_filepath = os.path.join(temp_dir, "slope.tif")
-        processing.run(
+        run_processing(
             "qgis:slope", {"INPUT": dem_filepath, "OUTPUT": slope_filepath},
             feedback=feedback,
         )
@@ -110,7 +110,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str, feedback=None)
     min_filepath = os.path.join(temp_dir, "ruggedness_min.tif")
     max_filepath = os.path.join(temp_dir, "ruggedness_max.tif")
 
-    processing.run(
+    run_processing(
         resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {
             "-a": False,
@@ -132,7 +132,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str, feedback=None)
     )
     _assert_raster_ready(min_filepath, "起伏量最小値")
 
-    processing.run(
+    run_processing(
         resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {
             "-a": False,

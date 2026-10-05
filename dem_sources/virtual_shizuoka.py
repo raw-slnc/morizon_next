@@ -27,8 +27,9 @@ import re
 import shutil
 import tempfile
 import time
-import urllib.request
 import zipfile
+
+import requests
 
 from .base import (
     DemSource, Cancelled, build_dem_from_tiles, check_cancel, extent_in_epsg, extent_within,
@@ -104,8 +105,9 @@ def _s3_list(year, folder, xx):
     prefix = f"{year}/LP/Grid/08/{folder}/{xx}/"
     url = f"{BUCKET_URL}/?list-type=2&prefix={prefix}&delimiter=/"
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:  # nosec B310
-            body = resp.read().decode("utf-8", errors="replace")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        body = resp.content.decode("utf-8", errors="replace")
     except Exception:
         return None
     return {
@@ -116,11 +118,9 @@ def _s3_list(year, folder, xx):
 
 def _s3_exists(year, code):
     """一覧が取れない場合の個別確認（HEAD）"""
-    req = urllib.request.Request(_tile_url(year, code), method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=10):  # nosec B310
-            return True
-    except Exception:
+        return requests.head(_tile_url(year, code), timeout=10, allow_redirects=True).ok
+    except requests.RequestException:
         return False
 
 
@@ -154,17 +154,22 @@ def resolve_years(codes, cancel_cb=None, progress_cb=None):
 
 
 def _download(url, dest, cancel_cb=None, progress_cb=None):
-    with urllib.request.urlopen(url, timeout=600) as resp, open(dest, "wb") as fh:  # nosec B310
+    with requests.get(url, timeout=600, stream=True, headers={"Accept-Encoding": "identity"}) as resp:
+        resp.raise_for_status()
+        _write_response(resp, dest, cancel_cb, progress_cb)
+
+
+def _write_response(resp, dest, cancel_cb, progress_cb):
+    with open(dest, "wb") as fh:
         total = resp.headers.get("Content-Length")
         total = int(total) if total is not None else -1
         downloaded = 0
         last_report = 0.0
-        while True:
+        for chunk in resp.iter_content(65536):
             if cancel_cb and cancel_cb():
                 raise Cancelled()
-            chunk = resp.read(65536)
             if not chunk:
-                break
+                continue
             fh.write(chunk)
             downloaded += len(chunk)
             now = time.monotonic()

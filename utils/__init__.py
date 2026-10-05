@@ -3,20 +3,21 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 from functools import lru_cache
-import json
 import math
-import xml.etree.ElementTree as ET
+import shutil
 import tempfile
 import os
 import re
 
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
+    QgsApplication,
     QgsCoordinateReferenceSystem,
     QgsLayerTreeGroup,
     QgsMapLayer,
     QgsMapLayerProxyModel,
     QgsProject,
+    QgsProviderRegistry,
     QgsRasterLayer,
     QgsVectorLayer,
 )
@@ -39,6 +40,38 @@ def _stats_are_finite(stats: dict) -> bool:
     return all(_finite_float_or_none(value) is not None for value in stats.values())
 
 
+def _gdal_band_metadata(rlayer: QgsRasterLayer):
+    """GDAL で開けるラスターなら (ドライバ名, 1バンド目のメタデータの辞書)、それ以外は (None, {}) を返す"""
+    if rlayer.providerType() != "gdal":
+        return None, {}
+    from osgeo import gdal
+
+    path = QgsProviderRegistry.instance().decodeUri("gdal", rlayer.source()).get("path") or rlayer.source()
+    try:
+        dataset = gdal.OpenEx(path, gdal.OF_RASTER)
+    except RuntimeError:
+        dataset = None
+    if dataset is None or dataset.RasterCount < 1:
+        return None, {}
+    driver_name = dataset.GetDriver().ShortName
+    band = dataset.GetRasterBand(1)
+    band_metadata = dict(band.GetMetadata() or {})
+    if driver_name != "MBTiles" and "STATISTICS_MAXIMUM" not in band_metadata:
+        # 記録が無ければ GDAL に計算させる。原版（レイヤー情報の表示から読んでいた）と同じく、大きなラスターでは
+        # 一部のセルから見積もる概算の統計値にする（地形の複雑さは、この値を使う v2.1 の結果に合わせて調整してあり、
+        # 全セルから正確に計算すると結果が変わる）。計算できなければ、呼び出し側で QGIS の統計値を使う
+        try:
+            statistics = band.GetStatistics(True, True)
+        except RuntimeError:
+            statistics = None
+        if statistics and len(statistics) == 4:
+            band_metadata.update(zip(
+                ("STATISTICS_MINIMUM", "STATISTICS_MAXIMUM", "STATISTICS_MEAN", "STATISTICS_STDDEV"), statistics
+            ))
+    dataset = None
+    return driver_name, band_metadata
+
+
 @lru_cache(maxsize=None)
 def get_raster_stats(rlayer: QgsRasterLayer) -> dict:
     """ラスターレイヤーの統計値を取得する
@@ -51,13 +84,14 @@ def get_raster_stats(rlayer: QgsRasterLayer) -> dict:
     """
 
     """
-    まずはラスターレイヤーのメタデータを読みに行く
-    QgsRasterLayerの初期化時に、メタデータには以下のような文字列が書き込まれる
+    まずはラスターのファイルに記録された統計値（GDAL のバンドのメタデータ）を読む。
+    ファイルを開いたときなどに、次のような値が記録されていることがある
     STATISTICS_MAXIMUM=255
     STATISTICS_MEAN=206.68737191625
     STATISTICS_MINIMUM=0
     STATISTICS_STDDEV=55.286417545366
-    これらはHTMLに埋め込まれているのでパースして取り出す
+    （原版はレイヤー情報の表示用の文章（HTML）を XML として読んで探していたが、
+    GDAL から直接受け取る形にした）
     """
 
     metadata_stats = {
@@ -67,31 +101,13 @@ def get_raster_stats(rlayer: QgsRasterLayer) -> dict:
         "STATISTICS_STDDEV": None,
     }
 
-    try:
-        root = ET.fromstring(
-            "<root>"
-            + rlayer.dataProvider().htmlMetadata().replace("\n", "")
-            + "</root>"
-        )
-    except ET.ParseError:
-        # xyzタイルはhtmlMetadataが適切なXMLとしてパース出来ないので例外をキャッチ
-        print(f"failed to parse htmlMetada of {rlayer.name()}, skipping...")
-        root = ET.fromstring("<root></root>")
-
-    for item in root.iter():
-        if item.text == "MBTiles":  # GDAL-DriverがMBTilesの場合
-            # MBTilesは処理対象外＋計算コストが非常に大きいので、計算せず不正な値を返す（ラスタータイルと同じ値）
-            return {"MIN": 1000000, "MAX": -10000, "MEAN": 1000000, "STD_DEV": 1}
-
-        if item.text is None:
-            continue
-
-        if "=" not in item.text:
-            continue
-
-        prefix, value = item.text.split("=", 1)
-        if prefix in metadata_stats.keys() and metadata_stats[prefix] is None:
-            metadata_stats[prefix] = _finite_float_or_none(value)
+    driver_name, band_metadata = _gdal_band_metadata(rlayer)
+    if driver_name == "MBTiles":
+        # MBTilesは処理対象外＋計算コストが非常に大きいので、計算せず不正な値を返す（ラスタータイルと同じ値）
+        return {"MIN": 1000000, "MAX": -10000, "MEAN": 1000000, "STD_DEV": 1}
+    for prefix in metadata_stats:
+        if prefix in band_metadata:
+            metadata_stats[prefix] = _finite_float_or_none(band_metadata[prefix])
 
     # メタデータに統計値が含まれていない場合は計算する
     band_stats = rlayer.dataProvider().bandStatistics(1)
@@ -134,29 +150,17 @@ def get_initial_thresholds(rlayer: QgsRasterLayer, classes_count=3) -> list:
     )
     rlayer_from_path.setRenderer(renderer)
 
-    # 等量区分QMLを書き出して読む。作業用のQMLは一時フォルダの中だけで作って消す
-    # （以前はレイヤーのファイルと同じフォルダに書いていたため、ファイルを持たないレイヤー（/vsimem/ など）や
-    # 書き込めない場所のレイヤーで失敗し、書ける場所でも利用者のデータのフォルダに作業用のファイルを書いていた）
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_qml = os.path.join(temp_dir, "quantile.qml")
-        rlayer_from_path.saveNamedStyle(temp_qml)
-        qml_filepath = raster_styler.round_label_precision(
-            temp_qml, os.path.join(temp_dir, "tmp_init_score.qml"), precision=4
-        )
-        tree = ET.parse(qml_filepath)
-    root = tree.getroot()
-    items = root.find("pipe/rasterrenderer/rastershader/colorrampshader").findall(
-        "item"
-    )
+    # 等量区分のしきい値を、作ったスタイルから直接受け取る（小数第4位に丸める）。
+    # 原版はスタイルをファイル（QML）に書き出し、XML として読み直していた
+    items = renderer.shader().rasterShaderFunction().colorRampItemList()
 
-    # QMLからしきい値を取り出す
     thresholds = []
     for i in range(classes_count - 1):
         try:
-            threshold = float(items[i].attrib["value"])
+            value = items[i].value
         except IndexError:
-            threshold = 0
-        thresholds.append(threshold)
+            value = 0
+        thresholds.append(value if math.isinf(value) else round(value, 4))
 
     return thresholds
 
@@ -722,23 +726,21 @@ def remove_project_layers_under_dir(directory: str, excluded_dirs=()) -> int:
 
 def get_tiff_info(tiff_filepath: str, feedback=None) -> dict:
     """
-    DEMの各種情報をgdalinfoを用いて取得する
-
-    Args:
-        dem_filepath (str): [description]
+    ラスターの各種情報を取得する。QGIS の中の GDAL で直接読む
+    （原版は gdalinfo のコマンドを Processing 経由で呼んでいた。外部のコマンドにパスを渡さないため、
+    全角文字を含むパスでも別名に差し替えずに読める）。feedback は互換のために受け取るだけ
 
     Returns:
         dict: {"crs", "resolution", "extent", "nodata_value", "size"}
     """
-    gdalinfo_html = processing.run(
-        "gdal:gdalinfo",
-        {"EXTRA": "-json", "INPUT": tiff_filepath, "OUTPUT": "TEMPORARY_OUTPUT"},
-        feedback=feedback,
-    )["OUTPUT"]
+    from osgeo import gdal
 
-    with open(gdalinfo_html) as f:
-        gdalinfo_json = "".join(f.readlines())[5:-6]
-        gdalinfo = json.loads(gdalinfo_json)
+    try:
+        gdalinfo = gdal.Info(tiff_filepath, format="json")
+    except RuntimeError as e:
+        raise RuntimeError(f"ラスターの情報を読めませんでした: {tiff_filepath}（{e}）") from e
+    if not gdalinfo:
+        raise RuntimeError(f"ラスターの情報を読めませんでした: {tiff_filepath}")
 
     crs = QgsCoordinateReferenceSystem.fromWkt(gdalinfo["coordinateSystem"]["wkt"])
 
@@ -756,6 +758,71 @@ def get_tiff_info(tiff_filepath: str, feedback=None) -> dict:
         "nodata_value": gdalinfo["bands"][0].get("noDataValue"),
         "size": gdalinfo["size"],
     }
+
+
+def _has_non_ascii(text) -> bool:
+    return isinstance(text, str) and re.search("[^\x01-\x7E]", text) is not None
+
+
+def _move_with_siblings(src: str, dst: str):
+    """src と同じベース名のファイル（.shp の付随ファイル、.aux.xml など）もまとめて dst 側へ移す"""
+    src_dir = os.path.dirname(src)
+    src_base = os.path.splitext(os.path.basename(src))[0]
+    dst_dir = os.path.dirname(dst) or "."
+    dst_base = os.path.splitext(os.path.basename(dst))[0]
+    os.makedirs(dst_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        if name == src_base or name.startswith(src_base + "."):
+            target = os.path.join(dst_dir, dst_base + name[len(src_base):])
+            if os.path.exists(target):
+                os.remove(target)
+            shutil.move(os.path.join(src_dir, name), target)
+
+
+def run_processing(algorithm_id: str, parameters: dict, feedback=None, context=None):
+    """
+    processing.run の代わりに使う入口。GRASS・SAGA・GDAL のコマンドなど外部の処理に、全角文字を含むパスを渡さない
+    （移植時の方針：利用者のフォルダ名・保存場所は変えさせず、処理の内部でだけ半角のパスで扱う）。
+    - 入力：全角文字を含む既存ファイルのパスは、半角の別名（get_ascii_safe_alias）に差し替える
+    - 出力：全角文字を含む出力先は、半角の一時フォルダに書かせてから元の場所へ移す
+    - Processing が自分で作る一時出力（TEMPORARY_OUTPUT など）も、半角のフォルダに置かせる
+    """
+    from processing.tools import dataobjects
+
+    if context is None:
+        context = dataobjects.createContext(feedback)
+    safe_root = get_ascii_safe_dir("morizon_next_tmp")
+    context.setTemporaryFolder(safe_root)
+
+    algorithm = QgsApplication.processingRegistry().algorithmById(algorithm_id)
+    output_names = {d.name() for d in algorithm.destinationParameterDefinitions()} if algorithm else set()
+
+    params = dict(parameters)
+    moves = {}  # 出力の名前 -> (半角の一時パス, 本来の出力先)
+    work_dir = None
+    for name, value in params.items():
+        if not _has_non_ascii(value):
+            continue
+        if name in output_names:
+            if work_dir is None:
+                work_dir = tempfile.mkdtemp(prefix="out_", dir=safe_root)
+            temp_path = os.path.join(work_dir, f"{name}{os.path.splitext(value)[1]}")
+            moves[name] = (temp_path, value)
+            params[name] = temp_path
+        elif os.path.exists(value):
+            params[name] = get_ascii_safe_alias(value)
+
+    try:
+        result = processing.run(algorithm_id, params, feedback=feedback, context=context)
+        for name, (temp_path, final_path) in moves.items():
+            if os.path.exists(temp_path):
+                _move_with_siblings(temp_path, final_path)
+            if isinstance(result, dict) and result.get(name) == temp_path:
+                result[name] = final_path
+        return result
+    finally:
+        if work_dir is not None:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def is_usable_raster_layer(layer) -> bool:
@@ -811,7 +878,7 @@ def get_ascii_safe_dir(subdir_name: str) -> str:
     if drive:
         safe_dir = os.path.join(drive + os.sep, subdir_name)
     else:
-        safe_dir = os.path.join("/tmp", subdir_name)
+        safe_dir = os.path.join(tempfile.gettempdir(), subdir_name)
     os.makedirs(safe_dir, exist_ok=True)
     return safe_dir
 
@@ -839,11 +906,11 @@ def get_ascii_safe_alias(real_path: str) -> str:
     if real_drive:
         alias_dir = os.path.join(real_drive + os.sep, "morizon_next_tmp")
     else:
-        alias_dir = "/tmp/morizon_next_tmp"
+        alias_dir = os.path.join(tempfile.gettempdir(), "morizon_next_tmp")
     os.makedirs(alias_dir, exist_ok=True)
 
     import hashlib
-    path_hash = hashlib.sha1(real_path.encode("utf-8")).hexdigest()[:12]  # nosec B324
+    path_hash = hashlib.sha1(real_path.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
     real_dir = os.path.dirname(real_path)
     name, ext = os.path.splitext(os.path.basename(real_path))
     alias_path = os.path.join(alias_dir, f"{path_hash}{ext}")
@@ -891,6 +958,7 @@ class AsciiSafeProcessingTmpdir:
     def __init__(self):
         self._original_tmp = None
         self._original_temp = None
+        self._original_tempfile_tempdir = None
         self._entered = False
 
     def enter(self):
@@ -898,11 +966,16 @@ class AsciiSafeProcessingTmpdir:
             return
         self._original_tmp = os.environ.get("TMP")
         self._original_temp = os.environ.get("TEMP")
+        self._original_tempfile_tempdir = tempfile.tempdir
 
         safe_dir = get_ascii_safe_dir("morizon_next_tmp")
 
         os.environ["TMP"] = safe_dir
         os.environ["TEMP"] = safe_dir
+        # tempfile は gettempdir() の結果をモジュール変数へキャッシュするため、
+        # 環境変数の変更だけでは以後の mkdtemp() が元の全角パスを使い続ける。
+        # 外部処理用の一時ファイルを確実に半角パスへ作るため、キャッシュも切り替える。
+        tempfile.tempdir = safe_dir
         self._entered = True
 
     def restore(self):
@@ -916,6 +989,7 @@ class AsciiSafeProcessingTmpdir:
             os.environ["TEMP"] = self._original_temp
         else:
             os.environ.pop("TEMP", None)
+        tempfile.tempdir = self._original_tempfile_tempdir
         self._entered = False
 
 

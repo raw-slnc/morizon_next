@@ -12,8 +12,12 @@
 
 import json
 import os
-import urllib.request
+import struct
+import time
 import zipfile
+import zlib
+
+import requests
 
 CKAN_PACKAGE_SHOW_URL = "https://www.geospatial.jp/ckan/api/3/action/package_show?id=rinya-morizon-dateset"
 
@@ -53,12 +57,13 @@ def get_zoningkit_resources():
     CKANのpackage_show APIからもりぞんデータセットのリソース一覧を取得し、
     {zone_number: download_url} の辞書を返す（ZoningKit_XX.zipのみ抽出）。
     """
-    req = urllib.request.Request(
+    resp = requests.get(
         CKAN_PACKAGE_SHOW_URL,
         headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
+        timeout=30,
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
-        data = json.loads(resp.read().decode("utf-8"))
+    resp.raise_for_status()
+    data = json.loads(resp.content.decode("utf-8"))
 
     if not data.get("success"):
         raise RuntimeError("CKAN APIの応答が不正です")
@@ -76,6 +81,11 @@ def get_zoningkit_resources():
             resources[m] = r.get("url")
 
     return resources
+
+
+# 地位データを受け取りながら書き出すときの1回の大きさと、進み具合を知らせる間隔（秒）
+STREAM_CHUNK_BYTES = 256 * 1024
+PROGRESS_INTERVAL = 0.2
 
 
 class HttpRangeFile:
@@ -97,19 +107,25 @@ class HttpRangeFile:
         self._bytes_fetched = 0
         self._progress_cb = progress_cb
         self._cancel_cb = cancel_cb
+        # 少しずつ何度も読むので、配信元への接続を使い回す（1回ごとに接続し直す手間を省く）
+        self._session = requests.Session()
 
     def _ensure_resolved(self):
         if self._resolved_url is not None:
             return
-        req = urllib.request.Request(
+        # 範囲を指定して読むので、配信側で圧縮させない（Accept-Encoding: identity）
+        with self._session.get(
             self._ckan_url,
             headers={
                 "User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)",
                 "Range": "bytes=0-0",
+                "Accept-Encoding": "identity",
             },
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
-            self._resolved_url = resp.geturl()
+            timeout=30,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            self._resolved_url = resp.url
             content_range = resp.headers.get("Content-Range")
             if content_range and "/" in content_range:
                 self._size = int(content_range.rsplit("/", 1)[1])
@@ -123,15 +139,17 @@ class HttpRangeFile:
         self._ensure_resolved()
         if start >= end:
             return b""
-        req = urllib.request.Request(
+        resp = self._session.get(
             self._resolved_url,
             headers={
                 "User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)",
                 "Range": f"bytes={start}-{end - 1}",
+                "Accept-Encoding": "identity",
             },
+            timeout=30,
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
-            data = resp.read()
+        resp.raise_for_status()
+        data = resp.content
         self._bytes_fetched += len(data)
         if self._progress_cb is not None:
             self._progress_cb(self._bytes_fetched)
@@ -168,8 +186,57 @@ class HttpRangeFile:
         self._pos += len(data)
         return data
 
+    def stream_member(self, info: zipfile.ZipInfo, dst):
+        """ZIP の中の1ファイルを、1回の問い合わせで受け取りながら展開して dst に書き出す。
+        受け取った量（圧縮後）は PROGRESS_INTERVAL 秒おきに progress_cb へ知らせ、受け取るたびに中断を確かめる。
+        小さく区切って何度も問い合わせると、この配信元では1回ごとの待ち時間がかさんで遅くなったため
+        （2MB ずつで毎秒 0.7MB、1回で受け取ると毎秒 2.5MB 前後）"""
+        header = self._read_range(info.header_offset, info.header_offset + 30)
+        name_length, extra_length = struct.unpack("<HH", header[26:30])
+        start = info.header_offset + 30 + name_length + extra_length
+        if info.compress_type == zipfile.ZIP_DEFLATED:
+            decompressor = zlib.decompressobj(-15)
+        elif info.compress_type == zipfile.ZIP_STORED:
+            decompressor = None
+        else:
+            raise RuntimeError(f"対応していない圧縮形式です: {info.filename}")
+        crc = 0
+        last_report = 0.0
+        with self._session.get(
+            self._resolved_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)",
+                "Range": f"bytes={start}-{start + info.compress_size - 1}",
+                "Accept-Encoding": "identity",
+            },
+            timeout=30,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for chunk in resp.iter_content(STREAM_CHUNK_BYTES):
+                if self._cancel_cb is not None and self._cancel_cb():
+                    raise InterruptedError("処理を中断しました。")
+                if not chunk:
+                    continue
+                data = decompressor.decompress(chunk) if decompressor else chunk
+                crc = zlib.crc32(data, crc)
+                dst.write(data)
+                self._bytes_fetched += len(chunk)
+                now = time.monotonic()
+                if self._progress_cb is not None and now - last_report >= PROGRESS_INTERVAL:
+                    last_report = now
+                    self._progress_cb(self._bytes_fetched)
+        if decompressor:
+            data = decompressor.flush()
+            crc = zlib.crc32(data, crc)
+            dst.write(data)
+        if self._progress_cb is not None:
+            self._progress_cb(self._bytes_fetched)
+        if crc != info.CRC:
+            raise RuntimeError(f"受け取ったデータが壊れています: {info.filename}")
+
     def close(self):
-        pass
+        self._session.close()
 
 
 def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_cb=None) -> dict:
@@ -227,8 +294,10 @@ def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_c
         for kind, member in members_to_fetch.items():
             out_path = expected[kind]
             tmp_path = out_path + ".part"
-            with zf.open(member) as src, open(tmp_path, "wb") as dst:
-                dst.write(src.read())
+            # 受け取りながら書き出す。1つのファイル（数百MB）をまとめて受け取ると、受け取り終わるまで
+            # 進み具合が増えず、中断も効かず、メモリにまるごと載ってしまうため
+            with open(tmp_path, "wb") as dst:
+                range_file.stream_member(zf.getinfo(member), dst)
             os.replace(tmp_path, out_path)
             result[kind] = out_path
 
@@ -236,6 +305,7 @@ def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_c
             if kind not in result and os.path.exists(expected[kind]):
                 result[kind] = expected[kind]
 
+    range_file.close()
     return result
 
 
@@ -285,21 +355,23 @@ def download_zoningkit_zip(zone: int, dest_path: str, progress_cb=None, cancel_c
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     tmp_path = dest_path + ".part"
 
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"}
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
+    with requests.get(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)", "Accept-Encoding": "identity"},
+        timeout=30,
+        stream=True,
+    ) as resp:
+        resp.raise_for_status()
         total = int(resp.headers.get("Content-Length", 0))
         done = 0
         with open(tmp_path, "wb") as f:
-            while True:
+            for chunk in resp.iter_content(1024 * 1024):  # 1MBずつ
                 if cancel_cb is not None and cancel_cb():
                     f.close()
                     os.remove(tmp_path)
                     return None
-                chunk = resp.read(1024 * 1024)  # 1MBずつ
                 if not chunk:
-                    break
+                    continue
                 f.write(chunk)
                 done += len(chunk)
                 if progress_cb is not None:

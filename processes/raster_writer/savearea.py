@@ -8,9 +8,8 @@ import tempfile
 
 from qgis.core import QgsRasterLayer, QgsVectorLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
-import processing
 
-from ...utils import get_tiff_info
+from ...utils import get_tiff_info, run_processing
 from ...constants import OUTPUT_SAVEAREA
 from .utils import resolve_algorithm_id
 
@@ -37,7 +36,7 @@ def generate(basis_dem_filepath: str,
 
         # すべての流域を焼きこんだラスター
         basin_rasiterized_filepath = os.path.join(temp_dir, "basin_all.tif")
-        processing.run("gdal:rasterize", {
+        run_processing("gdal:rasterize", {
             'INPUT': fixed_basin_vlayer,
             'BURN': 1,
             'DATA_TYPE': 5,  # Float32
@@ -60,18 +59,18 @@ def generate(basis_dem_filepath: str,
         if no_building:
             return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), True
 
-        fixed_building_vlayer = processing.run("native:fixgeometries", {
+        fixed_building_vlayer = run_processing("native:fixgeometries", {
             "INPUT": building_filepath,
             "OUTPUT": "TEMPORARY_OUTPUT"
         }, feedback=feedback)["OUTPUT"]
 
-        overlap_calculated_polygon_vlayer = processing.run("qgis:calculatevectoroverlaps", {
+        overlap_calculated_polygon_vlayer = run_processing("qgis:calculatevectoroverlaps", {
             "INPUT": fixed_basin_vlayer,
             "LAYERS": [fixed_building_vlayer],
             "OUTPUT": "TEMPORARY_OUTPUT"
         }, feedback=feedback)["OUTPUT"]
 
-        filtered_polygon_vlayer = processing.run("qgis:extractbyexpression", {
+        filtered_polygon_vlayer = run_processing("qgis:extractbyexpression", {
             "INPUT": overlap_calculated_polygon_vlayer,
             "EXPRESSION": f'\"{fixed_building_vlayer.name()}_area\" > 0',
             "OUTPUT": "TEMPORARY_OUTPUT"
@@ -81,7 +80,7 @@ def generate(basis_dem_filepath: str,
         # （NODATA を指定しないと、現行の QGIS では 0 が「データなし」になり、下の計算で建物を含まない流域が
         # 0 でなく「データなし」になっていた。手引 p.88 の手順どおり、データなしの値は 9999 にする）
         filtered_rasterized_filepath = os.path.join(temp_dir, "basin_with_building.tif")
-        processing.run("gdal:rasterize", {
+        run_processing("gdal:rasterize", {
             'INPUT': filtered_polygon_vlayer,
             'BURN': 1,
             'DATA_TYPE': 5,  # Float32
@@ -177,7 +176,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
         temp_dir = tempfile.mkdtemp()
     try:
         basin_filepath = os.path.join(temp_dir, "basin.tif")
-        processing.run(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
+        run_processing(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
             'elevation': basis_dem_filepath,
             '-4': False,
             '-a': False,
@@ -209,12 +208,12 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
         _assert_raster_ready(basin_filepath, "流域")
 
         vectorized_basin_filepath = os.path.join(temp_dir, "basin.gpkg")
-        processing.run("gdal:polygonize", {
+        run_processing("gdal:polygonize", {
             "INPUT": basin_filepath,
             "BAND": 1,
             "OUTPUT": vectorized_basin_filepath
         }, feedback=feedback)
-        fixed_basin_vlayer = processing.run("native:fixgeometries", {
+        fixed_basin_vlayer = run_processing("native:fixgeometries", {
             "INPUT": vectorized_basin_filepath,
             "OUTPUT": "TEMPORARY_OUTPUT"
         }, feedback=feedback)["OUTPUT"]
@@ -226,7 +225,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
 
 def dissolve_basin_vlayer(basin_vlayer_filepath, feedback=None):
     """流域ポリゴンをDNフィルドで"dissolveする"""
-    return processing.run("native:dissolve", {
+    return run_processing("native:dissolve", {
         'FIELD': ['DN'],
         'INPUT': basin_vlayer_filepath,
         'OUTPUT': 'TEMPORARY_OUTPUT'

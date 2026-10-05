@@ -4,7 +4,7 @@
 
 from qgis.PyQt.QtCore import QMetaType
 from qgis.core import QgsField, QgsRasterLayer, QgsRectangle, QgsVectorLayer
-import processing
+from ...utils import run_processing
 
 # ゾーニング図の範囲に重なるポリゴンを取り出すときの余裕（ゾーニング図のセル数）。
 # 重なりの判定なので縁にかかるポリゴンは余裕が無くても拾えるが、座標系の変換による丸めで
@@ -25,7 +25,7 @@ def extract_overlapping(polygon_layer, zoning_layer: QgsRasterLayer, context, fe
         f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
         + (f" [{authid}]" if authid else "")
     )
-    return processing.run(
+    return run_processing(
         "native:extractbyextent",
         {"INPUT": polygon_layer, "EXTENT": extent_text, "CLIP": False, "OUTPUT": "memory:"},
         context=context, feedback=feedback,
@@ -38,7 +38,7 @@ def to_raster_crs(polygon_layer, zoning_layer: QgsRasterLayer, context, feedback
     両者の扱いがそろわず、割合が異常な値になる（原版と同じ作り）"""
     if polygon_layer.crs() == zoning_layer.crs():
         return polygon_layer
-    return processing.run(
+    return run_processing(
         "native:reprojectlayer",
         {"INPUT": polygon_layer, "TARGET_CRS": zoning_layer.crs(), "OUTPUT": "memory:"},
         context=context, feedback=feedback,
@@ -47,7 +47,7 @@ def to_raster_crs(polygon_layer, zoning_layer: QgsRasterLayer, context, feedback
 
 def zonal_histogram(zoning_layer: QgsRasterLayer, polygon_layer, output_path: str, context, feedback):
     """区分1〜4それぞれの出現数（count_1〜count_4）を加えて output_path に保存する"""
-    processing.run(
+    run_processing(
         "qgis:zonalhistogram",
         {
             "INPUT_RASTER": zoning_layer,

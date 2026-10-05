@@ -83,7 +83,7 @@ class GSITileDEMLoader:
     def check_source_coverage(cls, lon_min, lat_min, lon_max, lat_max, source,
                               cancel_cb=None):
         """指定範囲の全タイルがPNGとして取得できるかを確認する。標高NoDataは判定しない。"""
-        import urllib.request
+        import requests
         from qgis.PyQt.QtGui import QImage
 
         tile_url, tile_zoom, label, _ = source
@@ -104,12 +104,13 @@ class GSITileDEMLoader:
                     }
                 url = tile_url.format(z=tile_zoom, x=tx, y=ty)
                 try:
-                    req = urllib.request.Request(
+                    resp = requests.get(
                         url,
                         headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
+                        timeout=15,
                     )
-                    with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
-                        raw = resp.read()
+                    resp.raise_for_status()
+                    raw = resp.content
                     img = QImage()
                     if not img.loadFromData(raw):
                         missing += 1
@@ -242,18 +243,19 @@ class GSITileDEMLoader:
     def _fetch_tile_array(url, encoding="gsi"):
         """URLのPNGタイルを取得し(256, 256)の標高numpy配列を返す。
         失敗時は(None, エラー文字列, 0)を返す。3つ目の戻り値はダウンロードしたバイト数。"""
-        import urllib.request
+        import requests
         from qgis.PyQt.QtGui import QImage
 
         if not url.startswith(("https://", "http://")):
             return None, f"Invalid URL scheme: {url}", 0
         try:
-            req = urllib.request.Request(
+            resp = requests.get(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
+                timeout=15,
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
-                raw = resp.read()
+            resp.raise_for_status()
+            raw = resp.content
         except Exception as e:
             return None, f"Connection error: {e}", 0
 

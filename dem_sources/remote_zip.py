@@ -16,9 +16,9 @@ HEAD はこの配信元で 403 になるため使わず、1バイトの Range GE
 
 import io
 import time
-import urllib.error
-import urllib.request
 import zipfile
+
+import requests
 
 from .base import Cancelled
 
@@ -40,9 +40,9 @@ class RemoteZipFile:
         self._resolved_url = url
         self._pos = 0
         self.chunk_cb = None  # エントリ本体を読む直前に呼び出し側が設定する（進捗通知用）
-        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT, "Range": "bytes=0-0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
-            self._resolved_url = resp.geturl() or url
+        with requests.get(url, headers=self._headers("bytes=0-0"), timeout=15, stream=True) as resp:
+            resp.raise_for_status()
+            self._resolved_url = resp.url or url
             content_range = resp.headers.get("Content-Range")
             if content_range and "/" in content_range:
                 self._size = int(content_range.rsplit("/", 1)[-1])
@@ -70,11 +70,19 @@ class RemoteZipFile:
     def tell(self):
         return self._pos
 
+    @staticmethod
+    def _headers(byte_range):
+        # 範囲を指定して読むので、配信側で圧縮させない（Accept-Encoding: identity）
+        return {"User-Agent": _USER_AGENT, "Range": byte_range, "Accept-Encoding": "identity"}
+
     def _open_range(self, url, start, end):
-        req = urllib.request.Request(
-            url, headers={"User-Agent": _USER_AGENT, "Range": f"bytes={start}-{end}"}
-        )
-        return urllib.request.urlopen(req, timeout=30)  # nosec B310
+        resp = requests.get(url, headers=self._headers(f"bytes={start}-{end}"), timeout=30, stream=True)
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError:
+            resp.close()
+            raise
+        return resp
 
     def read(self, n=-1):
         end = (self._size - 1) if (n is None or n < 0) else min(self._pos + n, self._size) - 1
@@ -82,21 +90,21 @@ class RemoteZipFile:
             return b""
         try:
             resp = self._open_range(self._resolved_url, self._pos, end)
-        except urllib.error.HTTPError as e:
-            if e.code in (403, 404) and self._resolved_url != self.url:
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in (403, 404) and self._resolved_url != self.url:
                 resp = self._open_range(self.url, self._pos, end)
-                self._resolved_url = resp.geturl() or self.url
+                self._resolved_url = resp.url or self.url
             else:
                 raise
 
         chunks = []
         with resp:
-            while True:
+            for chunk in resp.iter_content(_CHUNK_SIZE):
                 if self._cancel_cb and self._cancel_cb():
                     raise Cancelled()
-                chunk = resp.read(_CHUNK_SIZE)
                 if not chunk:
-                    break
+                    continue
                 chunks.append(chunk)
                 if self.chunk_cb:
                     self.chunk_cb(len(chunk))

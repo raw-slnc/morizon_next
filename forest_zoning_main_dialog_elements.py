@@ -873,14 +873,18 @@ class ForestZoningMainDialogElements:
         output_dir = utils.get_morizon_managed_dir(DIR_DATA)
         # 基盤地図情報のZIP自体は地位指数と同様、プロジェクト内蔵の共有領域にキャッシュする
         cache_dir = utils.get_morizon_shared_dir("fgd")
+        dem_filepath = self.main.elementsDemFileWidget.filePath()
+        db_dir = utils.get_morizon_layer_db_dir()
+        keep_kinds = self._decide_edited_fgd_data(output_dir, db_dir, fetch_extent_wgs84, dem_filepath)
 
         thread = processes.building_road_fetch.BuildingRoadFetchThread(
             session, mesh_codes, cache_dir, output_dir,
             fetch_extent_wgs84.xMinimum(), fetch_extent_wgs84.yMinimum(),
             fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
-            dem_filepath=self.main.elementsDemFileWidget.filePath(),
+            dem_filepath=dem_filepath,
             clip_to_extent=True,
-            db_dir=utils.get_morizon_layer_db_dir(),
+            db_dir=db_dir,
+            keep_kinds=keep_kinds,
         )
         result = self._run_fetch(thread, "建物・道路データの取得に失敗しました。")
         if result is not None:
@@ -898,6 +902,47 @@ class ForestZoningMainDialogElements:
             extent_wgs84.xMaximum() + lon_margin,
             extent_wgs84.yMaximum() + lat_margin,
         )
+
+    def _decide_edited_fgd_data(self, output_dir, db_dir, fetch_extent_wgs84, dem_filepath) -> set:
+        """作業フォルダの道路・建物の shp が前回の取得のあとに編集されていれば、取得の前に扱いを決める。
+        編集したデータはどの場合も消さない。
+        - 前回と同じ範囲：編集したデータを使うか聞く。使うなら取得しない（返す集合に入れる）。
+          使わないなら backup フォルダに控えを残してから取得し直す
+        - 前回と違う範囲：聞かずに控えを残してから取得し直し、控えの場所を知らせる"""
+        fetch_module = processes.building_road_fetch
+        area = fetch_module.fetch_area_key(
+            fetch_extent_wgs84.xMinimum(), fetch_extent_wgs84.yMinimum(),
+            fetch_extent_wgs84.xMaximum(), fetch_extent_wgs84.yMaximum(),
+            fetch_module.dem_crs_of(dem_filepath),
+        )
+        keep_kinds = set()
+        backups = []
+        for kind, label, relative in (
+            (layer_db.KIND_ROAD, "道路縁", fetch_module.ROAD_SHP),
+            (layer_db.KIND_BUILDING, "建物ポリゴン", fetch_module.BUILDING_SHP),
+        ):
+            shp_path = os.path.join(output_dir, relative)
+            db_path = layer_db.db_file(db_dir, kind)
+            if not db_path or not layer_db.is_edited_since_fetch(db_path, kind, shp_path):
+                continue
+            record = layer_db.get_fetch_record(db_path, kind)
+            if record and record[0] == area:
+                answer = QMessageBox.question(
+                    self.main, "編集した" + label + "データ",
+                    f"取得のあとに編集した{label}データがあります。編集しているデータを使いますか？\n\n"
+                    "「いいえ」を選ぶと、編集したデータを backup フォルダに残してから取得し直します。",
+                    QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
+                )
+                if answer == QMessageBox.StandardButton.Yes:
+                    keep_kinds.add(kind)
+                    continue
+            backups.append(f"{label}：{layer_db.backup_shp(shp_path)}")
+        if backups:
+            QMessageBox.information(
+                self.main, "編集したデータを残しました",
+                "編集したデータを次の場所に残してから、取得し直します。\n\n" + "\n".join(backups),
+            )
+        return keep_kinds
 
     def set_building_road_filepaths(self, result: dict):
         missing = []

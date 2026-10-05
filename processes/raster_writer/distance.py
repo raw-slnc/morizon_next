@@ -9,10 +9,9 @@ import tempfile
 
 from qgis.core import QgsFeatureRequest, QgsGeometry, QgsRasterLayer, QgsRectangle, QgsVectorLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
-import processing
 
 from .utils import adjust_extent_and_resolution
-from ...utils import get_tiff_info
+from ...utils import get_tiff_info, run_processing
 from ...constants import OUTPUT_DISTANCE
 
 
@@ -43,7 +42,7 @@ def generate(basis_dem_filepath: str,
         line_vector_for_rasterize = line_vector_filepath
         if line_vlayer.crs().isValid() and line_vlayer.crs() != basis_dem_info["crs"]:
             line_vector_for_rasterize = os.path.join(temp_dir, "network_reprojected.gpkg")
-            processing.run("native:reprojectlayer", {
+            run_processing("native:reprojectlayer", {
                 "INPUT": line_vector_filepath,
                 "TARGET_CRS": basis_dem_info["crs"],
                 "OUTPUT": line_vector_for_rasterize,
@@ -78,7 +77,7 @@ def generate(basis_dem_filepath: str,
         distance_filepath = os.path.join(temp_dir, "distance.tif")
         adjusted_dis_filepath = os.path.join(temp_dir, "distance_adjusted.tif")
 
-        processing.run("gdal:rasterize", {
+        run_processing("gdal:rasterize", {
             "INPUT": line_vector_for_rasterize,
             "BURN": 1.0,
             "NODATA": 0,
@@ -212,7 +211,7 @@ def _generate_distance_raster(
     原版は GRASS の r.grow.distance を使っていたが、近い道路を探す計算が近似で、一番近い道路を見落として
     少し遠い道路で測るセルがある（サンプルの1m DEMで約5%のセルが最大7.3m遠く出た）。GDAL の proximity は
     厳密な距離（scipy の距離変換）とほぼ一致し（外れは0.1%のセルで0.21m以内）、速いので GDAL で計算する"""
-    processing.run("gdal:proximity", {
+    run_processing("gdal:proximity", {
         "INPUT": line_raster_filepath,
         "BAND": 1,
         "VALUES": "1",

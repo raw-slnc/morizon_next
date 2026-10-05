@@ -17,7 +17,7 @@ import platform
 import shutil
 import subprocess
 
-from qgis.core import QgsApplication
+from qgis.core import Qgis, QgsApplication, QgsMessageLog
 
 PLUGIN_NAME = "processing_saga_nextgen"
 PROVIDER_ID = "sagang"
@@ -57,8 +57,11 @@ def find_saga_cmd():
         configured = ProcessingConfig.getSetting("SAGA_FOLDER")
         if configured and os.path.isdir(configured):
             folder = configured
-    except Exception:
-        pass
+    except Exception as e:
+        # SAGA の設定項目が無い環境（プロバイダ未導入など）。既定の場所と PATH で探す
+        QgsMessageLog.logMessage(
+            f"SAGA の設定を読めないため、既定の場所で探します（{e}）", "Morizon Next", Qgis.MessageLevel.Info
+        )
     folder = folder or _default_saga_folder()
     if folder:
         path = os.path.join(folder, executable)
@@ -71,6 +74,9 @@ def saga_version(saga_cmd):
     kwargs = {}
     if platform.system() == "Windows":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Why Bandit B603 (subprocess call) is suppressed here: the only way to get the SAGA version is to ask
+    # SAGA itself. The executable is saga_cmd found via the Processing setting, the default install location
+    # or PATH, and the only argument is the fixed "-v". No user input is passed and no shell is used.
     try:
         result = subprocess.run(  # nosec B603
             [saga_cmd, "-v"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
