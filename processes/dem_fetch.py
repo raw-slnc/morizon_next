@@ -2,10 +2,16 @@
 # Copyright (C) 2026 Hideharu Masai
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
+import time
+
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
 from ..dem_sources.base import Cancelled, FetchReporter
+
+# 最後の工程（保存）の表示を見せる最短の時間（秒）。保存はほとんどの範囲で一瞬で終わり、
+# そのままでは読めないうちに次の知らせへ切り替わるため
+LAST_STEP_MIN_SECONDS = 0.8
 
 
 class _SignalReporter(FetchReporter):
@@ -13,6 +19,7 @@ class _SignalReporter(FetchReporter):
 
     def __init__(self, thread):
         self._thread = thread
+        self.last_message_time = time.monotonic()
 
     def start(self, total):
         self._thread.processStarted.emit(total)
@@ -21,6 +28,7 @@ class _SignalReporter(FetchReporter):
         self._thread.addProgress.emit(n)
 
     def message(self, text):
+        self.last_message_time = time.monotonic()
         self._thread.postMessage.emit(text)
 
     def detail(self, text):
@@ -54,11 +62,15 @@ class DemFetchThread(QThread):
     def run(self):
         try:
             self.setAbortable.emit(True)
+            reporter = _SignalReporter(self)
             result = self.source.fetch(
                 self.extent, self.output_path,
                 cancel_cb=lambda: self.abort_flag,
-                reporter=_SignalReporter(self),
+                reporter=reporter,
             )
+            remaining = LAST_STEP_MIN_SECONDS - (time.monotonic() - reporter.last_message_time)
+            if remaining > 0:
+                time.sleep(remaining)
             self.processFinished.emit(result)
         except Cancelled:
             self.processFailed.emit("処理を中断しました。")

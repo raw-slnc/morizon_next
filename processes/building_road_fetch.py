@@ -66,16 +66,45 @@ class BuildingRoadFetchThread(QThread):
                          include_layer_names=None, allow_empty_output=False):
         """基盤地図情報を取得し、描画用の DB（layer_db.py）に入れてから、作業フォルダへ互換用の shp を書き出す
         （DB → shp の順）。まとめる作業は一時フォルダの GPKG で行う（shp だと属性名が10バイトで切り詰められる）"""
+        # 容量の行：データサイズ（範囲にかかるファイル全部、固定）／ダウンロード（取得済みで使い回す分も含めて
+        # そろえた量）／処理済（範囲でまとめ終えたファイルの量）。どれも一覧に載っている大きさで数える
+        # 工程（取得中・まとめています）は状態の行に出し、詳しい欄には件数と容量だけを出す
+        status = {"files": "", "needed": None, "downloaded": 0, "processed": 0}
+
+        def post_detail():
+            lines = [status["files"]] if status["files"] else []
+            if status["needed"] is not None:
+                mb = 1024 * 1024
+                # データサイズのうちダウンロードした量、そのうち処理済の量、の順に読めるように並べる
+                lines.append(f"ダウンロード 約{status['downloaded'] / mb:.1f}MB：処理済 約{status['processed'] / mb:.1f}MB"
+                             f"／データサイズ 約{status['needed'] / mb:.1f}MB")
+            self.postDetail.emit("\n".join(lines))
+
         def on_progress(done, total, file_name):
             if done == 1:
                 self.processStarted.emit(total + 1)
             self.addProgress.emit(1)
-            self.postDetail.emit(f"{label} {done}/{total}件取得済み（{file_name}）")
+            status["files"] = f"{done}/{total}件取得済み（{file_name}）"
+            post_detail()
+
+        def on_size(needed, downloaded):
+            status["needed"] = needed
+            status["downloaded"] = downloaded
+            post_detail()
+
+        listed_sizes = {}
+
+        def on_zip_done(zip_path):
+            status["processed"] += listed_sizes.get(zip_path, 0)
+            post_detail()
+
+        self.postMessage.emit(f"{label}を取得中")
 
         db_path = layer_db.db_file(self.db_dir, kind)
         zip_paths = fgd_fetcher.fetch_meshes(
             self.session, type_code, self.mesh_codes, self.cache_dir,
-            progress_cb=on_progress, cancel_cb=lambda: self.abort_flag,
+            progress_cb=on_progress, cancel_cb=lambda: self.abort_flag, size_cb=on_size,
+            listed_sizes=listed_sizes,
         )
         if self.abort_flag:
             raise InterruptedError()
@@ -84,7 +113,9 @@ class BuildingRoadFetchThread(QThread):
         try:
             ok = False
             if zip_paths:
-                self.postDetail.emit(f"{label} を範囲でまとめています…")
+                self.postMessage.emit(f"{label}を範囲でまとめています")
+                status["files"] = ""
+                post_detail()
                 work_path = os.path.join(temp_dir, f"{kind}.gpkg")
                 ok = fgd_fetcher.merge_layers(
                     zip_paths, work_path,
@@ -94,6 +125,7 @@ class BuildingRoadFetchThread(QThread):
                     output_layer=kind,
                     dst_crs=self._get_dem_crs(),
                     clip_to_extent=self.clip_to_extent,
+                    zip_done_cb=on_zip_done,
                 )
                 self.addProgress.emit(1)
             if not ok:
@@ -121,10 +153,9 @@ class BuildingRoadFetchThread(QThread):
             self.setAbortable.emit(True)
             result = {}
 
-            self.postMessage.emit("道路縁データを取得中…")
             road_path = os.path.join(self.output_dir, "ROAD", "road_edge.shp")
             road_result = self._fetch_and_merge(
-                fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁", road_path, layer_db.KIND_ROAD,
+                fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁データ", road_path, layer_db.KIND_ROAD,
                 include_layer_names=fgd_fetcher.ROAD_LAYERS,
                 allow_empty_output=True,
             )
@@ -137,10 +168,9 @@ class BuildingRoadFetchThread(QThread):
                 self.processFailed.emit("処理を中断しました。")
                 return
 
-            self.postMessage.emit("建物ポリゴンデータを取得中…")
             building_path = os.path.join(self.output_dir, "TATEMONO", "building.shp")
             result["building"] = self._fetch_and_merge(
-                fgd_fetcher.TYPE_CODE_BUILDING, "建物", building_path, layer_db.KIND_BUILDING,
+                fgd_fetcher.TYPE_CODE_BUILDING, "建物ポリゴンデータ", building_path, layer_db.KIND_BUILDING,
                 include_layer_names=fgd_fetcher.BUILDING_LAYERS,
             )
             if self.abort_flag:

@@ -37,7 +37,7 @@ class SiteIndexFetchThread(QThread):
     def run(self):
         try:
             self.setAbortable.emit(True)
-            self.postMessage.emit(f"座標系{self.zone}系の地位指数データを確認中…")
+            self.postMessage.emit(f"座標系{self.zone}系の地位指数データを確認中")
             self.postDetail.emit("")
 
             # bytes_total(KB単位)が判明した時点でバーの上限を設定する。
@@ -55,11 +55,7 @@ class SiteIndexFetchThread(QThread):
                 mb_done = bytes_done / (1024 * 1024)
                 mb_total = bytes_total / (1024 * 1024)
                 if bytes_total > 0:
-                    self.postDetail.emit(
-                        f"座標系{self.zone}系\n"
-                        f"約{mb_done:.1f}/{mb_total:.1f}MB取得済み\n"
-                        f"（初回のみ、以降はキャッシュを再利用します）"
-                    )
+                    self.postDetail.emit(f"約{mb_done:.1f}/{mb_total:.1f}MB取得済み")
                 else:
                     self.postDetail.emit(f"座標系{self.zone}系のデータを確認中…")
 
@@ -84,7 +80,7 @@ class SiteIndexFetchThread(QThread):
                 )
                 return
 
-            self.postMessage.emit("解析範囲に合わせて切り出し中…")
+            self.postMessage.emit("解析範囲に合わせて切り出し中")
             self.addProgress.emit(1)
             clipped = zoningkit_fetcher.clip_siteindex_to_extent(
                 zone_cache, self.output_dir,

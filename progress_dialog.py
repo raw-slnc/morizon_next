@@ -16,14 +16,28 @@
 """
 
 import os
-import sys
 from datetime import datetime
 
 # QGIS-API
 from qgis.PyQt import uic
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QEvent, QEventLoop, QObject, Qt, QTimer
 from qgis.PyQt.QtGui import QIcon, QKeyEvent
 from qgis.PyQt.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSizePolicy
+
+# 処理がこの時間（ミリ秒）を過ぎても続いているときだけ、進捗の窓を出す
+SHOW_DELAY_MS = 500
+
+
+class _InputBlocker(QObject):
+    """進捗の窓を出すまでの間、利用者のマウス・キー操作を受け付けない"""
+
+    _BLOCKED = {
+        QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick,
+        QEvent.Type.KeyPress, QEvent.Type.KeyRelease, QEvent.Type.Wheel, QEvent.Type.Shortcut,
+    }
+
+    def eventFilter(self, obj, event):
+        return event.type() in self._BLOCKED
 
 
 class _StatusLine(QLabel):
@@ -53,10 +67,6 @@ class ProgressDialog(QDialog):
     def __init__(self, set_abort_flag_callback):
         super().__init__()
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
-        if sys.platform.startswith("win"):
-            # Windows では、処理の途中で外部のプログラム（GRASS・GDAL など）のコマンドプロンプトが手前に開き、
-            # この窓を隠してしまう。常に手前に出して、コマンドプロンプトは後ろに回す
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self
         )
@@ -66,6 +76,8 @@ class ProgressDialog(QDialog):
         )
 
         self.set_abort_flag_callback = set_abort_flag_callback
+        self._closed = False
+        self._loop = QEventLoop()
         self.init_ui()
 
     def init_ui(self):
@@ -79,12 +91,35 @@ class ProgressDialog(QDialog):
         self.abortButton.clicked.connect(self.on_abort_click)
 
     def exec(self):
-        """閉じたあと、窓を消して下の画面を描き直してから戻る。
+        """処理が SHOW_DELAY_MS を過ぎても続いているときだけ窓を出し、close() されるまで待つ。
+        すぐ終わる処理で窓を出すと、中身を描く前に閉じられ、直前に同じ位置にあった窓の絵が
+        残像として残るため（取得済みデータの再取得などで起きた）。窓を出すまでの間は、
+        他の画面を操作できないよう利用者の入力を受け付けない。
+        閉じたあとは、窓を消して下の画面を描き直してから戻る。
         戻ってすぐ次の知らせ（終了・エラーなど）を出すと、閉じた窓の絵が描き直されずに残像として残るため"""
-        result = super().exec()
+        app = QApplication.instance()
+        blocker = _InputBlocker()
+        app.installEventFilter(blocker)
+
+        def show_if_running():
+            if self._closed:
+                return
+            app.removeEventFilter(blocker)
+            self.setWindowModality(Qt.WindowModality.ApplicationModal)
+            self.show()
+
+        QTimer.singleShot(SHOW_DELAY_MS, show_if_running)
+        if not self._closed:
+            self._loop.exec()
+        app.removeEventFilter(blocker)
         self.hide()
         QApplication.processEvents()
-        return result
+        return self.result()
+
+    def close(self):
+        self._closed = True
+        self._loop.quit()
+        return super().close()
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key.Key_Escape:

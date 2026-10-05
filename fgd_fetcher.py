@@ -5,6 +5,7 @@
 import os
 import shutil
 import subprocess
+import time
 
 import requests
 
@@ -97,34 +98,70 @@ def query_latest(session: requests.Session, type_code: str, mesh_codes: list) ->
     return data.get("results", [])
 
 
-def download_file(session: requests.Session, file_id: int, output_path: str, cancel_cb=None):
+def download_file(session: requests.Session, file_id: int, output_path: str, cancel_cb=None,
+                  chunk_cb=None):
+    """chunk_cb(受け取ったバイト数) は受け取るたびに呼ぶ（このファイル内の累計）"""
     url = f"{API_BASE}/download/file/{file_id}"
     with session.get(url, timeout=60, stream=True) as resp:
         resp.raise_for_status()
+        received = 0
         with open(output_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=262144):
                 if cancel_cb and cancel_cb():
                     raise InterruptedError()
                 if chunk:
                     f.write(chunk)
+                    received += len(chunk)
+                    if chunk_cb:
+                        chunk_cb(received)
     return output_path
 
 
+def _item_size(item: dict) -> int:
+    """一覧に載っている大きさ（KB単位）をバイトで返す。載っていなければ0"""
+    try:
+        return int(item.get("file_size_kbyte") or 0) * 1024
+    except (TypeError, ValueError):
+        return 0
+
+
 def fetch_meshes(session: requests.Session, type_code: str, mesh_codes: list, cache_dir: str,
-                 progress_cb=None, cancel_cb=None) -> list:
-    """type_code・メッシュ群のZIPをcache_dirへダウンロードする（既存ファイルはスキップ）。ZIPパスのリストを返す"""
+                 progress_cb=None, cancel_cb=None, size_cb=None, listed_sizes=None) -> list:
+    """type_code・メッシュ群のZIPをcache_dirへダウンロードする（既存ファイルはスキップ）。ZIPパスのリストを返す。
+    size_cb(全体の大きさ, そろえた量) はバイト単位で、一覧を取った直後と受け取りの途中
+    （0.15秒間隔に間引く）、各ファイルの終わりに呼ぶ。そろえた量は、取得済みで使い回すファイルも
+    ダウンロードしたファイルと同じく数える（共有フォルダから写してくる見え方にする）。
+    どちらも一覧に載っている大きさで数え、最後は全体の大きさと同じになる。
+    listed_sizes に辞書を渡すと、ZIPのパスごとに一覧に載っている大きさ（バイト）を入れる"""
     os.makedirs(cache_dir, exist_ok=True)
     items = query_latest(session, type_code, mesh_codes)
     zip_paths = []
     total = len(items)
+    needed_bytes = sum(_item_size(item) for item in items)
+    obtained_bytes = 0
+    if size_cb:
+        size_cb(needed_bytes, obtained_bytes)
     for i, item in enumerate(items):
         if cancel_cb and cancel_cb():
             raise InterruptedError()
         file_name = item["file_name"]
         out_path = os.path.join(cache_dir, file_name)
+        if listed_sizes is not None:
+            listed_sizes[out_path] = _item_size(item)
         if not os.path.exists(out_path):
-            download_file(session, item["id"], out_path, cancel_cb=cancel_cb)
+            last_report = [0.0]
+
+            def on_chunk(received, size=_item_size(item)):
+                now = time.monotonic()
+                if size_cb and now - last_report[0] >= 0.15:
+                    last_report[0] = now
+                    size_cb(needed_bytes, obtained_bytes + min(received, size))
+
+            download_file(session, item["id"], out_path, cancel_cb=cancel_cb, chunk_cb=on_chunk)
+        obtained_bytes += _item_size(item)
         zip_paths.append(out_path)
+        if size_cb:
+            size_cb(needed_bytes, obtained_bytes)
         if progress_cb:
             progress_cb(i + 1, total, file_name)
     return zip_paths
@@ -134,8 +171,9 @@ def merge_layers(zip_paths: list, output_path: str,
                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
                  include_layer_names=None, driver_format="ESRI Shapefile",
                  output_layer=None, dst_crs="EPSG:4326",
-                 clip_to_extent=True) -> bool:
+                 clip_to_extent=True, zip_done_cb=None) -> bool:
     """複数ZIP内のGMLレイヤーを1つのベクタファイルへ範囲クリップしつつ統合する。
+    zip_done_cb(ZIPのパス) は、ZIPを1つまとめ終えるごとに呼ぶ。
     include_layer_names未指定の場合はZIP内の全レイヤーを対象にする。
     driver_formatは"ESRI Shapefile"（既存のフォルダ読み込み規約=INPUT_BUILDING/INPUT_NETWORKに合わせる）
     または"GPKG"。1件以上書き込めた場合はTrueを返す。
@@ -201,6 +239,8 @@ def merge_layers(zip_paths: list, output_path: str,
                 if translated is not None:
                     translated = None
                     first = False
+        if zip_done_cb:
+            zip_done_cb(zip_path)
 
     if first:
         return False
@@ -272,6 +312,10 @@ def _remove_shapefile_dataset(output_path: str):
 def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
                      driver_format: str, output_layer: str, first: bool,
                      clip_to_extent: bool, extent_wgs84: tuple, dst_crs: str):
+    """GPKG へ書くときは、ディスクへの書き込みを待たない設定にする。壊れた地物を飛ばす指定
+    （skipfailures）をすると1件ごとに保存を確定するようになり、待つ設定のままでは建物4.5万件で
+    約3分かかった（待たない設定で約5秒）。書き先は呼び出し側の一時ファイルで、途中で止まって
+    壊れても捨てるだけなので、待たなくてよい"""
     ogr2ogr = shutil.which("ogr2ogr")
     if ogr2ogr:
         return _translate_layer_with_ogr2ogr(
@@ -280,7 +324,14 @@ def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
         )
 
     from osgeo import gdal
-    return gdal.VectorTranslate(output_path, src, **kwargs)
+    if driver_format != "GPKG":
+        return gdal.VectorTranslate(output_path, src, **kwargs)
+    previous = gdal.GetConfigOption("OGR_SQLITE_SYNCHRONOUS")
+    gdal.SetConfigOption("OGR_SQLITE_SYNCHRONOUS", "OFF")
+    try:
+        return gdal.VectorTranslate(output_path, src, **kwargs)
+    finally:
+        gdal.SetConfigOption("OGR_SQLITE_SYNCHRONOUS", previous)
 
 
 def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
@@ -305,6 +356,8 @@ def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
         cmd.extend(["-nln", target_layer])
     if driver_format == "ESRI Shapefile":
         cmd.extend(["-lco", "ENCODING=UTF-8"])
+    if driver_format == "GPKG":
+        cmd.extend(["--config", "OGR_SQLITE_SYNCHRONOUS", "OFF"])
     cmd.extend([output_path, src, layer_name])
 
     completed = subprocess.run(

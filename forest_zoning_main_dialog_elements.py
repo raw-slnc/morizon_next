@@ -5,9 +5,12 @@
 import os
 import shutil
 import gc
+import zipfile
 
 # QGIS-API
-from qgis.PyQt.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, QPoint, QTimer, QUrl, Qt
+from qgis.PyQt.QtCore import (
+    QCoreApplication, QEvent, QEventLoop, QFileSystemWatcher, QObject, QPoint, QTimer, QUrl, Qt,
+)
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import (
     QApplication,
@@ -196,20 +199,82 @@ class ForestZoningMainDialogElements:
         """原版の作業システムExcelを DATA/SAGYO-SYSTEM_CSV に置き、既定のアプリで開く。
         すでに置いてある場合は、編集途中の内容を消さないようそのファイルを開く"""
         if not self.main.has_workspace():
-            QMessageBox.information(
-                self.main, "エラー", "先にQGISプロジェクトを保存してください（Excelを作業フォルダに置きます）。"
-            )
+            QMessageBox.information(self.main, "エラー", self._no_workspace_message(
+                "先にQGISプロジェクトを保存してください（Excelを作業フォルダに置きます）。",
+                "作業を開始した後でExcelを開けます。",
+            ))
             return
         target = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
         if not os.path.isfile(target):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             shutil.copyfile(os.path.join(os.path.dirname(__file__), COSTCSV_TEMPLATE_FILE), target)
+        self._watch_costcsv_excel(target)
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
             QMessageBox.information(
                 self.main, "Excelを開けません",
                 "xlsxを開けるアプリが見つかりませんでした。次のファイルを表計算ソフトで開いてください。\n"
                 f"{target}"
             )
+
+    # ── 作業システムのExcelの上書き保存を見張る ─────────────────────────────
+    # 「Excelシートを開く」で開いたExcelを利用者が上書き保存したら、その内容を作業システム設定の表示に
+    # 読み込む（CSVで保存し直して「CSVインポート」で選ぶ手間を無くすため）。設定への反映は、表示を
+    # 確かめてから「CSVとして反映する」で行う。
+    # 表計算ソフトによっては、保存のときにファイルを書き直して置き換えるため見張りが外れる。
+    # 書き込みの途中で読まないよう、変更の知らせから少し待ってから読み、見張りも付け直す。
+    EXCEL_RELOAD_DELAY_MS = 800
+    EXCEL_RELOAD_RETRIES = 5
+
+    def _watch_costcsv_excel(self, path):
+        if getattr(self, "_excel_watcher", None) is None:
+            self._excel_watcher = QFileSystemWatcher(self.main)
+            self._excel_watcher.fileChanged.connect(self._on_costcsv_excel_changed)
+            self._excel_timer = QTimer(self.main)
+            self._excel_timer.setSingleShot(True)
+            self._excel_timer.setInterval(self.EXCEL_RELOAD_DELAY_MS)
+            self._excel_timer.timeout.connect(self._load_costcsv_excel)
+        watched = self._excel_watcher.files()
+        if watched:
+            self._excel_watcher.removePaths(watched)
+        self._excel_watcher.addPath(path)
+        self._excel_path = path
+        self._excel_mtime = os.path.getmtime(path)
+        self._excel_retries = 0
+
+    def _on_costcsv_excel_changed(self, _path):
+        self._excel_retries = 0
+        self._excel_timer.start()
+
+    def _load_costcsv_excel(self):
+        path = self._excel_path
+        # 別のプロジェクトに切り替わっていたら、前のプロジェクトのExcelは読まない
+        if not self.main.has_workspace() or path != utils.get_workspace_dir(
+            DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME
+        ):
+            self._excel_watcher.removePaths(self._excel_watcher.files() or [path])
+            return
+        if not (os.path.isfile(path) and zipfile.is_zipfile(path)):
+            # 置き換えや書き込みの途中。少し待ってからもう一度見る
+            if self._excel_retries < self.EXCEL_RELOAD_RETRIES:
+                self._excel_retries += 1
+                self._excel_timer.start()
+            return
+        if path not in self._excel_watcher.files():
+            self._excel_watcher.addPath(path)
+        mtime = os.path.getmtime(path)
+        if mtime == self._excel_mtime:
+            return
+        self._excel_mtime = mtime
+        try:
+            self.costcsv_editor.load_from_xlsx(path)
+        except ValueError as e:
+            QMessageBox.information(self.main, "Excelの読み込み", f"保存したExcelを表示に読み込めませんでした。\n\n{e}")
+
+    @staticmethod
+    def _no_workspace_message(unsaved_text, not_started_text):
+        """作業フォルダが無いときの知らせ。プロジェクトが未保存ならそのこと、保存済みなら作業をまだ始めていない
+        （作業フォルダが「なし」）ことを伝える"""
+        return unsaved_text if QgsProject.instance().homePath() == "" else not_started_text
 
     def import_costcsv(self):
         """作業システムCSVを選び、パターンと機材名を作業システム設定の表示に読み込む"""
@@ -228,9 +293,10 @@ class ForestZoningMainDialogElements:
 
     def handle_costcsv_export(self, editor_widget):
         if not self.main.has_workspace():
-            QMessageBox.information(
-                self.main, "エラー", "先にQGISプロジェクトを保存してください。"
-            )
+            QMessageBox.information(self.main, "エラー", self._no_workspace_message(
+                "先にQGISプロジェクトを保存してください。",
+                "作業を開始した後で反映できます。",
+            ))
             return
         target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         output_path = os.path.join(target_dir, "costcsv.csv")

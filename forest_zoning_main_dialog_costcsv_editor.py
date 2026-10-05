@@ -5,6 +5,10 @@
 import bisect
 import csv
 import os
+import posixpath
+import re
+import xml.etree.ElementTree as ET
+import zipfile
 
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
@@ -15,22 +19,23 @@ from qgis.PyQt.QtWidgets import (
 
 from .constants import RAWDATA_COLORS_COST
 
-# もりぞん実データ(ZoningKit_08 集材作業効率の設定220113.xlsx「入力例」シート)から実測した値
+# 起伏量・傾斜のしきい値（原版の「集材作業効率の設定220113.xlsx」と同じ）
 RUGGEDNESS_THRESHOLDS = [0, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
 SLOPE_THRESHOLDS = [0, 15, 20, 25, 30, 35, 40]
 
-# 起伏量の昇順(行0=0-100側)で並べたスコア(機材コード0-10)。実データそのまま
+# デフォルト：同梱の原版Excel（templates/sagyo_system_template_220113.xlsx）の「入力例」シートと同じ内容。
+# 起伏量の昇順(行0=0-100側)で並べたスコア(機材コード0-10)。利用者がデフォルトを変える手段は設けない
 DEFAULT_SCORES_ASCENDING = [
     [10, 9, 9, 6, 4, 2],   # 0-100
     [10, 9, 8, 6, 4, 2],   # 100-150
-    [10, 9, 8, 6, 4, 2],   # 150-200
+    [10, 8, 8, 6, 4, 2],   # 150-200
     [10, 8, 7, 5, 3, 2],   # 200-250
-    [10, 8, 7, 5, 3, 2],   # 250-300
+    [7, 7, 7, 5, 3, 2],    # 250-300
     [7, 7, 7, 5, 2, 2],    # 300-350
     [7, 7, 7, 5, 2, 2],    # 350-400
-    [7, 7, 7, 2, 2, 2],    # 400-450
-    [7, 7, 7, 2, 2, 2],    # 450-500
-    [7, 7, 7, 2, 2, 2],    # 500-550
+    [7, 7, 2, 2, 2, 1],    # 400-450
+    [2, 2, 2, 2, 1, 1],    # 450-500
+    [1, 1, 1, 1, 1, 0],    # 500-550
 ]
 
 # コード降順(10→0)。コードは数値自体に意味は無く、機材名への参照キーに過ぎない
@@ -44,13 +49,13 @@ DEFAULT_LEGEND = [
     (4, "3-4tウィンチ"),
     (3, "タワーヤーダ"),
     (2, "本架線"),
-    (1, "未設定"),
+    (1, "ー"),
     (0, "未設定"),
 ]
 
 # 作業マージン: 傾斜(度)を実際よりどれだけ緩やかに(厳しく)見なすかのシフト量。
-# 機材の物理的な限界がある以上、この余地はごくわずかであるべき(ユーザー指示により±5度を上限とする)
-MARGIN_DEGREES_MAX = 5
+# 機材の物理的な限界がある以上、この余地はごくわずかであるべき(ユーザー指示により±3度を上限とする)
+MARGIN_DEGREES_MAX = 3
 
 
 def read_costcsv(csv_path: str):
@@ -68,7 +73,71 @@ def read_costcsv(csv_path: str):
             continue
     if rows is None:
         raise ValueError("文字コードを判別できません（Shift_JIS か UTF-8 で保存してください）")
+    return parse_costcsv_rows(rows)
 
+
+# 原版のExcelひな形で、CSVと同じ形の表が式で組み上がるシート
+XLSX_CSV_SHEET = "CSVで出力"
+
+
+def read_costcsv_xlsx(xlsx_path: str):
+    """原版のExcelひな形（利用者が「入力」シートを編集して保存したもの）の「CSVで出力」シートを読み、
+    read_costcsv と同じ形で返す。CSVで保存し直さなくても済むようにするため。
+    式の結果は、表計算ソフトが保存したときにファイルへ書き込んだ値を使う。
+    QGISの環境によって表計算ファイル用の部品が入っていないことがあるため、標準の機能だけで読む"""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    try:
+        with zipfile.ZipFile(xlsx_path) as book:
+            workbook = ET.fromstring(book.read("xl/workbook.xml"))
+            sheets = workbook.iterfind("m:sheets/m:sheet", ns)
+            sheet = next((s for s in sheets if s.get("name") == XLSX_CSV_SHEET), None)
+            if sheet is None:
+                raise ValueError(f"「{XLSX_CSV_SHEET}」シートが見つかりません")
+            rels = ET.fromstring(book.read("xl/_rels/workbook.xml.rels"))
+            target = next(r.get("Target") for r in rels if r.get("Id") == sheet.get(rel_ns))
+            if target.startswith("/"):
+                sheet_path = target.lstrip("/")
+            else:
+                sheet_path = posixpath.normpath(posixpath.join("xl", target))
+            shared = []
+            if "xl/sharedStrings.xml" in book.namelist():
+                for si in ET.fromstring(book.read("xl/sharedStrings.xml")).iterfind("m:si", ns):
+                    shared.append("".join(t.text or "" for t in si.iter(f"{{{ns['m']}}}t")))
+            sheet_xml = ET.fromstring(book.read(sheet_path))
+    except (zipfile.BadZipFile, KeyError, StopIteration, ET.ParseError) as e:
+        raise ValueError(f"Excelファイルとして読めません（{e}）") from e
+
+    rows = []
+    for row in sheet_xml.iterfind("m:sheetData/m:row", ns):
+        row_index = int(row.get("r")) - 1
+        while len(rows) <= row_index:
+            rows.append([])
+        cells = rows[row_index]
+        for cell in row.iterfind("m:c", ns):
+            letters = re.match(r"[A-Z]+", cell.get("r")).group(0)
+            col_index = 0
+            for ch in letters:
+                col_index = col_index * 26 + ord(ch) - ord("A") + 1
+            col_index -= 1
+            cell_type = cell.get("t")
+            if cell_type == "inlineStr":
+                text = "".join(t.text or "" for t in cell.iter(f"{{{ns['m']}}}t"))
+            else:
+                value = cell.find("m:v", ns)
+                text = value.text if value is not None and value.text is not None else ""
+                if cell_type == "s" and text:
+                    text = shared[int(text)]
+            while len(cells) <= col_index:
+                cells.append("")
+            cells[col_index] = text.strip()
+    if not rows or not any(rows[0]):
+        raise ValueError(f"「{XLSX_CSV_SHEET}」シートに値がありません（表計算ソフトで保存し直してください）")
+    return parse_costcsv_rows(rows)
+
+
+def parse_costcsv_rows(rows):
+    """作業システムCSVと同じ並びの表（文字列の行の配列）を読み、read_costcsv と同じ形で返す"""
     def to_number(text):
         try:
             return float(text)
@@ -182,7 +251,7 @@ class CostCsvEditorWidget(QWidget):
         columns_row = QHBoxLayout()
 
         left_col = QVBoxLayout()
-        # 一覧の見出しの行に、いま表示しているパターンの出どころ（標準パターンか、読み込んだCSVか）を
+        # 一覧の見出しの行に、いま表示しているパターンの出どころ（デフォルトか、読み込んだファイルか）を
         # 一覧の幅の中で右寄せに並べる
         title_row = QHBoxLayout()
         title_row.addWidget(QLabel("機材名の一覧（色は右のパネルに対応。名前は編集できます）"))
@@ -250,33 +319,34 @@ class CostCsvEditorWidget(QWidget):
         layout.addLayout(columns_row)
 
         button_row = QHBoxLayout()
-        self.loadDefaultButton = QPushButton("初期値を読み込む")
+        self.loadDefaultButton = QPushButton("デフォルトに戻す")
         self.loadDefaultButton.clicked.connect(lambda: self.load_defaults())
-        button_row.addWidget(self.loadDefaultButton)
-        self.exportButton = QPushButton("CSVとして設定に反映する")
+        self.exportButton = QPushButton("CSVとして反映する")
         self.exportButton.setToolTip("表示中のパターンをCSVに書き出し、作業システムCSV欄に設定します")
         self.exportButton.clicked.connect(self._on_export_clicked)
-        button_row.addWidget(self.exportButton)
-        # 地域の作業システムを細かく決めたい場合は、原版のExcelひな形で作ったCSVを読み込む
-        self.openTemplateButton = QPushButton("デフォルトExcelを開く")
+        # 地域の作業システムを細かく決めたい場合は、原版のExcelひな形を編集する。
+        # 上書き保存すると、その内容が表示に読み込まれる（forest_zoning_main_dialog_elements.py）
+        self.openTemplateButton = QPushButton("Excelシートを開く")
         self.openTemplateButton.setToolTip(
-            "原版の「集材作業効率の設定」Excelを、プロジェクトの DATA/SAGYO-SYSTEM_CSV フォルダに置いて開きます"
+            "原版の「集材作業効率の設定」Excelを、プロジェクトの DATA/SAGYO-SYSTEM_CSV フォルダに置いて開きます。"
+            "「入力」シートを編集して上書き保存すると、その内容が表示に読み込まれます"
         )
         if on_open_template:
             self.openTemplateButton.clicked.connect(on_open_template)
-        button_row.addWidget(self.openTemplateButton)
         self.importButton = QPushButton("CSVインポート")
         self.importButton.setToolTip(
-            "作業システムCSVのパターンと機材名を表示に読み込みます（設定への反映は「CSVとして設定に反映する」で行います）"
+            "作業システムCSVのパターンと機材名を表示に読み込みます（設定への反映は「CSVとして反映する」で行います）"
         )
         if on_import:
             self.importButton.clicked.connect(on_import)
-        button_row.addWidget(self.importButton)
         # 凡例で機材を選び、パネルをクリック・ドラッグして割り当てる機能の予定地（未実装）
         self.interactiveButton = QPushButton("インタラクティブモード（準備中）")
         self.interactiveButton.setToolTip("準備中の機能です。押すと予定している内容を表示します")
         self.interactiveButton.clicked.connect(self._show_interactive_plan)
-        button_row.addWidget(self.interactiveButton)
+        # 並びは、Excelで編集して反映する手順の順（開く → 反映する）
+        for button in (self.openTemplateButton, self.exportButton, self.importButton,
+                       self.loadDefaultButton, self.interactiveButton):
+            button_row.addWidget(button)
         layout.addLayout(button_row)
 
         self.load_defaults(persist=False)
@@ -288,7 +358,7 @@ class CostCsvEditorWidget(QWidget):
     def load_defaults(self, persist=True):
         self._set_pattern(
             DEFAULT_SCORES_ASCENDING, dict(DEFAULT_LEGEND),
-            "表示中：標準パターン（実データに基づく）", persist,
+            "表示中：デフォルト", persist,
         )
 
     def load_from_csv(self, csv_path: str, persist=True):
@@ -300,6 +370,15 @@ class CostCsvEditorWidget(QWidget):
         file_name = os.path.basename(csv_path)
         self._set_pattern(scores, merged_names, f"表示中：{file_name}", persist,
                           elide_part=file_name, tooltip=csv_path)
+
+    def load_from_xlsx(self, xlsx_path: str, persist=True):
+        """原版のExcelひな形の内容を表示に反映する（load_from_csv と同じ扱い）。読めない場合は ValueError"""
+        scores, names = read_costcsv_xlsx(xlsx_path)
+        merged_names = dict(DEFAULT_LEGEND)
+        merged_names.update(names)
+        file_name = os.path.basename(xlsx_path)
+        self._set_pattern(scores, merged_names, f"表示中：{file_name}", persist,
+                          elide_part=file_name, tooltip=xlsx_path)
 
     def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None):
         self._base_scores = [row[:] for row in scores_ascending]
@@ -547,8 +626,8 @@ class CostCsvEditorWidget(QWidget):
         "<li>塗っている間はマージンを 0° にして、マスの区切りどおりに表示する</li>"
         "<li>一覧は上ほど集材効率が高い扱いであることを、一覧に明記する</li>"
         "</ul>"
-        "<p>それまでは、「デフォルトExcelを開く」でひな形を編集し、"
-        "「CSVインポート」で読み込んでください。</p>"
+        "<p>それまでは、「Excelシートを開く」でひな形を編集して上書き保存し、"
+        "表示を確かめてから「CSVとして反映する」を押してください。</p>"
     )
 
     def _show_interactive_plan(self):

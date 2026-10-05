@@ -332,7 +332,7 @@ class VirtualShizuokaSource(DemSource):
 
             check_cancel(cancel_cb)
             reporter.message("タイルを結合して保存中")
-            reporter.detail(f"EPSG:{EPSG}・{RESOLUTION}m")
+            reporter.detail(f"座標系 EPSG:{EPSG}・{RESOLUTION}m として保存")
             cols, rows, filled = build_dem_from_tiles(tile_paths, bbox, EPSG, output_path, RESOLUTION)
             reporter.step()
         finally:

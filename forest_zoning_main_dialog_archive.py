@@ -186,7 +186,7 @@ class ForestZoningMainDialogArchive:
             for filepath in self.get_companion_files(path, input_def["EXT"]):
                 entries.append(("/".join([DIR_DATA, *input_def["PATH"], os.path.basename(filepath)]), filepath))
 
-        # 作業システムのExcel（「デフォルトExcelを開く」で置いたもの・原版キットに入っていたもの）も
+        # 作業システムのExcel（「Excelシートを開く」で置いたもの・原版キットに入っていたもの）も
         # クリアで消えないよう、CSVと同じフォルダに入れて残す
         costcsv_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         if os.path.isdir(costcsv_dir):

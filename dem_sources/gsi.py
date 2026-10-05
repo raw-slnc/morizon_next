@@ -66,7 +66,7 @@ class GsiSource(DemSource):
         resolution = nominal_resolution(loader.cell_size)
 
         reporter.message("平面直角座標系に変換して保存中")
-        reporter.detail(f"EPSG:{epsg}・{resolution}m")
+        reporter.detail(f"座標系 EPSG:{epsg}・{resolution}m として保存")
         reporter.step()
         fd, mercator_path = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(output_path) or None)
         os.close(fd)
