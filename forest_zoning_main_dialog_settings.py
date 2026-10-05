@@ -1,5 +1,6 @@
-# This file is part of MORIZON NEXT.
-# Copyright (C) 2026 Hideharu Masai
+# This file is part of MORIZON NEXT, modified from the original MORIZON (v2.1)
+# forest_zoning_settings_dialog.py.
+# Modified by Hideharu Masai since 2026-09-29. See the Git history for the changes and their dates.
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import json
