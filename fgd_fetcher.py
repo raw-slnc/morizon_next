@@ -252,9 +252,10 @@ def merge_layers(zip_paths: list, output_path: str,
     return True
 
 
-def create_empty_line_shapefile(output_path: str, dst_crs="EPSG:4326",
-                                layer_name=None) -> str:
-    """後続処理へ「道路地物なし」を明示的に渡すための空ラインShapefileを作る。"""
+def create_empty_shapefile(output_path: str, dst_crs="EPSG:4326",
+                           layer_name=None, polygon=False) -> str:
+    """後続処理へ「道路地物なし」「建物なし」を明示的に渡すための空のShapefileを作る。
+    道路は線（polygon=False）、建物は面（polygon=True）"""
     from osgeo import ogr, osr
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -262,18 +263,18 @@ def create_empty_line_shapefile(output_path: str, dst_crs="EPSG:4326",
     driver = ogr.GetDriverByName("ESRI Shapefile")
     ds = driver.CreateDataSource(output_path)
     if ds is None:
-        raise RuntimeError(f"空の道路データを作成できませんでした: {output_path}")
+        raise RuntimeError(f"空のデータを作成できませんでした: {output_path}")
     srs = osr.SpatialReference()
     if dst_crs:
         srs.SetFromUserInput(dst_crs)
     layer = ds.CreateLayer(
         layer_name or os.path.splitext(os.path.basename(output_path))[0],
         srs,
-        ogr.wkbLineString,
+        ogr.wkbPolygon if polygon else ogr.wkbLineString,
     )
     if layer is None:
         ds = None
-        raise RuntimeError(f"空の道路レイヤーを作成できませんでした: {output_path}")
+        raise RuntimeError(f"空のレイヤーを作成できませんでした: {output_path}")
     field = ogr.FieldDefn("gml_id", ogr.OFTString)
     field.SetWidth(80)
     layer.CreateField(field)

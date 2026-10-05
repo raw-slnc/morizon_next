@@ -46,6 +46,7 @@ class ProcessingThread(QThread):
         self.output_dir = output_dir
         self.final_extent_wgs84 = final_extent_wgs84
         self.no_road_distance_created = False
+        self.no_building_savearea_created = False
 
         self.abort_flag = False
         self.feedback = None
@@ -288,29 +289,31 @@ class ProcessingThread(QThread):
                 self.addProgress.emit(1)
                 progress_counter += 1
 
-                savearea_filepath = raster_writer.savearea.generate(dem_for_processes,
-                                                                    self.input_files_dict["building"],
-                                                                    self.output_dir,
-                                                                    feedback=self.feedback)
-                if savearea_filepath is None:
+                savearea_filepath, no_building_savearea_created = raster_writer.savearea.generate(
+                    dem_for_processes,
+                    self.input_files_dict["building"],
+                    self.output_dir,
+                    feedback=self.feedback,
+                )
+                if no_building_savearea_created:
+                    self.no_building_savearea_created = True
                     self.postMessage.emit(
-                        f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 対象範囲に建物データが無いためスキップしました')
-                else:
-                    savearea_filepath = self._clip_final_output(savearea_filepath)
-                    savearea_rawdata_qml_filepath = raster_styler.savearea.write_rawdata_qml(
-                        self.output_dir)
-                    savearea_scoring_qml_filepath = raster_styler.savearea.write_scoring_qml(
-                        self.output_dir)
-                    savearea_rawdata_rlayer = QgsRasterLayer(savearea_filepath,
-                                                             OUTPUT_SAVEAREA["DISPLAY_NAME"])
-                    savearea_scoring_rlayer = QgsRasterLayer(savearea_filepath,
-                                                             OUTPUT_SAVEAREA["DISPLAY_NAME"] + "[スコアリング]")
-                    savearea_rawdata_rlayer.loadNamedStyle(
-                        savearea_rawdata_qml_filepath)
-                    savearea_scoring_rlayer.loadNamedStyle(
-                        savearea_scoring_qml_filepath)
-                    output_rlayers_dict[OUTPUT_SAVEAREA["DISPLAY_NAME"]] = [
-                        savearea_rawdata_rlayer, savearea_scoring_rlayer]
+                        f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 建物が無いため全域を保全対象なしとして作成しました')
+                savearea_filepath = self._clip_final_output(savearea_filepath)
+                savearea_rawdata_qml_filepath = raster_styler.savearea.write_rawdata_qml(
+                    self.output_dir)
+                savearea_scoring_qml_filepath = raster_styler.savearea.write_scoring_qml(
+                    self.output_dir)
+                savearea_rawdata_rlayer = QgsRasterLayer(savearea_filepath,
+                                                         OUTPUT_SAVEAREA["DISPLAY_NAME"])
+                savearea_scoring_rlayer = QgsRasterLayer(savearea_filepath,
+                                                         OUTPUT_SAVEAREA["DISPLAY_NAME"] + "[スコアリング]")
+                savearea_rawdata_rlayer.loadNamedStyle(
+                    savearea_rawdata_qml_filepath)
+                savearea_scoring_rlayer.loadNamedStyle(
+                    savearea_scoring_qml_filepath)
+                output_rlayers_dict[OUTPUT_SAVEAREA["DISPLAY_NAME"]] = [
+                    savearea_rawdata_rlayer, savearea_scoring_rlayer]
         except Exception as e:
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
             self.processFailed.emit(str(e))

@@ -68,6 +68,8 @@ MORIZON_GUIDE_URL = (
 MORIZON_GUIDE_TITLE = "収益性と災害リスクを考慮した森林ゾーニングの手引き（令和8年3月）"
 # 上の手引で、道路データと地利について書かれたページ
 MORIZON_GUIDE_ROAD_PAGES = "p.42〜43/p.71〜72"
+# 上の手引で、保全対象との関係（距離）と、要素「保全対象を含む流域」について書かれたページ
+MORIZON_GUIDE_BUILDING_PAGES = "p.23〜24/p.75"
 
 # 「道路と建物を出力」で出すレイヤーのグループと表示。建築物は国土地理院のタイル（地理院地図）に似せた表示
 # （オレンジの塗り・外周線なし）、道路縁は細い黒線（ラスターの上でも見分けやすいように。
@@ -901,16 +903,25 @@ class ForestZoningMainDialogElements:
         missing = []
         if result.get("building"):
             self.main.elementsBuildingFileWidget.setFilePath(result["building"])
+            if result.get("building_empty"):
+                self._show_guide_warning(
+                    "建物がありません",
+                    "基盤地図情報から取得した建物データに、対象範囲の建物がありませんでした。\n"
+                    "要素計算の「保全対象を含む流域」は、どの流域にも保全対象が無い条件（全域0）として作成します。\n\n"
+                    "地域の保全対象を反映する場合は、独自の建物データを作成して読み込んでください。",
+                    MORIZON_GUIDE_BUILDING_PAGES,
+                )
         else:
             missing.append("建物ポリゴン")
         if result.get("road"):
             self.main.elementsNetworkFileWidget.setFilePath(result["road"])
             if result.get("road_empty"):
-                self._show_no_road_warning(
+                self._show_guide_warning(
                     "道路地物がありません",
                     "基盤地図情報から取得した道路データに、地利計算に使える有効な道路地物がありませんでした。\n"
                     "要素計算の地利は、DEM全域を道路から遠い条件（1点相当）として作成します。\n\n"
                     "実際の林道・作業道を反映する場合は、独自の道路データを作成して読み込んでください。",
+                    MORIZON_GUIDE_ROAD_PAGES,
                 )
         else:
             missing.append("道路縁")
@@ -924,20 +935,24 @@ class ForestZoningMainDialogElements:
                 + "\n\n対象範囲に有効なジオメトリが無いか、基盤地図情報の変換に失敗しています。",
             )
             return
-        if result.get("road_empty"):
-            QMessageBox.information(
-                self.main, "完了", "建物ポリゴンを取得し、道路縁は空データとして設定しました。"
-            )
+        road_empty = result.get("road_empty")
+        building_empty = result.get("building_empty")
+        if road_empty and building_empty:
+            message = "建物ポリゴン・道路縁とも、空データとして設定しました。"
+        elif road_empty:
+            message = "建物ポリゴンを取得し、道路縁は空データとして設定しました。"
+        elif building_empty:
+            message = "道路縁を取得し、建物ポリゴンは空データとして設定しました。"
         else:
-            QMessageBox.information(
-                self.main, "完了", "建物ポリゴン・道路縁データを取得しました。"
-            )
+            message = "建物ポリゴン・道路縁データを取得しました。"
+        QMessageBox.information(self.main, "完了", message)
 
-    def _show_no_road_warning(self, title: str, message: str):
+    def _show_guide_warning(self, title: str, message: str, guide_pages: str):
+        """知らせの下に公式の手引の題名と参照ページを添え、手引を開くボタンを付けて出す"""
         box = QMessageBox(self.main)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(title)
-        text = f"{message}\n\n- 公式の手引 -\n{MORIZON_GUIDE_TITLE}\n参照ページ：{MORIZON_GUIDE_ROAD_PAGES}"
+        text = f"{message}\n\n- 公式の手引 -\n{MORIZON_GUIDE_TITLE}\n参照ページ：{guide_pages}"
         box.setText(text)
         # どの行も途中で折り返されない幅にする。フォントや大きさは OS・環境で違うため、
         # 実際に表示するフォントで各行の幅を測り、一番長い行に合わせる
@@ -1190,11 +1205,20 @@ class ForestZoningMainDialogElements:
             QMessageBox.information(self.main, "中断", "処理を中断しました。")
         else:
             if getattr(thread, "no_road_distance_created", False):
-                self._show_no_road_warning(
+                self._show_guide_warning(
                     "地利を全域1点相当で作成しました",
                     "設定された道路データには、地利計算に使える有効な道路地物がありませんでした。\n"
                     "地利はDEM全域を道路から遠い条件（1点相当）として作成しました。\n\n"
                     "実際の林道・作業道を反映する場合は、独自の道路データの作成をおすすめします。",
+                    MORIZON_GUIDE_ROAD_PAGES,
+                )
+            if getattr(thread, "no_building_savearea_created", False):
+                self._show_guide_warning(
+                    "保全対象を含む流域を全域0で作成しました",
+                    "設定された建物データには、建物がありませんでした。\n"
+                    "保全対象を含む流域は、どの流域にも保全対象が無い条件（全域0）として作成しました。\n\n"
+                    "地域の保全対象を反映する場合は、独自の建物データの作成をおすすめします。",
+                    MORIZON_GUIDE_BUILDING_PAGES,
                 )
             QMessageBox.information(self.main, "終了", "処理が終了しました。")
 

@@ -20,13 +20,12 @@ def generate(basis_dem_filepath: str,
              output_dir: str,
              feedback=None):
     """
-    保全対象を含む流域ラスターを生成する。building_filepathにフィーチャが
-    1件も無い場合（対象範囲に建物データが存在しない等）はNoneを返し、
-    呼び出し側でスキップできるようにする。
+    保全対象を含む流域ラスターを生成し、(出力のパス, 建物が無かったか) を返す。
+    building_filepathにフィーチャが1件も無い場合（対象範囲に建物が存在しない等）は、
+    道路が無い場合の地利と同じく飛ばさずに、どの流域にも保全対象が無い（流域のある所は全域0）として作る。
     """
     building_vlayer = QgsVectorLayer(building_filepath, "building", "ogr")
-    if building_vlayer.featureCount() == 0:
-        return None
+    no_building = building_vlayer.featureCount() == 0
 
     temp_dir = tempfile.mkdtemp()
     try:
@@ -55,6 +54,11 @@ def generate(basis_dem_filepath: str,
             'OUTPUT': basin_rasiterized_filepath,
         }, feedback=feedback)
         _assert_raster_ready(basin_rasiterized_filepath, "流域ラスタ")
+
+        output_filepath = os.path.join(
+            output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
+        if no_building:
+            return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), True
 
         fixed_building_vlayer = processing.run("native:fixgeometries", {
             "INPUT": building_filepath,
@@ -92,9 +96,6 @@ def generate(basis_dem_filepath: str,
             'OUTPUT': filtered_rasterized_filepath,
         }, feedback=feedback)
         _assert_raster_ready(filtered_rasterized_filepath, "建物流域ラスタ")
-
-        output_filepath = os.path.join(
-            output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
 
         # ラスター計算のためにEntry生成
         basin_rasterized_rlayer = _make_raster_layer(basin_rasiterized_filepath, "流域ラスタ")
@@ -135,9 +136,36 @@ def generate(basis_dem_filepath: str,
             raise RuntimeError(f"保全対象ラスターの計算に失敗しました: {result}")
         _assert_raster_ready(output_filepath, OUTPUT_SAVEAREA["DISPLAY_NAME"])
 
-        return output_filepath
+        return output_filepath, False
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _generate_no_building_savearea(basin_rasterized_filepath: str, output_filepath: str, feedback=None) -> str:
+    """建物が無いときの保全対象を含む流域ラスター。流域ポリゴンが無いエリア = No-data、
+    流域ポリゴンのあるエリア = 0（保全対象を含まない）。判定は建物があるときと同じ"""
+    basin_rasterized_rlayer = _make_raster_layer(basin_rasterized_filepath, "流域ラスタ")
+    basin_rasterized_entry = QgsRasterCalculatorEntry()
+    basin_rasterized_entry.ref = "basin_rasterized@1"
+    basin_rasterized_entry.raster = basin_rasterized_rlayer
+    basin_rasterized_entry.bandNumber = 1
+
+    NODATA_VALUE = "-3.40282347e+38"
+    calc = QgsRasterCalculator(
+        f"{NODATA_VALUE} * ({basin_rasterized_entry.ref} != 1) + 0 * ({basin_rasterized_entry.ref} = 1)",
+        output_filepath,
+        "GTiff",
+        basin_rasterized_rlayer.extent(),
+        basin_rasterized_rlayer.width(),
+        basin_rasterized_rlayer.height(),
+        (basin_rasterized_entry,))
+    if feedback is not None:
+        feedback.pushInfo("保全対象を含む流域ラスターを、建物なし（全域0）として計算しています")
+    result = calc.processCalculation()
+    if not _is_raster_calculator_success(result):
+        raise RuntimeError(f"保全対象ラスターの計算に失敗しました: {result}")
+    _assert_raster_ready(output_filepath, OUTPUT_SAVEAREA["DISPLAY_NAME"])
+    return output_filepath
 
 
 def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):

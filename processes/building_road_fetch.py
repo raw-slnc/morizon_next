@@ -19,7 +19,7 @@ class BuildingRoadFetchThread(QThread):
     addProgress = pyqtSignal(int)
     postMessage = pyqtSignal(str)
     postDetail = pyqtSignal(str)
-    processFinished = pyqtSignal(dict)  # {"building": path|None, "road": path|None}
+    processFinished = pyqtSignal(dict)  # {"road": path, "road_empty": bool, "building": path, "building_empty": bool}
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
 
@@ -63,9 +63,10 @@ class BuildingRoadFetchThread(QThread):
         return self._dem_crs
 
     def _fetch_and_merge(self, type_code: str, label: str, output_path: str, kind: str,
-                         include_layer_names=None, allow_empty_output=False):
+                         include_layer_names=None):
         """基盤地図情報を取得し、描画用の DB（layer_db.py）に入れてから、作業フォルダへ互換用の shp を書き出す
-        （DB → shp の順）。まとめる作業は一時フォルダの GPKG で行う（shp だと属性名が10バイトで切り詰められる）"""
+        （DB → shp の順）。まとめる作業は一時フォルダの GPKG で行う（shp だと属性名が10バイトで切り詰められる）。
+        (shp のパス, 地物が無かったか) を返す。地物が無いときは空のデータを作る"""
         # 容量の行：データサイズ（範囲にかかるファイル全部、固定）／ダウンロード（取得済みで使い回す分も含めて
         # そろえた量）／処理済（範囲でまとめ終えたファイルの量）。どれも一覧に載っている大きさで数える
         # 工程（取得中・まとめています）は状態の行に出し、詳しい欄には件数と容量だけを出す
@@ -129,12 +130,10 @@ class BuildingRoadFetchThread(QThread):
                 )
                 self.addProgress.emit(1)
             if not ok:
-                if not allow_empty_output:
-                    layer_db.clear(db_path, kind)
-                    return None
-                # 道路地物が無いことを後続の処理へ明示的に渡すため、空のデータを作る
-                work_path = fgd_fetcher.create_empty_line_shapefile(
-                    os.path.join(temp_dir, f"{kind}.shp"), self._get_dem_crs(), kind
+                # 道路・建物が無いことを後続の処理へ明示的に渡すため、空のデータを作る
+                work_path = fgd_fetcher.create_empty_shapefile(
+                    os.path.join(temp_dir, f"{kind}.shp"), self._get_dem_crs(), kind,
+                    polygon=(kind == layer_db.KIND_BUILDING),
                 )
             work_layer = QgsVectorLayer(
                 layer_db.layer_uri(work_path, kind) if work_path.endswith(".gpkg") else work_path, kind, "ogr"
@@ -144,9 +143,7 @@ class BuildingRoadFetchThread(QThread):
             layer_db.export_shp(db_path, kind, output_path)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
-        if allow_empty_output:
-            return output_path, not ok
-        return output_path
+        return output_path, not ok
 
     def run(self):
         try:
@@ -154,22 +151,16 @@ class BuildingRoadFetchThread(QThread):
             result = {}
 
             road_path = os.path.join(self.output_dir, "ROAD", "road_edge.shp")
-            road_result = self._fetch_and_merge(
+            result["road"], result["road_empty"] = self._fetch_and_merge(
                 fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁データ", road_path, layer_db.KIND_ROAD,
                 include_layer_names=fgd_fetcher.ROAD_LAYERS,
-                allow_empty_output=True,
             )
-            if isinstance(road_result, tuple):
-                result["road"], result["road_empty"] = road_result
-            else:
-                result["road"] = road_result
-                result["road_empty"] = False
             if self.abort_flag:
                 self.processFailed.emit("処理を中断しました。")
                 return
 
             building_path = os.path.join(self.output_dir, "TATEMONO", "building.shp")
-            result["building"] = self._fetch_and_merge(
+            result["building"], result["building_empty"] = self._fetch_and_merge(
                 fgd_fetcher.TYPE_CODE_BUILDING, "建物ポリゴンデータ", building_path, layer_db.KIND_BUILDING,
                 include_layer_names=fgd_fetcher.BUILDING_LAYERS,
             )
