@@ -225,6 +225,10 @@ class ForestZoningMainDialogSettings:
 
         smanager = SettingsManager()
         smanager.restore_default_settings()
+        # 地形の複雑さの計算方法も既定（SAGA OFF：プラグイン内で計算）に戻す。別の場所に保存しているため、
+        # 上の初期化だけでは戻らず、一度 ON にするとリセットしても ON のまま残っていた
+        ShcMethodManager().store_use_saga(False)
+        self.update_shc_method_button()
         self.set_values_from_stored_settings()
         self.main.scoring.set_scoring_score_labels_from_settings()
         QMessageBox.information(self.widget, "完了", "初期設定を復元しました")

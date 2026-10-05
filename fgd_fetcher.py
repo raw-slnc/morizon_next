@@ -188,55 +188,59 @@ def merge_layers(zip_paths: list, output_path: str,
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     _remove_shapefile_dataset(output_path)
     first = True
-    from .utils import get_ascii_safe_alias
+    from .utils import get_ascii_safe_alias, remove_files
 
     for zip_path in zip_paths:
         # 取得済みの ZIP はプロジェクトフォルダの中にあり、全角文字を含み得る。外部の ogr2ogr には
         # 半角の別名を渡す（移植時の方針：処理の内部でだけ半角のパスで扱う）
-        zip_for_read = get_ascii_safe_alias(zip_path)
-        for member in _zip_member_names(zip_for_read):
-            if not _is_feature_xml(member):
-                continue
-            src = f"/vsizip/{zip_for_read}/{member}"
-            ds = gdal.OpenEx(src, gdal.OF_VECTOR)
-            if ds is None:
-                continue
-            layer_count = ds.GetLayerCount()
-            ds = None
-            for i in range(layer_count):
+        aliases = []
+        zip_for_read = get_ascii_safe_alias(zip_path, created=aliases)
+        try:
+            for member in _zip_member_names(zip_for_read):
+                if not _is_feature_xml(member):
+                    continue
+                src = f"/vsizip/{zip_for_read}/{member}"
                 ds = gdal.OpenEx(src, gdal.OF_VECTOR)
-                layer = ds.GetLayer(i)
-                name = layer.GetName()
-                if include_layer_names and name not in include_layer_names:
-                    ds = None
+                if ds is None:
                     continue
-                feature_count = layer.GetFeatureCount()
+                layer_count = ds.GetLayerCount()
                 ds = None
-                if feature_count == 0:
-                    continue
-                kwargs = dict(
-                    format=driver_format,
-                    layers=[name],
-                    accessMode="overwrite" if first else "append",
-                    dstSRS=dst_crs,
-                    reproject=True,
-                    skipFailures=True,
-                )
-                if clip_to_extent:
-                    kwargs["spatFilter"] = (lon_min, lat_min, lon_max, lat_max)
-                    kwargs["spatSRS"] = "EPSG:4326"
-                if driver_format == "GPKG" and output_layer:
-                    kwargs["layerName"] = output_layer
-                if driver_format == "ESRI Shapefile":
-                    # DBFの既定エンコーディング(ISO-8859-1)では日本語属性が文字化けするため明示指定
-                    kwargs["layerCreationOptions"] = ["ENCODING=UTF-8"]
-                translated = _translate_layer(
-                    src, output_path, name, kwargs, driver_format, output_layer,
-                    first, clip_to_extent, (lon_min, lat_min, lon_max, lat_max), dst_crs,
-                )
-                if translated is not None:
-                    translated = None
-                    first = False
+                for i in range(layer_count):
+                    ds = gdal.OpenEx(src, gdal.OF_VECTOR)
+                    layer = ds.GetLayer(i)
+                    name = layer.GetName()
+                    if include_layer_names and name not in include_layer_names:
+                        ds = None
+                        continue
+                    feature_count = layer.GetFeatureCount()
+                    ds = None
+                    if feature_count == 0:
+                        continue
+                    kwargs = dict(
+                        format=driver_format,
+                        layers=[name],
+                        accessMode="overwrite" if first else "append",
+                        dstSRS=dst_crs,
+                        reproject=True,
+                        skipFailures=True,
+                    )
+                    if clip_to_extent:
+                        kwargs["spatFilter"] = (lon_min, lat_min, lon_max, lat_max)
+                        kwargs["spatSRS"] = "EPSG:4326"
+                    if driver_format == "GPKG" and output_layer:
+                        kwargs["layerName"] = output_layer
+                    if driver_format == "ESRI Shapefile":
+                        # DBFの既定エンコーディング(ISO-8859-1)では日本語属性が文字化けするため明示指定
+                        kwargs["layerCreationOptions"] = ["ENCODING=UTF-8"]
+                    translated = _translate_layer(
+                        src, output_path, name, kwargs, driver_format, output_layer,
+                        first, clip_to_extent, (lon_min, lat_min, lon_max, lat_max), dst_crs,
+                    )
+                    if translated is not None:
+                        translated = None
+                        first = False
+        finally:
+            remove_files(aliases)
         if zip_done_cb:
             zip_done_cb(zip_path)
 

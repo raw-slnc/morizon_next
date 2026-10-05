@@ -3,15 +3,18 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 from functools import lru_cache
+import gc
 import math
 import shutil
 import tempfile
+import time
 import os
 import re
 
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsApplication,
+    QgsProcessingUtils,
     QgsCoordinateReferenceSystem,
     QgsLayerTreeGroup,
     QgsMapLayer,
@@ -735,6 +738,8 @@ def get_tiff_info(tiff_filepath: str, feedback=None) -> dict:
     """
     from osgeo import gdal
 
+    if not os.path.exists(tiff_filepath):
+        raise RuntimeError(f"ラスターのファイルがありません: {tiff_filepath}")
     try:
         gdalinfo = gdal.Info(tiff_filepath, format="json")
     except RuntimeError as e:
@@ -742,7 +747,13 @@ def get_tiff_info(tiff_filepath: str, feedback=None) -> dict:
     if not gdalinfo:
         raise RuntimeError(f"ラスターの情報を読めませんでした: {tiff_filepath}")
 
-    crs = QgsCoordinateReferenceSystem.fromWkt(gdalinfo["coordinateSystem"]["wkt"])
+    wkt = (gdalinfo.get("coordinateSystem") or {}).get("wkt")
+    crs = QgsCoordinateReferenceSystem.fromWkt(wkt) if wkt else QgsCoordinateReferenceSystem()
+    if not crs.isValid():
+        # GDAL から座標系が見えないときは、QGIS がそのラスターを開いたときの座標系を使う
+        crs = QgsRasterLayer(tiff_filepath, "crs_check").crs()
+    if not crs.isValid():
+        raise RuntimeError(f"ラスターの座標系を読めませんでした: {tiff_filepath}")
 
     extent = [
         gdalinfo["cornerCoordinates"]["upperLeft"][0],
@@ -789,10 +800,19 @@ def run_processing(algorithm_id: str, parameters: dict, feedback=None, context=N
     """
     from processing.tools import dataobjects
 
-    if context is None:
+    own_context = context is None
+    if own_context:
         context = dataobjects.createContext(feedback)
     safe_root = get_ascii_safe_dir("morizon_next_tmp")
-    context.setTemporaryFolder(safe_root)
+    # 区切りは QGIS がフォルダを覚える形（/）にそろえる。Windows で \ のまま渡すと、QGIS は既にある一時フォルダを
+    # 「指定の場所の中」と見なせず、問い合わせのたびに新しい一時フォルダを作る。GRASS は1回の計算の中で一時フォルダを
+    # 何度も問い合わせるため、作業場所が食い違って出力ができなかった（Windows の起伏量の計算で発生）
+    context.setTemporaryFolder(safe_root.replace("\\", "/"))
+    # 呼ぶ前に、QGIS の一時フォルダを半角の置き場所へ切り替えておく。GRASS は計算を始めるとき（作業場所を作るとき）に
+    # 場所を指定せずに一時フォルダを問い合わせ、そのあとで context 付きで問い合わせる。先に切り替えておかないと、
+    # その QGIS で最初のプロセシングの呼び出しが GRASS だった場合に、作業場所を作ったフォルダと計算で探すフォルダが
+    # 食い違って失敗する（集計タブの流域づくりで発生）
+    QgsProcessingUtils.tempFolder(context)
 
     algorithm = QgsApplication.processingRegistry().algorithmById(algorithm_id)
     output_names = {d.name() for d in algorithm.destinationParameterDefinitions()} if algorithm else set()
@@ -800,6 +820,7 @@ def run_processing(algorithm_id: str, parameters: dict, feedback=None, context=N
     params = dict(parameters)
     moves = {}  # 出力の名前 -> (半角の一時パス, 本来の出力先)
     work_dir = None
+    aliases = []
     for name, value in params.items():
         if not _has_non_ascii(value):
             continue
@@ -810,7 +831,7 @@ def run_processing(algorithm_id: str, parameters: dict, feedback=None, context=N
             moves[name] = (temp_path, value)
             params[name] = temp_path
         elif os.path.exists(value):
-            params[name] = get_ascii_safe_alias(value)
+            params[name] = get_ascii_safe_alias(value, created=aliases)
 
     try:
         result = processing.run(algorithm_id, params, feedback=feedback, context=context)
@@ -823,6 +844,13 @@ def run_processing(algorithm_id: str, parameters: dict, feedback=None, context=N
     finally:
         if work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
+        if aliases and own_context:
+            # 入力として開いたレイヤーは context が持っていて、閉じるときに統計値を別名の横（.aux.xml）へ書き出す。
+            # 先に閉じてから別名を消す（あとに閉じると、消したあとで .aux.xml だけが残る）
+            context.temporaryLayerStore().removeAllMapLayers()
+            context = None
+            gc.collect()
+        remove_files(aliases)
 
 
 def is_usable_raster_layer(layer) -> bool:
@@ -867,6 +895,13 @@ def is_valid_scoring_layer(rlayer: QgsRasterLayer) -> bool:
     return not is_invalid
 
 
+# 半角の置き場所の基準にする、OS 本来の一時フォルダ。計算の間は一時フォルダを半角の置き場所の中へ切り替えるので
+# （AsciiSafeProcessingTmpdir）、そのたびに問い合わせると置き場所の中にさらに置き場所を作ってしまう。読み込み時に覚えておく
+_BASE_TEMP_DIR = tempfile.gettempdir()
+# 半角の置き場所（get_ascii_safe_dir("morizon_next_tmp")）の中で、片付けの対象にする古さ（秒）
+TIDY_AGE_SECONDS = 24 * 60 * 60
+
+
 def get_ascii_safe_dir(subdir_name: str) -> str:
     """
     ユーザー名・プロジェクト名等の全角文字を経由しない、ドライブ直下の半角安全な
@@ -874,16 +909,16 @@ def get_ascii_safe_dir(subdir_name: str) -> str:
     SAGA/GRASSの一時フォルダや、プラグイン自身が管理するデータの保存先など、
     「ユーザーの環境設定は変えず、内部で吸収する」ために使う。
     """
-    drive = os.path.splitdrive(tempfile.gettempdir())[0]
+    drive = os.path.splitdrive(_BASE_TEMP_DIR)[0]
     if drive:
         safe_dir = os.path.join(drive + os.sep, subdir_name)
     else:
-        safe_dir = os.path.join(tempfile.gettempdir(), subdir_name)
+        safe_dir = os.path.join(_BASE_TEMP_DIR, subdir_name)
     os.makedirs(safe_dir, exist_ok=True)
     return safe_dir
 
 
-def get_ascii_safe_alias(real_path: str) -> str:
+def get_ascii_safe_alias(real_path: str, created: list = None) -> str:
     """
     real_pathの実体はそのまま（ユーザーが指定した場所、全角パスでも構わない）にしつつ、
     ASCII必須のバリデーション・SAGA/GRASS等に渡すための半角安全な別名パスを用意して返す。
@@ -897,6 +932,9 @@ def get_ascii_safe_alias(real_path: str) -> str:
     別名ファイル名にはreal_pathのハッシュを含める。複数プロジェクトで同じベース名
     （例：dem_fetched.tif）のファイルを扱っても、別名パス同士が衝突して他プロジェクトの
     ものを上書きしないようにするため。
+
+    created にリストを渡すと、作った別名のファイル（付随ファイルを含む）を足す。使い終わったら
+    remove_files で消す（残すと半角の置き場所にたまり、コピーの場合は元と同じ大きさを使い続けるため）
     """
     if re.search("[^\x01-\x7E]", real_path) is None:
         return real_path
@@ -904,9 +942,9 @@ def get_ascii_safe_alias(real_path: str) -> str:
     real_path = os.path.abspath(real_path)
     real_drive = os.path.splitdrive(real_path)[0]
     if real_drive:
-        alias_dir = os.path.join(real_drive + os.sep, "morizon_next_tmp")
+        alias_dir = _ascii_safe_root_of(real_path)
     else:
-        alias_dir = os.path.join(tempfile.gettempdir(), "morizon_next_tmp")
+        alias_dir = get_ascii_safe_dir("morizon_next_tmp")
     os.makedirs(alias_dir, exist_ok=True)
 
     import hashlib
@@ -935,8 +973,127 @@ def get_ascii_safe_alias(real_path: str) -> str:
         sibling_src = os.path.join(real_dir, sibling_name)
         sibling_dst = os.path.join(alias_dir, f"{path_hash}{sibling_ext}")
         _link_or_copy(sibling_src, sibling_dst)
+        if created is not None:
+            created.append(sibling_dst)
 
     return alias_path
+
+
+def remove_files(paths):
+    """ファイルを消す（無い・使用中で消せないものは飛ばす）。GDAL があとから横に作る .aux.xml も消す"""
+    for path in paths:
+        for target in (path, path + ".aux.xml"):
+            try:
+                os.remove(target)
+            except OSError:
+                continue
+
+
+def _newest_mtime(path: str) -> float:
+    """フォルダならその中で最も新しく書き換えられた時刻、ファイルならその時刻"""
+    newest = os.path.getmtime(path)
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path):
+            for name in dirs + files:
+                try:
+                    newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+                except OSError:
+                    continue
+    return newest
+
+
+def _remove_entry(path: str):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        remove_files([path])
+
+
+# この QGIS の起動中に片付けた置き場所（同じ置き場所は1回だけ片付ける）
+_tidied_tmp_roots = set()
+
+
+def _ascii_safe_root_of(path: str):
+    """path があるドライブの半角の置き場所（入力の別名を作る場所。get_ascii_safe_alias と同じ決め方）。
+    ドライブの区別が無い OS では get_ascii_safe_dir("morizon_next_tmp")"""
+    drive = os.path.splitdrive(os.path.abspath(path))[0] if path else ""
+    if drive:
+        return os.path.join(drive + os.sep, "morizon_next_tmp")
+    return get_ascii_safe_dir("morizon_next_tmp")
+
+
+def ascii_safe_tmp_roots() -> list:
+    """一時ファイルの置き場所の一覧：既定の置き場所と、今の作業フォルダがあるドライブの置き場所（あれば）"""
+    roots = [get_ascii_safe_dir("morizon_next_tmp")]
+    workspace = get_workspace_dir()
+    if workspace:
+        root = _ascii_safe_root_of(workspace)
+        if os.path.normcase(os.path.abspath(root)) != os.path.normcase(os.path.abspath(roots[0])) \
+                and os.path.isdir(root):
+            roots.append(root)
+    return roots
+
+
+def _own_processing_tmp() -> str:
+    """今使っている QGIS 自身のプロセシングの一時フォルダ（比べやすい形）。片付けでは消さない。
+    消すと QGIS は作り直さないので、この QGIS での以後の計算が出力を作れずに失敗する"""
+    return os.path.normcase(os.path.abspath(QgsProcessingUtils.tempFolder()))
+
+
+def clear_ascii_safe_tmp(roots):
+    """置き場所の中身を、日付に関係なくすべて消す（「設定をクリアする」で選んだとき）。
+    今使っている QGIS 自身のプロセシングの一時フォルダは残す（消すと、この QGIS での以後の計算が失敗するため）。
+    消せないもの（使用中・ほかの利用者のファイルなど）は飛ばす"""
+    own = _own_processing_tmp()
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            if os.path.normcase(os.path.abspath(path)) == own:
+                continue
+            _remove_entry(path)
+
+
+def tidy_ascii_safe_tmp_for_session(confirm_recent=None):
+    """一時ファイルを置くドライブ（既定の置き場所）と、今の作業フォルダがあるドライブの置き場所を片付ける。
+    入力のファイルは作業フォルダに取り込まれるので、別名ができるのはこの2か所のどちらか。
+    この QGIS の起動中にすでに片付けた置き場所は飛ばす（作業フォルダが別のドライブに切り替わったときに呼ぶと、
+    新しいドライブの置き場所だけを片付ける）"""
+    for root in ascii_safe_tmp_roots():
+        key = os.path.normcase(os.path.abspath(root))
+        if key in _tidied_tmp_roots or not os.path.isdir(root):
+            continue
+        _tidied_tmp_roots.add(key)
+        tidy_ascii_safe_tmp(confirm_recent, root=root)
+
+
+def tidy_ascii_safe_tmp(confirm_recent=None, root=None):
+    """半角の置き場所（get_ascii_safe_dir("morizon_next_tmp")、または root）に残った一時ファイルを片付ける。
+    - 最後に書き換えられてから TIDY_AGE_SECONDS 以上たったものは、聞かずに消す
+    - それより新しいものが残っていれば confirm_recent(置き場所のパス) を呼び、True が返れば消す
+      （直前に QGIS が落ちたのか、ほかの QGIS で計算中なのかはプラグインから見分けられないので、利用者に聞く）
+    正常に終えた計算は自分の一時ファイルを消すので、普段は何も残らず、聞かれない"""
+    root = root or get_ascii_safe_dir("morizon_next_tmp")
+    own = _own_processing_tmp()
+    now = time.time()
+    recent = []
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        if os.path.normcase(os.path.abspath(path)) == own:
+            # この QGIS 自身のプロセシングの一時フォルダ（プラグインを読み直したときなど、起動中に片付けが走る場合がある）
+            continue
+        try:
+            age = now - _newest_mtime(path)
+        except OSError:
+            continue
+        if age >= TIDY_AGE_SECONDS:
+            _remove_entry(path)
+        else:
+            recent.append(path)
+    if recent and confirm_recent is not None and confirm_recent(root):
+        for path in recent:
+            _remove_entry(path)
 
 
 class AsciiSafeProcessingTmpdir:
@@ -959,6 +1116,7 @@ class AsciiSafeProcessingTmpdir:
         self._original_tmp = None
         self._original_temp = None
         self._original_tempfile_tempdir = None
+        self._run_dir = None
         self._entered = False
 
     def enter(self):
@@ -968,7 +1126,10 @@ class AsciiSafeProcessingTmpdir:
         self._original_temp = os.environ.get("TEMP")
         self._original_tempfile_tempdir = tempfile.tempdir
 
-        safe_dir = get_ascii_safe_dir("morizon_next_tmp")
+        # 計算ごとに専用のフォルダを作り、終わったら丸ごと消す（スタイルの作業ファイルや GRASS・SAGA の一時ファイルを
+        # 共有の置き場所に残さないため）
+        safe_dir = tempfile.mkdtemp(prefix="run_", dir=get_ascii_safe_dir("morizon_next_tmp"))
+        self._run_dir = safe_dir
 
         os.environ["TMP"] = safe_dir
         os.environ["TEMP"] = safe_dir
@@ -990,6 +1151,7 @@ class AsciiSafeProcessingTmpdir:
         else:
             os.environ.pop("TEMP", None)
         tempfile.tempdir = self._original_tempfile_tempdir
+        shutil.rmtree(self._run_dir, ignore_errors=True)
         self._entered = False
 
 

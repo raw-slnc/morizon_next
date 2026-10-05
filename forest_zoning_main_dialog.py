@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
-from qgis.core import QgsProject
+from qgis.core import Qgis, QgsMessageLog, QgsProject
 
 from .forest_zoning_main_dialog_elements import ForestZoningMainDialogElements
 from .forest_zoning_main_dialog_scoring import ForestZoningMainDialogScoring
@@ -129,6 +129,9 @@ class ForestZoningMainDialog(QDialog):
             path = utils.get_workspace_dir(*parts)
             os.makedirs(path if len(parts) == 1 else os.path.dirname(path), exist_ok=True)
             filewidget.setFilePath(path)
+        if getattr(self, "_tmp_tidied", False):
+            # 作業フォルダが別のドライブに切り替わったら、そのドライブの一時ファイルも片付ける（片付け済みなら何もしない）
+            QTimer.singleShot(0, self._tidy_tmp_files)
 
     def lock_output_dirs(self):
         """出力先は作業フォルダの中に決まり変えられないので、選ぶ欄ではなく文字列として見せる。
@@ -394,9 +397,30 @@ class ForestZoningMainDialog(QDialog):
         super().showEvent(event)
         # 閉じている間の変化（他のプラグインが足したレイヤーを含む）を、開いたときにまとめて合わせ直す
         self._refresh_timer.start()
+        if not getattr(self, "_tmp_tidied", False):
+            # QGIS を起動して最初に開いたときだけ、前回までの一時ファイルを片付ける
+            self._tmp_tidied = True
+            QTimer.singleShot(0, self._tidy_tmp_files)
         if self._restore_pending:
             self._restore_pending = False
             QTimer.singleShot(0, self.restore_project_workspace)
+
+    def _tidy_tmp_files(self):
+        """計算に使った半角の置き場所の一時ファイルを片付ける（utils.tidy_ascii_safe_tmp_for_session）。
+        新しいものが残っているときだけ、消してよいか聞く。画面を最初に開いたときと、作業フォルダが切り替わったとき
+        （別のドライブなら、そのドライブの置き場所）に呼ぶ"""
+        def confirm(root):
+            return QMessageBox.question(
+                self, "一時ファイルの片付け",
+                f"前回の計算で使った一時ファイルが残っています（{root}）。\n"
+                "ほかの QGIS で Morizon Next の計算をしていなければ、消してかまいません。消しますか？",
+                QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
+            ) == QMessageBox.StandardButton.Yes
+
+        try:
+            utils.tidy_ascii_safe_tmp_for_session(confirm)
+        except OSError as e:
+            QgsMessageLog.logMessage(f"一時ファイルを片付けられませんでした（{e}）", "Morizon Next", Qgis.MessageLevel.Warning)
 
     def _internal_has_data(self) -> bool:
         managed_dir = utils.get_morizon_managed_dir()

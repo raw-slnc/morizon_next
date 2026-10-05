@@ -14,7 +14,7 @@ from . import raster_writer
 from . import raster_styler
 from .processing_feedback import LogForwardingFeedback
 from ..utils import (
-    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias,
+    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias, remove_files,
     move_output_layers_to_main_thread,
 )
 from ..constants import (
@@ -87,8 +87,9 @@ class ProcessingThread(QThread):
         # 各 raster_writer まで同じ feedback を引き回すことが重要。
         self.feedback = LogForwardingFeedback(self.postLog.emit)
 
+        input_aliases = []
         self.input_files_dict = {
-            key: (get_ascii_safe_alias(path) if path else path)
+            key: (get_ascii_safe_alias(path, created=input_aliases) if path else path)
             for key, path in self.input_files_dict.items()
         }
 
@@ -323,6 +324,7 @@ class ProcessingThread(QThread):
         finally:
             ascii_tmpdir.restore()
             shutil.rmtree(intermediate_dir, ignore_errors=True)
+            remove_files(input_aliases)
 
         self.postMessage.emit('終了処理中')
 

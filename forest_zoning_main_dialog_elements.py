@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QLabel,
     QMessageBox,
@@ -1094,9 +1095,16 @@ class ForestZoningMainDialogElements:
         box.setCheckBox(delete_checkbox)
         box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        # 計算の一時ファイル（半角の置き場所）も消せるようにする。設定のクリアなので、日付に関係なくすべて消す。
+        # 確認画面の標準のチェック欄は1つだけなので、2つ目はボタンの行の上に差し込む
+        tmp_roots = utils.ascii_safe_tmp_roots()
+        tmp_checkbox = QCheckBox(f"計算で使った一時ファイルを削除（{'、'.join(tmp_roots)}）")
+        self._insert_above_buttons(box, tmp_checkbox)
         if box.exec() != QMessageBox.StandardButton.Ok:
             return
         utils.remove_project_layers(layers)
+        if tmp_checkbox.isChecked():
+            utils.clear_ascii_safe_tmp(tmp_roots)
         if delete_checkbox.isChecked():
             failed = self.main.archive.clear_managed_data()
             if failed:
@@ -1106,6 +1114,24 @@ class ForestZoningMainDialogElements:
                 )
         self.reset_elements_inputs()
         self.main.use_no_workspace(persist=True)
+
+    @staticmethod
+    def _insert_above_buttons(box: QMessageBox, widget):
+        """確認画面（QMessageBox）のボタンの行のすぐ上に widget を差し込む。標準のチェック欄があれば、その左端にそろえる"""
+        layout = box.layout()
+        buttons = box.findChild(QDialogButtonBox)
+        index = layout.indexOf(buttons) if buttons is not None else -1
+        if index < 0:
+            layout.addWidget(widget, layout.rowCount(), 0, 1, layout.columnCount())
+            return
+        row, column, row_span, column_span = layout.getItemPosition(index)
+        checkbox = box.checkBox()
+        checkbox_index = layout.indexOf(checkbox) if checkbox is not None else -1
+        if checkbox_index >= 0:
+            _, column, _, column_span = layout.getItemPosition(checkbox_index)
+        layout.removeWidget(buttons)
+        layout.addWidget(widget, row, column, 1, column_span)
+        layout.addWidget(buttons, row + 1, 0, row_span, layout.columnCount())
 
     def reset_elements_inputs(self):
         """要素計算タブの入力ファイル・チェックボックスを初期状態に戻す（確認なし）"""
