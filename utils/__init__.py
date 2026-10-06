@@ -1009,8 +1009,20 @@ def _remove_entry(path: str):
         remove_files([path])
 
 
-# この QGIS の起動中に片付けた置き場所（同じ置き場所は1回だけ片付ける）
-_tidied_tmp_roots = set()
+# 片付けの記録は QGIS 本体（QCoreApplication）の属性に持たせる。プラグインを読み直してもモジュールの変数は
+# 作り直されるが、QGIS を起動している間は残したいため
+_TIDY_ROOTS_PROPERTY = "morizon_next_tidied_tmp_roots"   # 片付けた置き場所（同じ置き場所は1回だけ片付ける）
+_TIDY_ASKED_PROPERTY = "morizon_next_tidy_asked"          # 消してよいか聞いたか（起動中に聞くのは1回だけ）
+_TIDY_RUNNING_PROPERTY = "morizon_next_tidy_running"      # 片付けの最中か（同時に走らせない）
+
+
+def _app_property(name, default):
+    value = QCoreApplication.instance().property(name)
+    return default if value is None else value
+
+
+def _set_app_property(name, value):
+    QCoreApplication.instance().setProperty(name, value)
 
 
 def _ascii_safe_root_of(path: str):
@@ -1059,13 +1071,29 @@ def tidy_ascii_safe_tmp_for_session(confirm_recent=None):
     """一時ファイルを置くドライブ（既定の置き場所）と、今の作業フォルダがあるドライブの置き場所を片付ける。
     入力のファイルは作業フォルダに取り込まれるので、別名ができるのはこの2か所のどちらか。
     この QGIS の起動中にすでに片付けた置き場所は飛ばす（作業フォルダが別のドライブに切り替わったときに呼ぶと、
-    新しいドライブの置き場所だけを片付ける）"""
-    for root in ascii_safe_tmp_roots():
-        key = os.path.normcase(os.path.abspath(root))
-        if key in _tidied_tmp_roots or not os.path.isdir(root):
-            continue
-        _tidied_tmp_roots.add(key)
-        tidy_ascii_safe_tmp(confirm_recent, root=root)
+    新しいドライブの置き場所だけを片付ける）。
+    同時には走らせない（質問の画面を出している間に別の経路から呼ばれても何もしない）。消してよいか聞くのは、
+    この QGIS の起動中に1回だけ（「はい」でも「いいえ」でも、以後は聞かずに古いものだけ片付ける）"""
+    if _app_property(_TIDY_RUNNING_PROPERTY, False):
+        return
+    _set_app_property(_TIDY_RUNNING_PROPERTY, True)
+    try:
+        def confirm_once(root):
+            if confirm_recent is None or _app_property(_TIDY_ASKED_PROPERTY, False):
+                return False
+            _set_app_property(_TIDY_ASKED_PROPERTY, True)
+            return confirm_recent(root)
+
+        tidied = list(_app_property(_TIDY_ROOTS_PROPERTY, []))
+        for root in ascii_safe_tmp_roots():
+            key = os.path.normcase(os.path.abspath(root))
+            if key in tidied or not os.path.isdir(root):
+                continue
+            tidied.append(key)
+            _set_app_property(_TIDY_ROOTS_PROPERTY, tidied)
+            tidy_ascii_safe_tmp(confirm_once, root=root)
+    finally:
+        _set_app_property(_TIDY_RUNNING_PROPERTY, False)
 
 
 def tidy_ascii_safe_tmp(confirm_recent=None, root=None):

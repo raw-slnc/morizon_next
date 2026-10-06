@@ -8,7 +8,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MORIZON NEXT 操作マニュアル</title>
+<title>MORIZON NEXT 操作マニュアル（旧）</title>
 <style>
 :root {
   --bg: #fbfaf7;
@@ -23,7 +23,6 @@
   --risk: #9b3b3b;
   --profit: #2f6b3a;
   --data: #3d5f8a;
-  --alert: #d4161c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -39,7 +38,6 @@
     --risk: #e39a9a;
     --profit: #8fc79a;
     --data: #9bb8e0;
-    --alert: #ff5a5f;
   }
 }
 * { box-sizing: border-box; }
@@ -82,7 +80,7 @@ code, .path { font-family: "Source Code Pro", Consolas, monospace; font-size: 0.
 .why > .label, .note > .label, .how > .label { font-weight: 700; display: block; margin-bottom: 2px; }
 .note {
   border-left: 4px solid var(--warn); background: var(--warn-soft);
-  padding: 10px 16px; margin: 14px 32px; font-size: 14px; border-radius: 0 6px 6px 0;
+  padding: 10px 16px; margin: 14px 0 14px 16px; font-size: 14px; border-radius: 0 6px 6px 0;
 }
 .how {
   border: 1px solid var(--line); background: var(--panel);
@@ -99,25 +97,6 @@ th { background: var(--panel); font-weight: 700; }
 .tag.profit { color: var(--profit); }
 .tag.risk { color: var(--risk); }
 .tag.manual { color: var(--warn); }
-.alert { color: var(--alert); }
-.stance { margin: 28px 0; padding: 16px 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.stance-title { text-align: center; font-weight: 700; margin: 0 0 10px; }
-.stance ol { margin: 0 auto; max-width: 820px; }
-.stance-end { text-align: center; margin: 12px 0 0; }
-.stance-link { font-size: 14px; margin-top: 4px; }
-.op { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 16px; padding: 6px 0 8px; border-bottom: 1px solid var(--line); font-size: 15px; }
-.op .op-label { flex: none; font-size: 12px; font-weight: 700; color: var(--bg); background: var(--fg); border-radius: 4px; padding: 0 8px; }
-details.more { margin: 14px 0; font-size: 14px; color: var(--muted); }
-details.more summary { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; list-style: none; font-weight: 700; font-size: 13px; color: var(--accent); border: 1px solid var(--accent); border-radius: 14px; padding: 2px 12px 2px 10px; background: var(--bg); }
-details.more summary::-webkit-details-marker { display: none; }
-details.more summary::before { content: "▶"; font-size: 10px; transition: transform .15s; }
-details.more[open] summary::before { transform: rotate(90deg); }
-details.more summary::after { content: "クリックで開く"; font-weight: 400; color: var(--muted); }
-details.more[open] summary::after { content: "クリックで閉じる"; }
-details.more summary:hover { background: var(--accent-soft); }
-details.more[open] summary { margin-bottom: 4px; }
-details.more[open] { background: var(--panel); border-radius: 6px; padding: 8px 14px 12px; }
-details.more h5 { font-size: 14px; margin: 12px 0 2px; color: var(--fg); }
 .quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; margin: 20px 0 28px; padding: 0; list-style: none; counter-reset: q; }
 .quick li { position: relative; margin: 0; background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 6px; padding: 14px 14px 12px; font-size: 13px; line-height: 1.6; counter-increment: q; }
 .quick li.manual { border-top-color: var(--warn); }
@@ -147,13 +126,6 @@ li { margin: 3px 0; }
 .flow li + li::before { content: "→"; color: var(--muted); padding: 0 16px; }
 .flow .step { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 18px; font-size: 11px; line-height: 1.5; text-align: center; width: 180px; }
 .flow .step b { display: block; font-size: 16px; margin-bottom: 4px; }
-.flow.wide li { flex: 1 1 0; min-width: 200px; }
-.flow.wide .step { flex: 1; width: auto; }
-.flow.grid2 ol { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 0; }
-.flow.grid2 li { min-width: 0; }
-.flow.grid2 li::before { content: "→"; color: var(--muted); padding: 0 16px; }
-.flow.grid2 li:nth-child(odd)::before { visibility: hidden; }
-@media (max-width: 860px) { .flow.grid2 ol { grid-template-columns: 1fr; } .flow.grid2 li::before { content: "↓"; } .flow.grid2 li:first-child::before { visibility: hidden; } .flow.grid2 li:nth-child(3)::before { visibility: visible; } }
 @media (max-width: 860px) {
   .layout { display: block; }
   nav.toc { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 16px; }
@@ -207,17 +179,6 @@ li { margin: 3px 0; }
 <h1>MORIZON NEXT 操作マニュアル</h1>
 <p class="lead">収益性と災害リスクから森林をゾーニングする QGIS プラグイン</p>
 
-<div class="stance">
-<p class="stance-title">Morizon Next の位置づけ</p>
-<ol>
-  <li>Morizon Next は個人が開発したプラグインです。林野庁、日本森林技術協会、原版の開発者による公式のものではありません。必要とする方に使っていただけるよう公開しています。</li>
-  <li>解析のロジックは原版を受け継いでいます。結果の扱いは、利用者ご自身の判断と責任でお願いします。</li>
-  <li>手引に基づく正統なツールは、原版のもりぞんです。原版が使える環境では、原版をお使いください。</li>
-</ol>
-<p class="stance-end">オリジナル MORIZON が QGIS 4.x に対応する日を心待ちにしています。</p>
-<p class="stance-end stance-link">ソースコード：<a href="https://github.com/raw-slnc/morizon_next">https://github.com/raw-slnc/morizon_next</a></p>
-</div>
-
 <section id="intro">
 <h2>はじめに</h2>
 <p>MORIZON NEXT は、林野庁の森林ゾーニング支援ツール「もりぞん（MORIZON）」を改良したプラグインです。ゾーニングの考え方と計算方法は原版をそのまま受け継いでいます。改良したのは、解析に必要なオープンデータをプラグインが自動で取得するようにした点です。</p>
@@ -228,7 +189,7 @@ li { margin: 3px 0; }
 <p><strong>まずは既定の設定のまま、最後まで一度通してみてください。</strong>次の手順だけで、ゾーニング図とゾーン統計量まで出力できます。しきい値や設定は、結果を見てから見直せば十分です。</p>
 <ol class="quick">
   <li><b>範囲を決める</b>QGIS プロジェクトを保存する<br>地図に対象地を一回り広く表示する</li>
-  <li><b>データを自動取得</b>「DEMブラウザから開始する」<br>※ダウンロード時間が必要です<br>※国土地理院アカウント必須</li>
+  <li><b>データを自動取得</b>「DEMブラウザから開始する」<br>※ダウンロード時間が必要です</li>
   <li class="manual"><b>作業システムを反映</b>「CSVとして反映する」<span class="tag manual">手動</span></li>
   <li><b>タブの順に実行</b>※ゾーン統計量<span class="tag manual">手動</span>設定あり</li>
 </ol>
@@ -368,7 +329,12 @@ li { margin: 3px 0; }
 <h3>1.2 解析の準備：範囲と保存場所を決める</h3>
 
 <h4>QGIS プロジェクトを先に保存する</h4>
-<p>自動取得したデータは、QGIS プロジェクトファイルがあるフォルダ（<span class="path">Project/morizon_next</span>）に構成されて保存されます。複数の QGIS プロジェクトを置いても、プロジェクトごとに分かれます。データを取得・保存するにはプロジェクトが保存されている必要があります。必要があれば案内が出ます。</p>
+<p>自動取得したデータは、すべて <strong>QGIS プロジェクトファイルと同じフォルダの中</strong>の <span class="path">morizon_next</span> フォルダの、<strong>プロジェクトのファイル名のフォルダ</strong>（プロジェクト内の作業フォルダ）に保存されます。同じフォルダに複数の QGIS プロジェクトを置いても、プロジェクトごとに分かれます。そのため、データを取得する前にプロジェクトを一度保存してください。保存していないと、取得を始めたときに案内が出ます。</p>
+<div class="why"><span class="label">なぜプロジェクトフォルダに置くのか</span>
+データがプロジェクトと一緒にまとまっていれば、フォルダごと別の PC に持っていくだけで作業を続けられます。システムの一時フォルダや、プロジェクトと無関係な場所にデータが散らばることもありません。フォルダ名やユーザー名に日本語が含まれていても問題ありません。
+</div>
+
+<p class="aside">ここから「1つの QGIS プロジェクトで扱う解析は1つです」の手前までは、自動で作られるフォルダの参考です。読み飛ばして、必要なときに参照してください。</p>
 <p>取得が終わると、フォルダの中は次のようになります。</p>
 <pre class="how" style="font-family:Consolas,monospace;font-size:13.5px;line-height:1.6;white-space:pre;overflow-x:auto">(プロジェクトフォルダ)/
 ├─ ○○.qgz                     … QGIS プロジェクト
@@ -388,11 +354,35 @@ li { margin: 3px 0; }
     │   └─ AGGREGATE/           … ゾーン統計量の出力
     ├─ shared/                  … 再取得を省くための控え（同じフォルダのプロジェクトで共有。触らなくてよい）
     └─ archive/                 … 保存ファイル（ZIP）</pre>
-<div class="note">
-<p>構成は地域データ「ZoningKit xx」とプラグインが使用する <span class="path">AGGREGATE</span> を追加したものです。また共有データ、保存ディレクトリ <span class="path">shared/</span> <span class="path">archive/</span> が作成されます。</p>
-<p>QGIS プロジェクトでは一つの解析を行います。保存したデータは読み込めますが、一度にプラグインが扱う Morizon Next 解析は一つです。</p>
+<p>作業フォルダの構成は原版の「ZoningKit」と同じです（AGGREGATE だけは MORIZON NEXT で追加したフォルダです）。画面右上の「保存ファイル出力」で、入力と出力をこの構成のまま ZIP に保存できます（保存先は <span class="path">morizon_next/archive</span>）。保存した ZIP は要素計算タブの「保存ファイルを読み込む」で読み込むと、各タブの入力欄と出力レイヤーが保存したときの状態に戻ります。QGIS プロジェクトを保存して開き直したときは、「再開しますか？」と確認して、前回の作業フォルダの続きから作業できます。</p>
+
+<div class="note"><span class="label">1つの QGIS プロジェクトで扱う解析は1つです</span>
+同じプロジェクトで範囲を変えて「DEMブラウザから開始する」を押すと、前の解析のデータがある場合は、破棄してよいかを確認します。前の解析を残したい場合は、先に「保存ファイル出力」で保存してください。複数の地区を同時に扱う場合は、<strong>地区ごとに QGIS プロジェクトを分けて</strong>ください（同じフォルダに置いても、作業フォルダはプロジェクトごとに分かれます）。
 </div>
 
+<h4>範囲は「QGIS の地図に表示している範囲」</h4>
+<p>「DEMブラウザから開始する」を押すと、<strong>その時点で QGIS の地図に表示されている範囲</strong>がデータの取得範囲になります。計画図や市町村界などのレイヤを表示し、対象地が画面に収まるように拡大・縮小してから始めてください。</p>
+<div class="why"><span class="label">なぜ対象地より一回り広く表示するのか</span>
+いくつかの要素は、そのセルの周りの地形を使って計算します。
+<ul>
+  <li>起伏量と地形の複雑さは、周囲約 490m 四方の標高を使います。</li>
+  <li>保全対象を含む流域は、水が流れ下る先まで追いかけて計算します。</li>
+  <li>地利は、範囲の外にある道のほうが近いこともあります。</li>
+</ul>
+範囲の縁では周りのデータが足りないため、値が正しく出ません。<strong>対象地の外側に 1km 程度の余白</strong>を取って表示してください。なお、建物と道路については、プラグインが自動で表示範囲より広め（地図1区画分）を取得します。
+<div class="ref">3.5.1「DEM は穴が無いように整備しましょう」p.42、5.1 p.94</div>
+</div>
+
+<h4>広さと解像度の目安</h4>
+<p>手引が想定しているのは、<strong>市町村全域を 10m 解像度</strong>で解析する使い方です。</p>
+<ul>
+  <li>5m の DEM は、解析のときに自動で 10m に変換されます。</li>
+  <li>1m の DEM は、約 2,500 万画素（5km 四方程度）を超えると 10m に変換されます。1m のまま解析できるのは、施業団地程度の狭い範囲に限られます。</li>
+</ul>
+<div class="why"><span class="label">なぜ 10m で十分なのか</span>
+市町村単位のゾーニングで知りたいのは「この一帯は林業に向くか」という傾向で、1本1本の沢の位置ではありません。細かいデータで広い範囲を計算すると、処理時間がかかるわりに、画面や印刷ではその細かさが見えません。一方、施業団地で路網を検討するような場面では、1m の細かさが意味を持ちます。
+<div class="ref">2.1.1 目的、対象範囲の検討 p.10–11</div>
+</div>
 </section>
 
 <section id="data-auto">
@@ -402,83 +392,68 @@ li { margin: 3px 0; }
   <tr><th>データ</th><th>取得元</th><th>取得する範囲</th><th>2回目以降</th></tr>
   <tr><td>DEM（標高）<br>（<a href="#data-dem">1.4</a>）</td><td>国土地理院（地理院タイル）。静岡県・長野県では県の高解像度 DEM も選べる</td><td>地図に表示している範囲</td><td>取得のたびにダウンロードする</td></tr>
   <tr><td>地位データ<br>（<a href="#data-siteindex">1.5</a>）</td><td>ZoningKit（G空間情報センター）</td><td>座標系の地域全体をダウンロードし、表示範囲を切り出す</td><td>地域ごとに初回だけダウンロードし、以降は共有データ（<span class="path">morizon_next/shared</span>）を使う</td></tr>
-  <tr><td>建物・道路縁<br>（<a href="#data-building">1.6</a>・<a href="#data-road">1.7</a>）</td><td>国土地理院 基盤地図情報<span class="alert">（利用者登録とログインが必要）</span></td><td>表示範囲の周りに地図1区画分を足した範囲</td><td>取得済みのファイルは使い回す。同じ範囲なら、まとめ直しも省く</td></tr>
+  <tr><td>建物・道路縁<br>（<a href="#data-building">1.6</a>・<a href="#data-road">1.7</a>）</td><td>国土地理院 基盤地図情報（利用者登録とログインが必要）</td><td>表示範囲の周りに地図1区画分を足した範囲</td><td>取得済みのファイルは使い回す。同じ範囲なら、まとめ直しも省く</td></tr>
 </table>
 <p>作業システム（<a href="#data-costcsv">1.8</a>）は取得するものではなく、プラグインの画面で設定します。</p>
 
-<p class="flow-title">取得について</p>
-<div class="flow wide">
+<h4>取得の流れ</h4>
 <ol>
-  <li><span class="step"><b>DEM</b>国土地理院などから選択</span></li>
-  <li><span class="step"><b>地位データ</b>初回は、地域全体（数百 MB）のダウンロード</span></li>
-  <li><span class="step"><b>建物・道路縁SHP</b>国土地理院 基盤地図情報<br><span class="alert">（利用者登録とログインが必要）</span></span></li>
+  <li>DEM：取得元を選択して取得。</li>
+  <li>地位データ：DEM に続けて取得。地域ごとの初回は、地域全体（数百 MB）のダウンロードについての知らせを表示。</li>
+  <li>建物・道路縁：確認で「はい」を選択し、基盤地図情報にログインして取得。</li>
 </ol>
+<div class="note"><span class="label">地位データのダウンロード</span>
+地位データは座標系の地域全体をまとめてダウンロードするため、回線や PC によって時間に差が出る場合があります。Morizon Next では、ダウンロードした地位データを共有データとして保存するので、ダウンロードは地域ごとに一度で済みます。原版のように地域ごとのキットを選んで用意する必要もなく、地域を意識せずに使えます。<br>
+原版の ZoningKit（例：ZoningKit_08）を持っている場合は、展開したフォルダを「フォルダ選択から開始する」で選ぶと、キットの地位データ（座標系全体のもの）を共有データに写します。この場合は、その地域のダウンロードも不要になります。
 </div>
 </section>
 
 <section id="data-dem">
 <h3>1.4 DEM（標高）</h3>
-<p class="op"><span class="op-label">操作</span><span>DEM を取得する ─ 「DEMブラウザから開始する」を押す</span></p>
-
-<h4>範囲は「QGIS の地図に表示している範囲」</h4>
-<p>「DEMブラウザから開始する」を押すと、<strong>その時点で QGIS の地図に表示されている範囲</strong>がデータの取得範囲になります。計画図や市町村界などのレイヤを表示し、対象地が画面に収まるように拡大・縮小してから始めてください。</p>
-
-<p>・地形がすべての出発点になります。DEM から次のものを計算します。</p>
+<div class="why"><span class="label">なぜ必要か</span>
+DEM（数値標高モデル）は、地面の高さを格子状に並べたデータです。この解析では、地形がすべての出発点になります。
 <ul>
   <li><strong>傾斜</strong>：急な斜面ほど崩れやすく、作業もしにくくなります。</li>
   <li><strong>地形の複雑さ</strong>：尾根と谷が細かく入り組んだ場所は、侵食が進んでいて崩れやすい傾向があります。</li>
   <li><strong>起伏量</strong>：周囲の最高点と最低点の差です。傾斜と組み合わせて、使える作業システムを決めます。</li>
   <li><strong>流域</strong>：雨水や崩れた土砂がどこへ流れ下るかを求めます。</li>
-  <li>道路や地位データと合わせて集材条件、災害リスクの判定に利用します。</li>
 </ul>
-<div class="note">
-<p>取得される DEM の解像度と座標系設定は、自動化されています。国土地理院の DEM には 1m、5m、10m（※「国土地理院 DEM1A/5A/10B」）があり表示範囲の全体を同じ解像度でカバーできるものを選択肢として表示します。取得した DEM は、その地域の<strong>平面直角座標系</strong>で保存します。</p>
-</div>
-<div class="note"><span class="label">AWS Terrarium について</span>
-取得元の「AWS Terrarium」は、国土地理院のデータが使えない地域のための予備です。自動で選択肢に残ります。
-</div>
-
-<details class="more"><summary>詳しい解説</summary>
-<h5>なぜ解像度を混ぜないのか</h5>
-解像度が違うデータをつなぎ合わせると、つなぎ目で傾斜や地形の複雑さの値が不自然に変わり、実際にはない「境界線」がゾーニング図に現れてしまいます。
-<h5>なぜ座標系を変換するのか</h5>
-Web 地図のタイルは、そのままでは 1m が実際の 1m になりません（北へ行くほどずれます）。変換しないと傾斜が数度緩く出て、道からの距離や面積も実際と違ってしまいます。「35度」「400m」といったしきい値を地域で話し合って決める以上、値は実際の長さ・角度で計算されている必要があります。
+道路や地位データも、最終的には DEM の格子に合わせて計算されます。
 <div class="ref">2.3.1 (1) 地形傾斜 p.20、3.7.2 p.70–75</div>
-<h5>なぜ対象地より一回り広く表示するのか</h5>
-いくつかの要素は、そのセルの周りの地形を使って計算します。
-<ul>
-  <li>起伏量と地形の複雑さは、周囲約 490m 四方の標高を使います。</li>
-  <li>保全対象を含む流域は、水が流れ下る先まで追いかけて計算します。</li>
-  <li>地利は、範囲の外にある道のほうが近いこともあります。</li>
-</ul>
-範囲の縁では周りのデータが足りないため、値が正しく出ません。<strong>対象地の外側に 1km 程度の余白</strong>を取って表示してください。なお、建物と道路については、プラグインが自動で表示範囲より広め（地図1区画分）を取得します。
-<div class="ref">3.5.1「DEM は穴が無いように整備しましょう」p.42、5.1 p.94</div>
-</details>
+</div>
 
-<h4>広さと解像度の目安</h4>
-<p>手引が想定しているのは、<strong>市町村全域を 10m 解像度</strong>で解析する使い方です。</p>
+<div class="how"><span class="label">操作</span>
+<ol>
+  <li>QGIS プロジェクトを保存し、対象地を余白付きで地図に表示します。</li>
+  <li>「要素計算」タブの <strong>「DEMブラウザから開始する」</strong>を押します。</li>
+  <li>取得元を選んで OK を押します。通常は「国土地理院 DEM1A/5A/10B」を選んでください。</li>
+  <li>取得が終わると、解像度と座標系が表示され、DEM 欄が「設定済」になります。そのまま地位データの取得に進みます（<a href="#data-siteindex">1.5</a>）。</li>
+</ol>
+</div>
+
+<h4>解像度はプラグインが選びます</h4>
+<p>国土地理院の DEM には 1m（航空レーザ測量、一部地域のみ）、5m、10m（全国）があります。プラグインは取得前に、表示範囲の<strong>全体を同じ解像度でカバーできるか</strong>を調べます。</p>
 <ul>
-  <li>解析の広さに合わせて自動調整されます。</li>
-  <li>5m の DEM は、解析のときに自動で 10m に変換されます。</li>
-  <li>1m の DEM は、およそ 5km 四方程度を超えると 10m に変換されます。1m のまま解析できるのは、施業団地程度の狭い範囲に限られます。</li>
+  <li>全体をカバーできる解像度が1つだけなら、その解像度で取得します。</li>
+  <li>複数あれば、どれを使うかを選べます。市町村規模なら 5m か 10m で十分です。</li>
 </ul>
-<div class="why"><span class="label">なぜ 10m で十分なのか</span>
-市町村単位のゾーニングで知りたいのは「この一帯は林業に向くか」という傾向で、1本1本の沢の位置ではありません。細かいデータで広い範囲を計算すると、処理時間がかかるわりに、画面や印刷ではその細かさが見えません。一方、施業団地で路網を検討するような場面では、1m の細かさが意味を持ちます。
-<div class="ref">2.1.1 目的、対象範囲の検討 p.10–11</div>
+<div class="why"><span class="label">なぜ解像度を混ぜないのか</span>
+解像度が違うデータをつなぎ合わせると、つなぎ目で傾斜や地形の複雑さの値が不自然に変わり、実際にはない「境界線」がゾーニング図に現れてしまいます。
+</div>
+
+<h4>座標系も自動で揃えます</h4>
+<p>取得した DEM は、その地域の<strong>平面直角座標系</strong>（例：静岡県なら第8系）に変換してから保存されます。</p>
+<div class="why"><span class="label">なぜ変換するのか</span>
+Web 地図のタイルは、そのままでは 1m が実際の 1m になりません（北へ行くほどずれます）。変換しないと傾斜が数度緩く出て、道からの距離や面積も実際と違ってしまいます。「35度」「400m」といったしきい値を地域で話し合って決める以上、値は実際の長さ・角度で計算されている必要があります。
+</div>
+
+<div class="note"><span class="label">AWS Terrarium について</span>
+取得元の「AWS Terrarium」は、国土地理院のデータが使えない地域のための予備です。国内では国土地理院のデータを使ってください。
 </div>
 </section>
 
 <section id="data-siteindex">
 <h3>1.5 地位データ（NPP・SRAD・VTEX）</h3>
-<p class="op"><span class="op-label">操作</span><span>地位データを取得する ─ 自動（操作不要）</span></p>
-
-<ul>
-  <li>取得元は、林野庁がもりぞん用に公開している「ZoningKit」（G空間情報センター）です。登録は不要です。</li>
-  <li>表示範囲の中心がどの座標系の地域にあるかを判定し、必要な部分だけを取り出します。</li>
-  <li>一度取得した地域のデータは共有データ（<span class="path">morizon_next/shared</span>）に保存されます。同じフォルダのプロジェクトでは、その地域のダウンロードを省きます。</li>
-  <li>既存の ZoningKit（例：ZoningKit_08）がある場合は、展開したフォルダを「フォルダ選択から開始する」で選ぶと、キット内の地位データを共有データにコピーします。以降は、その地域のダウンロードを省きます。</li>
-</ul>
-
 <div class="why"><span class="label">なぜ必要か</span>
 収益性の土台になるのは<strong>地位</strong>、つまり「その土地で木がどれだけよく育つか」です。地位は 40 年生のときの上層木の樹高（地位指数）で表します。今の蓄積量は間伐などの手入れで大きく変わりますが、地位は土地そのものの力なので、施業ではほとんど変わりません。今は若い林でも、将来よく育つ土地を正しく評価できます。
 <p>ただし、全域の樹高を実際に測ることはできません。そこで、全国の森林調査データから作られた推定式を使い、次の3つのデータからスギ・ヒノキ・カラマツの地位指数を計算します。</p>
@@ -488,6 +463,15 @@ Web 地図のタイルは、そのままでは 1m が実際の 1m になりま�
   <li><strong>VTEX</strong>（凹凸度）：谷か尾根か。谷は水が集まり、木がよく育つ傾向があります</li>
 </ul>
 <div class="ref">2.2.1 (1) 地位指数 p.16、3.7.2 (2) 地位 p.68–70</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+DEM の取得が終わると、続けて自動で取得が始まります。操作は不要です。
+<ul>
+  <li>取得元は、林野庁がもりぞん用に公開している「ZoningKit」（G空間情報センター）です。登録は不要です。</li>
+  <li>表示範囲の中心がどの座標系の地域にあるかを判定し、必要な部分だけを取り出します。</li>
+  <li>一度取得した地域のデータは <span class="path">morizon_next/shared</span> に控えが残り、同じフォルダのプロジェクトで取り直すときにはダウンロードを省きます。</li>
+</ul>
 </div>
 
 <div class="note"><span class="label">地位の値は「相対的な目安」として扱ってください</span>
@@ -502,15 +486,19 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 
 <section id="data-building">
 <h3>1.6 建物（保全対象）</h3>
-<p class="op"><span class="op-label">操作</span><span>建物を取得する ─ 確認で「はい」を選び、<span class="alert">基盤地図情報にログイン</span></span></p>
-<p>国土地理院の基盤地図情報「建築物の外周線」を取得し、DEM と同じ座標系で保存します。</p>
-
 <div class="why"><span class="label">なぜ必要か</span>
 同じように崩れやすい斜面でも、奥山で崩れるのと、下流に人家がある場所で崩れるのとでは、被害の大きさがまったく違います。崩れた土砂は土石流となって 2km 以上流れることもあります。
 <p>そこでこの解析では、DEM から<strong>流域</strong>（雨水が同じところへ集まる範囲）を求め、その中に建物があるかどうかで点数を付けます。これが「保全対象を含む流域」です。</p>
 <div class="ref">2.3.2 保全対象との関係 p.23、3.7.2 (7) p.75</div>
 </div>
 
+<div class="how"><span class="label">操作</span>
+<ol>
+  <li>地位データの取得が終わると、「続けて建物ポリゴン・道路縁データも自動取得しますか？」と聞かれます。「はい」を選びます。</li>
+  <li>基盤地図情報ダウンロードサービスのログイン画面が出るので、ID とパスワードを入力します。</li>
+  <li>国土地理院の基盤地図情報「建築物の外周線」を取得し、DEM と同じ座標系に変換して保存します。</li>
+</ol>
+</div>
 <div class="note"><span class="label">事前に利用者登録が必要です</span>
 基盤地図情報ダウンロードサービスの利用には、国土地理院のサイトでの利用者登録（無料）が必要です。登録した ID とパスワードをそのまま使います。
 </div>
@@ -538,11 +526,13 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 
 <section id="data-road">
 <h3>1.7 道路</h3>
-<p class="op"><span class="op-label">操作</span><span>道路縁を取得する ─ 建物と同時に自動（<a href="#data-building">1.6</a>）</span></p>
-
 <div class="why"><span class="label">なぜ必要か</span>
 伐った木は、道まで運び出さなければ売れません。道から遠いほど集材に手間と費用がかかり、収益性は下がります。この解析では、各地点から<strong>最寄りの道までの水平距離</strong>を「地利」として計算します。6つの要素の中で、地利だけは<strong>値が小さいほど収益性が高い</strong>ことに注意してください。
 <div class="ref">2.2.1 (4) 路網からの距離 p.18、3.7.2 (4) 地利 p.71–72</div>
+</div>
+
+<div class="how"><span class="label">操作</span>
+建物と同じ手順で、基盤地図情報の「道路縁」が自動で取得されます（<a href="#data-building">1.6</a>）。
 </div>
 
 <div class="note"><span class="label">取得した道路データに道路地物が無い場合</span>
@@ -564,29 +554,28 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 
 <section id="data-costcsv">
 <h3>1.8 作業システム</h3>
-<p class="op"><span class="op-label">操作</span><span>作業システムを反映する ─ 「作業システム設定」の<span class="alert">「CSVとして反映する」</span>を押す</span></p>
-<ul>
-  <li><strong>色分布パネル</strong>（右）：横軸が傾斜、縦軸が起伏量です。色が、その地形に割り当てる機械を表します。</li>
-  <li><strong>機材名の一覧</strong>（左）：色と機械の対応です。数字が大きい機械ほど作業効率が高い扱いになります。リストの凡例と色分布パネルは連携しています。凡例をクリックすると「保有していない機械」としての扱いになり、色分布パネルでその機械が割り当てられていた範囲は「該当なし」（最も効率が低い）になります。</li>
-  <li><strong>マージン</strong>：プラス側にすると、斜面を実際より最大3度緩いものとみなし、同じ地形でもより効率のよい機械を割り当てます（強気）。マイナス側はその逆（慎重）です。緩斜面と、機械の限界を超える急斜面の割り当ては動きません。</li>
-  <li><strong>「CSVとして反映する」</strong>を押すと、作業フォルダの <span class="path">DATA/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
-</ul>
-<p class="flow-title">Excel のひな形でマスごとに決める場合</p>
-<div class="flow wide grid2">
-<ol>
-  <li><span class="step"><b>「Excelシートを開く」</b>ひな形を <span class="path">DATA/SAGYO-SYSTEM_CSV</span> に置いて開く<br>（置いてあればそれを開く）</span></li>
-  <li><span class="step"><b>「入力」シートを編集</b>ひな形の説明どおりに編集し、上書き保存<br>（CSV での保存は不要）</span></li>
-  <li><span class="step"><b>表示を確かめる</b>保存した内容が、パネルと一覧に表示される</span></li>
-  <li><span class="step"><b class="alert">「CSVとして反映する」</b>押して反映する</span></li>
-</ol>
-</div>
-
 <div class="why"><span class="label">なぜ必要か</span>
 同じようによく育つ森でも、緩やかな斜面ならハーベスタとフォワーダで効率よく出せますが、急斜面ではスイングヤーダやタワーヤーダ、架線が必要になり、コストが上がります。どの地形でどの機械を使えるかは、<strong>傾斜</strong>と<strong>起伏量</strong>（周囲約 490m 四方の最高点と最低点の差）でおおむね決まります。
 <p>この対応表は、5種類のデータの中で唯一、<strong>地域の人が判断して決める</strong>ものです。地域で実際に使われている機械と合っていなければ、集材作業効率は現実とずれます。</p>
 <div class="ref">2.2.1 (3) 作業システム p.17、3.7.2 (3) p.70–71、5.5 p.105</div>
 </div>
 
+<div class="how"><span class="label">操作</span>
+「要素計算」タブの <strong>「作業システム設定」</strong>で行います。原版のように Excel を編集する必要はありません。
+<ul>
+  <li><strong>色分布パネル</strong>（右）：横軸が傾斜、縦軸が起伏量です。色が、その地形に割り当てる機械を表します。デフォルトは、原版の Excel ひな形の「入力例」シートと同じ内容です。「デフォルトに戻す」でいつでもこの内容に戻せます。</li>
+  <li><strong>機材名の一覧</strong>（左）：色と機械の対応です。数字が大きい機械ほど作業効率が高い扱いになります。<strong>色の四角をクリックすると「保有していない機械」</strong>になり、その機械が割り当てられていた地形は「該当なし」（最も効率が低い）になります。</li>
+  <li><strong>マージン</strong>：プラス側にすると、斜面を実際より最大3度緩いものとみなし、同じ地形でもより効率のよい機械を割り当てます（強気）。マイナス側はその逆（慎重）です。緩斜面と、機械の限界を超える急斜面の割り当ては動きません。</li>
+  <li><strong>「CSVとして反映する」</strong>を押すと、作業フォルダの <span class="path">DATA/SAGYO-SYSTEM_CSV/costcsv.csv</span> に保存され、作業システムCSV 欄に自動で設定されます。</li>
+</ul>
+<p>地域の作業システムをマスごとに細かく決めたい場合は、原版と同じ Excel のひな形も使えます。</p>
+<ol>
+  <li><strong>「Excelシートを開く」</strong>を押すと、ひな形（集材作業効率の設定220113.xlsx）が、作業フォルダの <span class="path">DATA/SAGYO-SYSTEM_CSV</span> に置かれて開きます。すでに置いてある場合は、そのファイルを開きます。</li>
+  <li>ひな形の説明どおりに「入力」シートを編集し、上書き保存します。CSV で保存し直す必要はありません。</li>
+  <li>保存すると、その内容がパネルと一覧に表示されます。</li>
+  <li>表示を確かめてから「CSVとして反映する」を押します。</li>
+</ol>
+</div>
 <div class="note"><span class="label">現バージョンの制限</span>
 機材名の欄は書き換えられますが、書き換えても割り当てのパターンは変わりません。名前は凡例の表示に使われるだけです。地域独自の機材構成は、「保有していない機械」の指定とマージンで調整してください。
 </div>

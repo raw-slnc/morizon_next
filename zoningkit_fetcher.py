@@ -239,6 +239,17 @@ class HttpRangeFile:
         self._session.close()
 
 
+def zone_cache_paths(zone: int, cache_base_dir: str) -> dict:
+    """座標系zone系のNPP/SRAD/VTEXを置く場所 {種別: パス}"""
+    zone_dir = os.path.join(cache_base_dir, f"zone_{zone}")
+    return {kind: os.path.join(zone_dir, f"{kind}.tif") for kind in ("NPP", "SRAD", "VTEX")}
+
+
+def zone_cache_ready(zone: int, cache_base_dir: str) -> bool:
+    """座標系zone系のデータを、すでに全部ダウンロードしてあるか"""
+    return all(os.path.exists(path) for path in zone_cache_paths(zone, cache_base_dir).values())
+
+
 def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_cb=None) -> dict:
     """
     座標系zone系のNPP/SRAD/VTEX（ゾーン全体分、数十〜数百MB規模）を
@@ -252,10 +263,10 @@ def ensure_zone_cache(zone: int, cache_base_dir: str, progress_cb=None, cancel_c
     Returns:
         {種別: キャッシュ済みファイルパス}
     """
-    zone_dir = os.path.join(cache_base_dir, f"zone_{zone}")
-    expected = {kind: os.path.join(zone_dir, f"{kind}.tif") for kind in ("NPP", "SRAD", "VTEX")}
+    expected = zone_cache_paths(zone, cache_base_dir)
+    zone_dir = os.path.dirname(expected["NPP"])
 
-    if all(os.path.exists(p) for p in expected.values()):
+    if zone_cache_ready(zone, cache_base_dir):
         return expected
 
     resources = get_zoningkit_resources()

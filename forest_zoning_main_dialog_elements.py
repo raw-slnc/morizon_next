@@ -3,6 +3,7 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
+import re
 import shutil
 import gc
 import zipfile
@@ -530,6 +531,7 @@ class ForestZoningMainDialogElements:
                 f"既存データがあります。読み込んで反映されます。\n{os.path.basename(workspace_root)}"
             )
             self.main.discard_initialized_layers(detached)
+            self._share_zone_siteindex(data_dir)
             self.main.archive.load_workspace_data(workspace_root)
             return
         found = morizon_data.find_inputs(data_dir)
@@ -559,8 +561,49 @@ class ForestZoningMainDialogElements:
             self.main.restore_initialized_layers(detached)
             return
         self.main.discard_initialized_layers(detached)
+        self._share_zone_siteindex(data_dir)
         self.main.use_external_workspace(workspace_root)
         self.main.set_inputs_from_data_dir(data_dir)
+
+    # 原版のキット（ZoningKit）の地位データは、座標系全体の1枚もの（例：SiteIndex/NPP/NPP08.tif）。
+    # 選んだフォルダにそれがあり、プラグインの共有データにその座標系がまだ無ければ、共有データへ写す。
+    # 以後「DEMブラウザから開始する」で同じ座標系を使うとき、ダウンロードせずに済む
+    _ZONE_FILE_PATTERN = re.compile(r"^(NPP|SRAD|VTEX)(\d{2})\.tif$", re.IGNORECASE)
+
+    def _share_zone_siteindex(self, data_dir):
+        if QgsProject.instance().homePath() == "":
+            return  # 共有データはプロジェクトのフォルダに置くので、保存していないプロジェクトでは写さない
+        cache_base_dir = utils.get_morizon_shared_dir()
+        tasks = []
+        for kind in ("NPP", "SRAD", "VTEX"):
+            for path in morizon_data.find_input_files(data_dir, morizon_data.INPUT_DEFS[kind.lower()]):
+                match = self._ZONE_FILE_PATTERN.match(os.path.basename(path))
+                if not match or match.group(1).upper() != kind:
+                    continue  # 切り出し済みのデータ（npp_clipped.tif など）は座標系全体ではないので写さない
+                zone = int(match.group(2))
+                try:
+                    crs = utils.get_tiff_info(path)["crs"].authid()
+                except RuntimeError:
+                    continue
+                if crs not in (f"EPSG:{2442 + zone}", f"EPSG:{6668 + zone}"):
+                    # 名前の座標系の番号と、中身の平面直角座標系の番号が合わないものは写さない。
+                    # ZoningKit の地位データは JGD2000（第8系なら EPSG:2450）。JGD2011（同 EPSG:6676）も同じ系として認める
+                    continue
+                destination = zoningkit_fetcher.zone_cache_paths(zone, cache_base_dir)[kind]
+                if not os.path.exists(destination):
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    tasks.append((path, destination + ".part"))
+                break
+        if not tasks:
+            return
+        outcome = self.main.archive._run_thread(
+            processes.data_import.FileCopyThread(tasks, message="地域データを共有データに写しています")
+        )
+        for _, part in tasks:
+            if outcome.get("status") == "done" and os.path.exists(part):
+                os.replace(part, part[:-len(".part")])
+            elif os.path.exists(part):
+                os.remove(part)
 
     # ── 「…」で選んだファイルを作業フォルダへ取り込む ─────────────────────────
     # 個別に選んだファイルは、今の作業フォルダの DATA/<種類>/ にコピーして使う（1種類1ファイル。前のファイルは置き換える）。
@@ -823,6 +866,12 @@ class ForestZoningMainDialogElements:
         # プロジェクトを他PCへ移動しても一緒に運ばれ、同一プロジェクト内での再取得を避けられる。
         # 「フォルダ一式」（DATA/等）には含めない、あくまで内部支援用
         cache_base_dir = utils.get_morizon_shared_dir()
+        if not zoningkit_fetcher.zone_cache_ready(zone, cache_base_dir):
+            # その地域（座標系）を初めてダウンロードするときだけ知らせる（座標系全体で数百MBある）
+            QMessageBox.information(
+                self.main, "地域データのダウンロード",
+                "お使いの環境（回線や PC）によっては時間がかかります。ダウンロードは地域ごとに初回だけ行い、以降は共有データを使います。",
+            )
 
         thread = processes.siteindex_fetch.SiteIndexFetchThread(
             zone, cache_base_dir, output_dir,

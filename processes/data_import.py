@@ -92,9 +92,10 @@ class FileCopyThread(QThread):
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
 
-    def __init__(self, tasks):
+    def __init__(self, tasks, message="作業フォルダにファイルを取り込み中"):
         super().__init__()
         self.tasks = tasks
+        self.message = message
         self.abort_flag = False
 
     def set_abort_flag(self, flag=True):
@@ -105,7 +106,7 @@ class FileCopyThread(QThread):
         try:
             tasks = [(src, dest, os.path.getsize(src)) for src, dest in self.tasks]
             self.setAbortable.emit(True)
-            self.postMessage.emit("作業フォルダにファイルを取り込み中")
+            self.postMessage.emit(self.message)
             self.processStarted.emit(100)
             reported = {"percent": 0}
 
