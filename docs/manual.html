@@ -132,6 +132,7 @@ details.more h5 { font-size: 14px; margin: 12px 0 2px; color: var(--fg); }
 }
 figure { margin: 18px 0; }
 figure svg { display: block; max-width: 960px; margin: 0 auto; }
+figure img { display: block; max-width: 960px; width: 100%; height: auto; margin: 0 auto; border: 1px solid var(--line); }
 figcaption { font-size: 13px; color: var(--muted); text-align: center; margin-top: 4px; }
 svg text { font-family: inherit; }
 .aside { color: var(--risk); font-size: 14px; }
@@ -218,6 +219,12 @@ li { margin: 3px 0; }
 <p class="stance-end stance-link">ソースコード：<a href="https://github.com/raw-slnc/morizon_next">https://github.com/raw-slnc/morizon_next</a></p>
 </div>
 
+<div class="why"><span class="label">プラグインは地域の意思決定の材料（マップ）を提供する道具です</span>
+<p>「もりぞん」は、入力データを用意すれば、GIS の各種機能を使ったマップの作成を自動で行うことができます。しかしながら、しきい値設定の段階は地域の合意形成による意思決定が必要であり、決して自動化することはできません。</p>
+<p>本プラグインは、マップ作成の労力を軽減し、合意形成により注力するための道具として活用してください。ゾーニングにおいて重要なのは合意形成の過程なのです。</p>
+<p style="margin-top:8px;font-size:13px;color:var(--muted)">出典：林野庁「<a href="https://www.geospatial.jp/ckan/dataset/84476079-c049-4b8f-b46a-3280e9bc2cc4/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061/download/shinrin_zoning_tebiki_r8.pdf?preview=1">収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール「もりぞん」【改訂版】操作マニュアル</a>」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.42 より引用</p>
+</div>
+
 <section id="intro">
 <h2>はじめに</h2>
 <p>MORIZON NEXT は、林野庁の森林ゾーニング支援ツール「もりぞん（MORIZON）」を改良したプラグインです。ゾーニングの考え方と計算方法は原版をそのまま受け継いでいます。改良したのは、解析に必要なオープンデータをプラグインが自動で取得するようにした点です。</p>
@@ -226,6 +233,14 @@ li { margin: 3px 0; }
 <p>最初の章は<strong>データの準備</strong>です。データごとに「なぜこのデータが必要なのか」を説明しながら進めるので、読み終えるころには、この解析が何を計算しているのかもつかめるはずです。</p>
 
 <p><strong>まずは既定の設定のまま、最後まで一度通してみてください。</strong>次の手順だけで、ゾーニング図とゾーン統計量まで出力できます。しきい値や設定は、結果を見てから見直せば十分です。</p>
+<figure>
+<img src="../imgs/score_to_zoing_frrst_data_image.png" alt="ゾーニング図の出力例">
+<figcaption>スコアリング（収益性・災害リスク）からゾーニング図を作った例。2軸の組み合わせで森林を4区分に色分けする</figcaption>
+</figure>
+<figure>
+<img src="../imgs/zoning_image.png" alt="ゾーン統計量の出力例">
+<figcaption>最終的な出来形（ゾーン統計量）の例。小班ごとに最も多い区分で色分けし、災害リスクの高い範囲が3割以上の小班に斜線を重ねる</figcaption>
+</figure>
 <ol class="quick">
   <li><b>範囲を決める</b>QGIS プロジェクトを保存する<br>地図に対象地を一回り広く表示する</li>
   <li><b>データを自動取得</b>「DEMブラウザから開始する」<br>※ダウンロード時間が必要です<br>※国土地理院アカウント必須</li>
