@@ -934,6 +934,13 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 <p>針葉樹とみなす値に当てはまらないポリゴン（値が空のものを含む）は、4つの区分の色を付けず、薄い灰色で塗ります（凡例「針葉樹以外（区分なし）」）。災害リスクの斜線は、樹種に関係なく付きます。</p>
 <p>このオプションが切り替えるのは地図の表示だけです。集計の値（最も多い区分・区分ごとの割合など）は変わらず、属性表にはすべてのポリゴンの計算どおりの区分が残ります。「流域で集計」では使えません。</p>
 
+<h4>ゾーン統計量：外周線を出力しない（オプション）</h4>
+<p>ゾーン統計量の地図を、森林計画図の小班線などほかのレイヤーと重ねて見るときのためのオプションです。ゾーン統計量タブで「外周線を出力しない」にチェックを入れて実行すると、次のように描きます。</p>
+<ul>
+  <li>区分の塗り（第1〜第4象限、針葉樹以外）の外周線を描かない。</li>
+  <li>災害リスクの斜線を薄く（不透明度30%）描く。斜線そのものは消えない。</li>
+</ul>
+<p>切り替わるのは地図の表示だけで、集計の値は変わりません。「任意のポリゴンで集計」「流域で集計」のどちらでも使えます。チェックの状態は、次にプラグインを開いたときも残ります。</p>
 <h4>しきい値を決めるときに</h4>
 <figure>
 <img class="zoomable" src="../imgs/tebiki_fig3-39.png" alt="4象限図ゾーニングのしきい値の設定イメージ" style="max-width:640px" data-caption="図3-39 4象限図ゾーニングのしきい値の設定イメージ。出典：林野庁「収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール『もりぞん』【改訂版】操作マニュアル」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.76 より引用">
@@ -941,6 +948,25 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 </figure>
 <p>しきい値は、結果の地図とは別の根拠で決めます（<a href="#threshold-stance">しきい値の考え方</a>）。手引には「マップ上で見た目を確認しながら」区分けするという表現があります（p.52、p.55）。これは、地域の合意を進める中で、計算結果と実際の森林管理を照らし合わせることを前提にした表現です。見たい地図になるようにしきい値を動かすことではありません。</p>
 <div class="ref">3.7.1 ワークショップ等による合意形成 p.63–64</div>
+<hr>
+<h4>例：静岡県の森林資源解析データのメッシュで集計する</h4>
+<p>ゾーン統計量のポリゴンには、森林計画図の小班のほかに、静岡県森林資源解析データの20mメッシュも使えます。同じ範囲・同じ縮尺で比べると、次のように見え方が変わります（どちらも針葉樹のフィーチャーだけで色分けし、林班界を重ねています）。</p>
+<div class="fig-pair">
+<figure>
+<img class="zoomable" src="../imgs/zoning_compare_shohan.png" alt="森林計画図の小班で集計したゾーン統計量" data-caption="森林計画図の小班で集計。小班ごとに最も多い区分の色で塗るため、大きな小班では中の違いが1色にまとめられる。背景：地理院地図（国土地理院）。メッシュ：静岡県森林資源解析データ（静岡県）を加工して作成。森林計画図：静岡県">
+<figcaption>森林計画図の小班で集計</figcaption>
+</figure>
+<figure>
+<img class="zoomable" src="../imgs/zoning_compare_mesh.png" alt="20mメッシュで集計したゾーン統計量" data-caption="静岡県森林資源解析データの20mメッシュで集計。小班の中のどこがどの区分かが見え、針葉樹の判定もメッシュの樹種（航空レーザ）で行える。背景：地理院地図（国土地理院）。メッシュ：静岡県森林資源解析データ（静岡県）を加工して作成。森林計画図：静岡県">
+<figcaption>20mメッシュで集計</figcaption>
+</figure>
+</div>
+<p style="font-size:13px;color:var(--muted);text-align:center">背景：地理院地図（国土地理院）。メッシュ：静岡県森林資源解析データ（静岡県）を加工して作成。森林計画図：静岡県</p>
+<ul>
+  <li>小班での集計は、小班を判断の単位として全体を見るのに向いています。大きな小班では、中の違いが1色にまとめられます。</li>
+  <li>メッシュでの集計は、狭い範囲の実態を見るのに向いています。森林計画図を重ねると、小班の中のどこがどの区分かが読めます。針葉樹かどうかも、メッシュの樹種（航空レーザで判定したもの）で見分けられます。</li>
+  <li>メッシュはポリゴンの数が多くなります。広い範囲を1枚で見ると、細かいマスが点々と並んで見えにくくなります。「外周線を出力しない」を合わせて使うと、ほかのレイヤーと重ねて見やすくなります。</li>
+</ul>
 </section>
 </section>
 <section id="legend">
@@ -985,8 +1011,9 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
   <div class="info"><div class="title"></div><p class="desc"></p></div>
 </dialog>
 <script>
-// 図をクリックすると大きく開き、詳しい説明を添える。左右の矢印（ボタン・← →キー）で前後の図へ移る。
-// 背景・×ボタン・Esc で閉じる
+// 図をクリックすると大きく開き、詳しい説明を添える。左右に並べた組（.fig-pair）の図は、
+// 左右の矢印（ボタン・← →キー）でその組の中だけ前後に移る（端で止まり、ほかの図へは移らない）。
+// 組でない図は1枚だけ開く。背景・×ボタン・Esc で閉じる
 (function () {
   var popup = document.getElementById('img-popup');
   var img = popup.querySelector('.stage img');
@@ -994,13 +1021,18 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
   var desc = popup.querySelector('.desc');
   var prev = popup.querySelector('.prev');
   var next = popup.querySelector('.next');
-  var items = Array.prototype.slice.call(document.querySelectorAll('img.zoomable'));
+  var items = [];   // 今開いている組の図
   var current = 0;
 
   function caption(el) {
     var fig = el.closest('figure');
     var cap = fig ? fig.querySelector('figcaption') : null;
     return cap ? cap.textContent : el.alt;
+  }
+
+  function groupOf(el) {
+    var pair = el.closest('.fig-pair');
+    return pair ? Array.prototype.slice.call(pair.querySelectorAll('img.zoomable')) : [el];
   }
 
   function render(index) {
@@ -1016,12 +1048,13 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
       title.appendChild(count);
     }
     desc.textContent = el.dataset.caption || '';
-    prev.hidden = next.hidden = items.length < 2;
+    prev.hidden = index <= 0;
+    next.hidden = index >= items.length - 1;
   }
 
   function move(step) {
-    if (items.length < 2) return;
-    var index = (current + step + items.length) % items.length;
+    var index = current + step;
+    if (index < 0 || index >= items.length) return;
     img.classList.add('switching');
     setTimeout(function () {
       render(index);
@@ -1029,9 +1062,10 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
     }, 160);
   }
 
-  items.forEach(function (el, index) {
+  document.querySelectorAll('img.zoomable').forEach(function (el) {
     el.addEventListener('click', function () {
-      render(index);
+      items = groupOf(el);
+      render(items.indexOf(el));
       popup.showModal();
     });
   });

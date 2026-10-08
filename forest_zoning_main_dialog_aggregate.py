@@ -21,7 +21,7 @@ from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import run_with_progress
-from .settings_manager import AggregateConiferManager
+from .settings_manager import AggregateConiferManager, AggregateStyleManager
 
 
 class ForestZoningMainDialogAggregate:
@@ -110,6 +110,14 @@ class ForestZoningMainDialogAggregate:
         note = self.main.label_8  # ジオメトリの注意書き（4行目・2列目）
         grid.removeWidget(note)
         box.addWidget(note)
+        # 「外周線を出力しない」（針葉樹のオプションの上。表示だけで、集計の値は変わらない）
+        self.no_outline_check = QCheckBox("外周線を出力しない")
+        self.no_outline_check.setToolTip(
+            "区分の塗りの外周線を描かず、災害リスクの斜線を薄く（不透明度30%）描く。\n"
+            "森林計画図の小班線など、ほかのレイヤーを重ねて見るときに使う（表示だけで、集計の値は変わらない）")
+        self.no_outline_check.setChecked(AggregateStyleManager().load_no_outline())
+        self.no_outline_check.toggled.connect(lambda checked: AggregateStyleManager().store_no_outline(checked))
+        box.addWidget(self.no_outline_check)
         box.addLayout(row)
         box.addWidget(self.conifer_values_label)
         grid.addLayout(box, 4, 1, 1, 2)
@@ -310,6 +318,7 @@ class ForestZoningMainDialogAggregate:
             style_threshold=self.main.aggregateStyleThresholdspinBox.value(),
             db_path=db_path,
             conifer=self.get_conifer_setting(),
+            no_outline=self.no_outline_check.isChecked(),
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         outcome = run_with_progress(thread, show_detail=True)

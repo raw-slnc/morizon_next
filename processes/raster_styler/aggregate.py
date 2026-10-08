@@ -53,8 +53,19 @@ _CONIFER_SYMBOL = f"""
       </symbol>"""
 
 
-def write_qml(output_shp_path: str, threshold=0.3, conifer=None) -> str:
-    """conifer：「針葉樹のフィーチャーだけで収益性を判定する」の (列名, 針葉樹とみなす値)。None なら使わない"""
+# 区分の塗り（第1〜第4象限・区分なし）の外周線。「外周線を出力しない」ときは、この組み合わせだけを描かない形にする
+# （斜線の記号の外周線は色が違うので当たらない）
+_ZONE_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="solid"/>'
+_ZONE_NO_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="no"/>'
+# 「外周線を出力しない」のとき（ほかのレイヤーに重ねて見る使い方）は、斜線を不透明度30%にする
+_HATCH_SYMBOL = '<symbol name="4" alpha="1"'
+_HATCH_SYMBOL_LIGHT = '<symbol name="4" alpha="0.3"'
+
+
+def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=False) -> str:
+    """conifer：「針葉樹のフィーチャーだけで収益性を判定する」の (列名, 針葉樹とみなす値)。None なら使わない
+    no_outline：「外周線を出力しない」。区分の塗り（第1〜第4象限・区分なし）の外周線を描かず、
+    斜線（災害リスク高）を不透明度30%にする（ほかのレイヤーに重ねて見る使い方。斜線そのものは描く）"""
     output_filepath = output_shp_path.replace(".shp", ".qml")
     if conifer:
         condition = _conifer_condition(conifer)
@@ -287,7 +298,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None) -> str:
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="35,35,35,255"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="0.1"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -306,6 +317,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None) -> str:
   <layerGeometryType>2</layerGeometryType>
 </qgis>
     """
-        ).replace("@ONLY@", only))
+        ).replace("@ONLY@", only).replace(_ZONE_OUTLINE, _ZONE_NO_OUTLINE if no_outline else _ZONE_OUTLINE).replace(
+            _HATCH_SYMBOL, _HATCH_SYMBOL_LIGHT if no_outline else _HATCH_SYMBOL))
 
     return output_filepath

@@ -309,3 +309,25 @@ class AggregateConiferManager:
         qsettings.setValue('field', field or '')
         qsettings.setValue('values', sorted(values))
         qsettings.endGroup()
+
+
+class AggregateStyleManager:
+    """
+    ゾーン統計量の表示の設定（「外周線を出力しない」）。作業の好みなので QGISの設定に保存する
+    """
+
+    SETTING_GROUP = '/MORIZON/aggregate_style'
+    NO_OUTLINE_KEY = 'no_outline'
+
+    def load_no_outline(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.NO_OUTLINE_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_no_outline(self, no_outline: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.NO_OUTLINE_KEY, bool(no_outline))
+        qsettings.endGroup()
