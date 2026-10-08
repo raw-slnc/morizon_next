@@ -275,3 +275,37 @@ class ShcMethodManager:
         qsettings.beginGroup(self.SETTING_GROUP)
         qsettings.setValue(self.HIDE_SAGA_NOTICE_KEY, bool(hide))
         qsettings.endGroup()
+
+
+class AggregateConiferManager:
+    """
+    ゾーン統計量タブの「針葉樹のフィーチャーだけで収益性を判定する」の設定と、選んだポリゴンレイヤー。
+    解析のデータではなく作業の続きのための設定なので、QGISの設定に保存する（最後に使ったものを1つ）。
+    ポリゴンレイヤーはデータの場所（source）で覚え、プロジェクトに同じデータがあれば選び直す
+    """
+
+    SETTING_GROUP = '/MORIZON/aggregate_conifer'
+
+    def load(self) -> dict:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        values = qsettings.value('values', [])
+        if isinstance(values, str):  # 1つだけのときは文字列で返ることがある
+            values = [values]
+        result = {
+            'layer_source': qsettings.value('layer_source', '', type=str),
+            'enabled': qsettings.value('enabled', False, type=bool),
+            'field': qsettings.value('field', '', type=str),
+            'values': [str(v) for v in (values or [])],
+        }
+        qsettings.endGroup()
+        return result
+
+    def store(self, layer_source: str, enabled: bool, field: str, values):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue('layer_source', layer_source or '')
+        qsettings.setValue('enabled', bool(enabled))
+        qsettings.setValue('field', field or '')
+        qsettings.setValue('values', sorted(values))
+        qsettings.endGroup()

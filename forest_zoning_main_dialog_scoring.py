@@ -860,12 +860,14 @@ class ForestZoningMainDialogScoring:
         group_node = root.insertGroup(0, "スコアリング")
         group_node.setExpanded(False)
 
-        # 収益性と災害リスクを重ねて見られるよう、グループ内は排他にしない。初期状態はグループ・レイヤーともOFF
-        group_node.setItemVisibilityChecked(False)
+        # 収益性と災害リスクを重ねて見られるよう、グループ内は排他にしない。作ったときはグループ・レイヤーとも表示する
+        # （続くゾーニングタブで、しきい値による色分けを地図で見ながら進めるため）
+        group_node.setItemVisibilityChecked(True)
+        root.setItemVisibilityChecked(True)  # 親（Morizon Next）が OFF だと地図に出ないため。ほかの子の状態は変わらない
         for key, rlayer in rlayers_dict.items():
             apply_output_blend_mode(rlayer)
             utils.tag_output_layer(rlayer, utils.STAGE_SCORING, key)
             QgsProject.instance().addMapLayer(rlayer, False)
-            group_node.addLayer(rlayer).setItemVisibilityChecked(False)
+            group_node.addLayer(rlayer).setItemVisibilityChecked(True)
         rlayers_dict.clear()
         gc.collect()

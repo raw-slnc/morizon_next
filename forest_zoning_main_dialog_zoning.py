@@ -6,7 +6,7 @@ import os
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.PyQt.QtWidgets import QMessageBox, QVBoxLayout
 from qgis.core import QgsMapLayerProxyModel, QgsProject
 from qgis.utils import iface
 
@@ -17,6 +17,7 @@ from .processes.raster_styler import (
 from . import processes
 from . import utils
 from .progress_dialog import run_with_progress
+from .zoning_threshold_view import ZoningThresholdPanel
 from .constants import (
     DIR_ZONING,
     OUTPUT_PROFIT,
@@ -43,12 +44,20 @@ class ForestZoningMainDialogZoning:
         """
         self.main.zoningRunButton.clicked.connect(self.run_zoning)
         self.main.zoningSetLayersButton.clicked.connect(self.set_zoning_layer_combobox)
-        self.main.zoningProfitUpdateButton.clicked.connect(
-            lambda: self.set_zoning_raster_style("profit")
-        )
-        self.main.zoningRiskUpdateButton.clicked.connect(
-            lambda: self.set_zoning_raster_style("risk")
-        )
+        # しきい値を変えたら地図の色分けをすぐ描き直す（原版の「更新」ボタンは不要になったので、
+        # 同じボタンを「初期値」に戻すボタンとして使う）
+        self._suspend_style = False
+        for button, name in (
+            (self.main.zoningProfitUpdateButton, "profit"),
+            (self.main.zoningRiskUpdateButton, "risk"),
+        ):
+            button.setText("初期値")
+            # 画面定義では「更新」の幅（最大40px）なので、3文字が収まるよう広げる
+            button.setMaximumWidth(button.fontMetrics().horizontalAdvance("初期値") + 24)
+            button.setToolTip("しきい値を初期値（面積を半々に分ける位置をもとに求めた値）に戻す")
+            button.clicked.connect(lambda _=False, n=name: self.reset_zoning_threshold(n))
+        self.main.zoningProfitSpinbox.valueChanged.connect(lambda _: self.on_zoning_threshold_changed("profit"))
+        self.main.zoningRiskSpinbox.valueChanged.connect(lambda _: self.on_zoning_threshold_changed("risk"))
 
         # ラスターレイヤーだけを選択可能に
         for combobox in (
@@ -85,8 +94,90 @@ class ForestZoningMainDialogZoning:
             self.refresh_zoning_ui
         )  # nopep8
 
+        self.init_threshold_panel()
         self.refresh_zoning_ui()
         self.set_zoning_thresholds()
+
+    def init_threshold_panel(self):
+        """収益性・災害リスクの値の段階と面積の割合を、しきい値の位置と一緒に見せる図を、
+        「既定のレイヤーを再読込する」の下（タブの空いている場所）に置く。表示だけで計算には関わらない"""
+        self.threshold_panel = ZoningThresholdPanel(SCORING_COLORS_PROFIT, SCORING_COLORS_RISK)
+        layout = self.main.findChild(QVBoxLayout, "verticalLayout_3")
+        layout.insertWidget(2, self.threshold_panel)
+        for signal in (
+            self.main.zoningProfitLayerCombobox.layerChanged,
+            self.main.zoningRiskLayerCombobox.layerChanged,
+            self.main.zoningProfitSpinbox.valueChanged,
+            self.main.zoningRiskSpinbox.valueChanged,
+        ):
+            signal.connect(self.refresh_threshold_panel)
+        # ▲を動かしたら、しきい値の欄に入れる（欄の変更で図も描き直される）
+        self.threshold_panel.profit.thresholdChanged.connect(self.main.zoningProfitSpinbox.setValue)
+        self.threshold_panel.risk.thresholdChanged.connect(self.main.zoningRiskSpinbox.setValue)
+        # カラーバーの下のボタンで、レイヤーの地図での表示を切り替える
+        self.threshold_panel.profit.visibilityToggled.connect(
+            lambda checked: self.set_axis_layer_visible(self.main.zoningProfitLayerCombobox, checked))
+        self.threshold_panel.risk.visibilityToggled.connect(
+            lambda checked: self.set_axis_layer_visible(self.main.zoningRiskLayerCombobox, checked))
+        self.refresh_threshold_panel()
+
+    @staticmethod
+    def _layer_node(layer):
+        if layer is None:
+            return None
+        return QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+
+    def set_axis_layer_visible(self, combobox, checked):
+        node = self._layer_node(combobox.currentLayer())
+        if node is None:
+            return
+        node.setItemVisibilityChecked(checked)
+        if checked:
+            # 親のグループ（スコアリング・Morizon Next）が OFF だと地図に出ないので、親も ON にする
+            parent = node.parent()
+            while parent is not None and parent.parent() is not None:
+                parent.setItemVisibilityChecked(True)
+                parent = parent.parent()
+
+    def refresh_threshold_panel(self, *_):
+        for view, combobox, spinbox in (
+            (self.threshold_panel.profit, self.main.zoningProfitLayerCombobox, self.main.zoningProfitSpinbox),
+            (self.threshold_panel.risk, self.main.zoningRiskLayerCombobox, self.main.zoningRiskSpinbox),
+        ):
+            layer = combobox.currentLayer()
+            view.set_layer(layer, layer is not None and utils.is_valid_scoring_layer(layer),
+                           self._initial_zoning_threshold)
+            view.set_threshold(spinbox.value())
+        self.sync_visible_buttons()
+
+    def sync_visible_buttons(self):
+        """表示ボタンを、レイヤーパネルのチェックの状態に合わせる"""
+        if not hasattr(self, "threshold_panel"):
+            return
+        for view, combobox in (
+            (self.threshold_panel.profit, self.main.zoningProfitLayerCombobox),
+            (self.threshold_panel.risk, self.main.zoningRiskLayerCombobox),
+        ):
+            node = self._layer_node(combobox.currentLayer())
+            view.set_visible_state(node is not None, node is not None and node.isVisible())
+
+    def on_zoning_threshold_changed(self, layer_name):
+        if not self._suspend_style:
+            self.set_zoning_raster_style(layer_name)
+
+    def reset_zoning_threshold(self, layer_name):
+        """「初期値」ボタン：しきい値を初期値に戻す（欄の変更で地図と図も描き直される）"""
+        combobox, spinbox = (
+            (self.main.zoningProfitLayerCombobox, self.main.zoningProfitSpinbox) if layer_name == "profit"
+            else (self.main.zoningRiskLayerCombobox, self.main.zoningRiskSpinbox))
+        layer = combobox.currentLayer()
+        if layer is not None and utils.is_valid_scoring_layer(layer):
+            spinbox.setValue(self._initial_zoning_threshold(layer))
+
+    @staticmethod
+    def _initial_zoning_threshold(layer):
+        """しきい値の初期値（set_zoning_thresholds と同じ求め方。面積がおおよそ半々になる値を整数に切り捨て）"""
+        return int(utils.get_initial_thresholds(layer, classes_count=2)[0])
 
     def refresh_zoning_ui(self):
         """
@@ -97,6 +188,8 @@ class ForestZoningMainDialogZoning:
         has_no_error = len(error_texts) == 0
         self.main.zoningErrorLabel.setText("\n".join(error_texts))
         self.main.zoningRunButton.setEnabled(has_no_error)
+        # レイヤーパネルで表示を切り替えた場合も、タブを開き直したときなどに合わせる
+        self.sync_visible_buttons()
 
         # 既定のレイヤーがすべて入っているとき（押しても変わらないとき）は、再読込ボタンをグレーアウトする
         self.main.zoningSetLayersButton.setEnabled(any(
@@ -188,18 +281,25 @@ class ForestZoningMainDialogZoning:
     def set_zoning_thresholds(self):
         """
         収益性・災害リスクのしきい値を、入力ラスターの値域から計算してセットする
+        （途中の 0 で地図を描き直さないよう、入れ終えてから1回だけ描き直す）
         """
-        for combobox, spinbox in (
-            (self.main.zoningProfitLayerCombobox, self.main.zoningProfitSpinbox),
-            (self.main.zoningRiskLayerCombobox, self.main.zoningRiskSpinbox),
-        ):
-            spinbox.setValue(0)  # 初期化
-            if combobox.currentLayer() is not None:
-                if utils.is_valid_scoring_layer(combobox.currentLayer()):
-                    threshold = utils.get_initial_thresholds(
-                        combobox.currentLayer(), classes_count=2
-                    )[0]
-                    spinbox.setValue(int(threshold))
+        self._suspend_style = True
+        try:
+            for combobox, spinbox in (
+                (self.main.zoningProfitLayerCombobox, self.main.zoningProfitSpinbox),
+                (self.main.zoningRiskLayerCombobox, self.main.zoningRiskSpinbox),
+            ):
+                spinbox.setValue(0)  # 初期化
+                if combobox.currentLayer() is not None:
+                    if utils.is_valid_scoring_layer(combobox.currentLayer()):
+                        threshold = utils.get_initial_thresholds(
+                            combobox.currentLayer(), classes_count=2
+                        )[0]
+                        spinbox.setValue(int(threshold))
+        finally:
+            self._suspend_style = False
+        self.set_zoning_raster_style("profit")
+        self.set_zoning_raster_style("risk")
 
     def set_zoning_raster_style(self, layer_name: str):
         if layer_name == "profit":

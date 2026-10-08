@@ -58,7 +58,7 @@ class ProcessingThread(QThread):
     processFailed = pyqtSignal(str)
 
     def __init__(self, mode: str, zoning_layer_path: str, input_layer, output_path: str,
-                 style_threshold: int, db_path: str):
+                 style_threshold: int, db_path: str, conifer=None):
         """output_path は作業フォルダの互換用の shp、db_path は描画用の DB（layer_db.py）"""
         super().__init__()
         self.mode = mode
@@ -67,6 +67,8 @@ class ProcessingThread(QThread):
         self.output_path = output_path
         self.style_threshold = style_threshold
         self.db_path = db_path
+        # (列名, 針葉樹とみなす値の集合)。None なら樹種で分けない。集計の値は変えず、表示（スタイル）だけで分ける
+        self.conifer = conifer
 
         self.abort_flag = False
         self.feedback = None
@@ -147,7 +149,9 @@ class ProcessingThread(QThread):
             vlayer = QgsVectorLayer(
                 layer_db.layer_uri(self.db_path, layer_db.KIND_AGGREGATE), OUTPUT_AGGREGATE["DISPLAY_NAME"], "ogr"
             )
-            qml_filepath = raster_styler.aggregate.write_qml(self.output_path, self.style_threshold)
+            qml_filepath = raster_styler.aggregate.write_qml(
+                self.output_path, self.style_threshold,
+                conifer=self.conifer if self.mode == "polygon" else None)
             vlayer.loadNamedStyle(qml_filepath)
             vlayer_dict[OUTPUT_AGGREGATE["DISPLAY_NAME"]] = vlayer
         except Exception as e:

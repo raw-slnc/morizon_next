@@ -98,6 +98,8 @@ th { background: var(--panel); font-weight: 700; }
 .tag { display: inline-block; font-size: 12px; padding: 0 7px; border-radius: 10px; border: 1px solid currentColor; margin-right: 4px; white-space: nowrap; }
 .tag.profit { color: var(--profit); }
 .tag.risk { color: var(--risk); }
+.abs { color: var(--data); }
+.rel { color: var(--warn); }
 .tag.manual { color: var(--warn); }
 .alert { color: var(--alert); }
 .stance { margin: 28px 0; padding: 16px 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -133,6 +135,40 @@ details.more h5 { font-size: 14px; margin: 12px 0 2px; color: var(--fg); }
 figure { margin: 18px 0; }
 figure svg { display: block; max-width: 960px; margin: 0 auto; }
 figure img { display: block; max-width: 960px; width: 100%; height: auto; margin: 0 auto; border: 1px solid var(--line); }
+.fig-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+.fig-pair figure { margin: 0; }
+@media (max-width: 860px) { .fig-pair { grid-template-columns: 1fr; } }
+img.zoomable { cursor: zoom-in; transition: transform .15s ease, box-shadow .15s ease; }
+img.zoomable:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+#img-popup { border: none; padding: 0; margin: auto; width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; background: transparent; color: #fff; }
+#img-popup::backdrop { background: rgba(12, 16, 10, .88); backdrop-filter: blur(3px); }
+#img-popup[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; animation: pop-fade .2s ease; }
+#img-popup .stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; flex: 1 1 auto; min-height: 0; padding: 48px 72px 8px; box-sizing: border-box; }
+#img-popup .stage img { max-width: 100%; max-height: 100%; border-radius: 4px; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); transition: opacity .18s ease; }
+#img-popup .stage img.switching { opacity: 0; }
+#img-popup .info { flex: 0 0 auto; max-width: 960px; padding: 10px 24px 22px; text-align: center; }
+#img-popup .info .title { font-weight: 700; font-size: 16px; }
+#img-popup .info .count { margin-left: 10px; font-size: 13px; opacity: .7; font-weight: 400; }
+#img-popup .info .desc { margin: 6px 0 0; font-size: 14px; line-height: 1.7; opacity: .9; }
+#img-popup button { position: absolute; border: none; color: #fff; background: rgba(255, 255, 255, .12); cursor: pointer; border-radius: 50%; transition: background .15s ease; }
+#img-popup button:hover { background: rgba(255, 255, 255, .28); }
+#img-popup .close { top: 12px; right: 16px; width: 40px; height: 40px; font-size: 22px; line-height: 40px; z-index: 2; }
+#img-popup .nav { top: 50%; transform: translateY(-50%); width: 48px; height: 48px; font-size: 26px; line-height: 48px; }
+#img-popup .prev { left: 14px; }
+#img-popup .next { right: 14px; }
+#img-popup .nav[hidden] { display: none; }
+@keyframes pop-fade { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+@media (max-width: 860px) { #img-popup .stage { padding: 52px 8px 8px; } #img-popup .nav { top: auto; bottom: 8px; transform: none; } }
+.thr-box { border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px 10px; margin: 14px 0; }
+.thr-title { font-weight: 700; font-size: 14px; }
+.thr-scale { max-width: 560px; margin: 4px auto 6px; }
+.thr-cells { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); }
+.thr-cells > div { padding: 8px 0; text-align: center; font-weight: 700; background: var(--panel); }
+.thr-cells > div + div { border-left: 2px solid var(--fg); }
+.thr-axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.thr-marks { position: relative; height: 40px; margin-top: -14px; }
+.thr-marks > span { position: absolute; top: 0; transform: translateX(-50%); text-align: center; line-height: 1.2; }
+.thr-marks b { display: block; font-size: 13px; white-space: nowrap; }
 figcaption { font-size: 13px; color: var(--muted); text-align: center; margin-top: 4px; }
 svg text { font-family: inherit; }
 .aside { color: var(--risk); font-size: 14px; }
@@ -195,9 +231,13 @@ li { margin: 3px 0; }
         <li class="todo">2.3 スコアリング以降（準備中）</li>
       </ol>
     </li>
-    <li class="todo">3. パラメータとしきい値（準備中）</li>
+    <li><a href="#params">3. パラメータとしきい値</a>
+      <ol>
+        <li><a href="#params-threshold">3.1 しきい値</a></li>
+      </ol>
+    </li>
     <li class="todo">4. 凡例の見方（準備中）</li>
-    <li class="todo">5. 結果の使い方と注意点（準備中）</li>
+    <li><a href="#usage">5. 結果の使い方と注意点</a></li>
     <li class="todo">付録 手引との対応表（準備中）</li>
     <li><a href="#bug-report">不具合報告</a></li>
   </ol>
@@ -219,12 +259,6 @@ li { margin: 3px 0; }
 <p class="stance-end stance-link">ソースコード：<a href="https://github.com/raw-slnc/morizon_next">https://github.com/raw-slnc/morizon_next</a></p>
 </div>
 
-<div class="why"><span class="label">プラグインは地域の意思決定の材料（マップ）を提供する道具です</span>
-<p>「もりぞん」は、入力データを用意すれば、GIS の各種機能を使ったマップの作成を自動で行うことができます。しかしながら、しきい値設定の段階は地域の合意形成による意思決定が必要であり、決して自動化することはできません。</p>
-<p>本プラグインは、マップ作成の労力を軽減し、合意形成により注力するための道具として活用してください。ゾーニングにおいて重要なのは合意形成の過程なのです。</p>
-<p style="margin-top:8px;font-size:13px;color:var(--muted)">出典：林野庁「<a href="https://www.geospatial.jp/ckan/dataset/84476079-c049-4b8f-b46a-3280e9bc2cc4/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061/download/shinrin_zoning_tebiki_r8.pdf?preview=1">収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール「もりぞん」【改訂版】操作マニュアル</a>」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.42 より引用</p>
-</div>
-
 <section id="intro">
 <h2>はじめに</h2>
 <p>MORIZON NEXT は、林野庁の森林ゾーニング支援ツール「もりぞん（MORIZON）」を改良したプラグインです。ゾーニングの考え方と計算方法は原版をそのまま受け継いでいます。改良したのは、解析に必要なオープンデータをプラグインが自動で取得するようにした点です。</p>
@@ -232,15 +266,7 @@ li { margin: 3px 0; }
 <p>このマニュアルは、原版の「収益性と災害リスクを考慮した森林ゾーニングの手引き」（令和8年3月、以下「手引」）を置き換えるものではありません。操作に必要なことと、判断に必要な考え方に絞って書いています。詳しい背景を知りたいところには、手引の該当ページを <span class="ref" style="display:inline;margin:0">p.00</span> の形で示しました。</p>
 <p>最初の章は<strong>データの準備</strong>です。データごとに「なぜこのデータが必要なのか」を説明しながら進めるので、読み終えるころには、この解析が何を計算しているのかもつかめるはずです。</p>
 
-<p><strong>まずは既定の設定のまま、最後まで一度通してみてください。</strong>次の手順だけで、ゾーニング図とゾーン統計量まで出力できます。しきい値や設定は、結果を見てから見直せば十分です。</p>
-<figure>
-<img src="../imgs/zoning_image.png" alt="ゾーン統計量の出力例">
-<figcaption>最終的な出来形（ゾーン統計量）の例。小班ごとに最も多い区分で色分けし、災害リスクの高い範囲が3割以上の小班に斜線を重ねる</figcaption>
-</figure>
-<figure>
-<img src="../imgs/score_to_zoing_frrst_data_image.png" alt="ゾーニング図の出力例">
-<figcaption>スコアリング（収益性・災害リスク）からゾーニング図を作った例。2軸の組み合わせで森林を4区分に色分けする</figcaption>
-</figure>
+<p><strong>まずは既定の設定のまま、最後まで一度通してみてください。</strong>次の手順だけで、ゾーニング図とゾーン統計量まで出力できます。この1回目は、操作の流れをつかむための試しです。しきい値は、結果の地図を見て合わせるものではありません（<a href="#threshold-stance">しきい値の考え方</a>）。</p>
 <ol class="quick">
   <li><b>範囲を決める</b>QGIS プロジェクトを保存する<br>地図に対象地を一回り広く表示する</li>
   <li><b>データを自動取得</b>「DEMブラウザから開始する」<br>※ダウンロード時間が必要です<br>※国土地理院アカウント必須</li>
@@ -257,6 +283,22 @@ li { margin: 3px 0; }
   <li>タブの順に、要素計算 → スコアリング → ゾーニング → ゾーン統計量 → 印刷 と進める（<a href="#ops">2章</a>）。</li>
 </ol>
 フォルダの場所や構成、保存データの中身などは、プラグインが自動で扱います。最初は読み飛ばして構いません。データを別の PC に移すとき、保存データを他のソフトで使うときなど、必要になったときに参照してください。
+<p class="stance-end"><strong>何をするかを掴んだのち、そのための設定を覚えていきます。</strong></p>
+</div>
+<div class="fig-pair">
+<figure>
+<img class="zoomable" src="../imgs/zoning_image.png" alt="ゾーン統計量の出力例" data-caption="最終的な出来形（ゾーン統計量）の例。小班ごとに最も多い区分で色分けし、災害リスクの高い範囲が3割以上の小班に斜線を重ねる">
+<figcaption>ゾーン統計量（最終的な出来形）</figcaption>
+</figure>
+<figure>
+<img class="zoomable" src="../imgs/score_to_zoing_frrst_data_image.png" alt="ゾーニング図の出力例" data-caption="スコアリング（収益性・災害リスク）からゾーニング図を作った例。2軸の組み合わせで森林を4区分に色分けする">
+<figcaption>ゾーニング図</figcaption>
+</figure>
+</div>
+<div class="why"><span class="label">プラグインは地域の意思決定の材料（マップ）を提供する道具です</span>
+<p>「もりぞん」は、入力データを用意すれば、GIS の各種機能を使ったマップの作成を自動で行うことができます。しかしながら、しきい値設定の段階は地域の合意形成による意思決定が必要であり、決して自動化することはできません。</p>
+<p>本プラグインは、マップ作成の労力を軽減し、合意形成により注力するための道具として活用してください。ゾーニングにおいて重要なのは合意形成の過程なのです。</p>
+<p style="margin-top:8px;font-size:13px;color:var(--muted)">出典：林野庁「<a href="https://www.geospatial.jp/ckan/dataset/84476079-c049-4b8f-b46a-3280e9bc2cc4/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061/download/shinrin_zoning_tebiki_r8.pdf?preview=1">収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール「もりぞん」【改訂版】操作マニュアル</a>」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.42 より引用</p>
 </div>
 </section>
 
@@ -265,7 +307,7 @@ li { margin: 3px 0; }
 
 <section id="data-overview">
 <h3>1.1 何のためのデータか</h3>
-<p>最終的に作るのは、森林を次の4つに色分けした<strong>ゾーニング図</strong>です。</p>
+<p>最終的に作るのは、森林を次の4つに色分けした<strong>ゾーニングマップ（ゾーン統計量）</strong>です。</p>
 <div class="table-wrap">
 <table>
   <tr><th></th><th>災害リスクが低い</th><th>災害リスクが高い</th></tr>
@@ -288,7 +330,7 @@ li { margin: 3px 0; }
 </div>
 
 <figure>
-<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="データから要素、軸、ゾーニング図への流れ">
+<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="データから要素、軸、ゾーン統計量への流れ">
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
@@ -360,8 +402,8 @@ li { margin: 3px 0; }
     <rect x="504" y="220" width="114" height="36" rx="6" fill="var(--panel)" stroke="var(--risk)" stroke-width="2"/>
     <text x="561" y="243" text-anchor="middle" fill="var(--risk)" font-weight="700">災害リスク</text>
     <rect x="660" y="146" width="92" height="44" rx="6" fill="var(--panel)" stroke="var(--fg)"/>
-    <text x="706" y="165" text-anchor="middle" fill="var(--fg)">ゾーニング</text>
-    <text x="706" y="182" text-anchor="middle" fill="var(--fg)">図（4区分）</text>
+    <text x="706" y="165" text-anchor="middle" fill="var(--fg)">ゾーン統計量</text>
+    <text x="706" y="182" text-anchor="middle" fill="var(--fg)">（4区分）</text>
   </g>
 </svg>
 <figcaption>5種類のデータから6つの要素を計算し、収益性と災害リスクの2軸にまとめる</figcaption>
@@ -655,7 +697,8 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
   <li>林道データを加えるかどうか決めたか</li>
   <li>作業フォルダが「なし」になっていないか（出力先は作業フォルダの中に決まります）</li>
 </ul>
-<p>すべて揃うと「実行」ボタンが押せるようになります。操作の続きは「<a href="#ops-elements">2.1 要素計算</a>」で説明します。</p>
+<p>個別に計算は実行でき、やり直しも出来ます。</p>
+<p>要素計算が全て終わると次のタブでの実行の準備が整います。操作の続きは「<a href="#ops-elements">2.1 要素計算</a>」で詳しく説明します。</p>
 </section>
 
 <section id="data-credit">
@@ -776,6 +819,129 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 <section id="params">
 <h2>3. パラメータとしきい値</h2>
 <p class="placeholder">準備中</p>
+<div class="why" id="threshold-stance"><span class="label">しきい値は、結果の地図を見て決めるものではありません</span>
+<p>しきい値は、同じデータの上にどこで線を引くかを決めるものです。しきい値を変えると地図の色分けは変わります。しかし、現地の災害の危険度や林業の採算性が変わるわけではありません。</p>
+<ul>
+  <li>しきい値を変えたら危険な場所が減った、ということは起こりません。減ったのは地図の上の色だけです。</li>
+  <li>しきい値を変えたら生産適地が増えた、ということも起こりません。増えたのは地図の上の色だけです。</li>
+</ul>
+<p>結果の地図を見ながら、望む形になるまでしきい値を動かすのは、見たいものを作る手法です。そうして作ったゾーニング図は、合意形成の根拠になりません。</p>
+<p>しきい値は、地域の方針や守るべき対象、作業にかかる費用など、結果の地図とは別の根拠で決めます。スコアリングタブで見られる値の分布（最小・最大・平均・中央値など）は、データがどう分かれているかを知るための材料です。<span class="alert">決めた根拠は、後から説明できるように記録しておいてください。</span></p>
+<p>しきい値を少し動かして、区分が大きく変わる場所を調べることはあります。これは結論の確かさを確かめるためのもので、地図を選ぶためのものではありません。</p>
+</div>
+
+<section id="params-threshold">
+<h3>3.1 しきい値</h3>
+<p>しきい値は、スコアリング・ゾーニング・ゾーン統計量の3つの段階にあります。ここでは、どこに何を入れると何が変わるかをまとめます。しきい値の考え方の背景と事例は、手引に詳しく書かれています。</p>
+<table>
+  <tr><th>段階</th><th>しきい値</th><th>分けるもの</th><th>初期値</th></tr>
+  <tr><td>スコアリング</td><td>要素ごとに2つ</td><td>要素の値を3区分し、点数を付ける</td><td>面積がおおよそ3等分になる値（傾斜だけは 35°・45°）</td></tr>
+  <tr><td>ゾーニング</td><td>収益性・災害リスクにそれぞれ1つ</td><td>2軸を高・低に分け、組み合わせで4区分にする</td><td>最小値と最大値の中間</td></tr>
+  <tr><td>ゾーン統計量</td><td>「災害リスクが高い」割合</td><td>小班に斜線を重ねるかどうか</td><td>30%</td></tr>
+</table>
+<div class="ref">3.7 しきい値の設定における考え方 p.63–76</div>
+
+<h4>スコアリング：要素のしきい値</h4>
+<p>「保全対象を含む流域」を除く5つの要素は、2つのしきい値で3つの区分に分けられ、区分ごとに点数が付きます。</p>
+<figure>
+<img class="zoomable" src="../imgs/scoring.png" alt="スコアリングタブ" data-caption="スコアリングタブ。要素ごとに「スコアしきい値」の2つの欄にしきい値を入れる。右側に「更新」「戻る」「初期値」のボタン、下に「パラメータを読み込む」ボタンがある">
+<figcaption>スコアリングタブ</figcaption>
+</figure>
+<div class="thr-box">
+<div class="thr-title">しきい値設定の考え方</div>
+<div class="thr-scale" role="img" aria-label="値の小さい側から1点・2点・3点に分け、1点と2点の境目がしきい値1、2点と3点の境目がしきい値2">
+  <div class="thr-cells"><div>1点</div><div>2点</div><div>3点</div></div>
+  <div class="thr-axis"><span>値が小さい</span><span>値が大きい</span></div>
+  <div class="thr-marks">
+    <span style="left:33.333%">▲<b class="alert">しきい値1</b></span>
+    <span style="left:66.667%">▲<b class="alert">しきい値2</b></span>
+  </div>
+</div>
+<p style="font-size:13px;color:var(--muted);text-align:center;margin:4px 0 0"><strong>初期の設定では地利だけ 3点・2点・1点の順です。</strong></p>
+</div>
+<p>区分ごとの点数は設定タブで決まります。初期の点数は次のとおりです。地利だけは、道から遠いほど点数が低くなる向きです。</p>
+<table>
+  <tr><th>軸</th><th>要素</th><th>値</th><th>扱い</th><th>初期値</th><th>点数（区分1・2・3）</th></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>地位</td><td>地位指数（40年生時点の樹高の推定値、m）</td><td><span class="rel">相対値</span></td><td>面積でおおよそ3等分</td><td>1・2・3</td></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>集材作業効率</td><td>作業効率（大きいほど効率がよい）</td><td><span class="abs">絶対値</span></td><td>面積でおおよそ3等分</td><td>1・2・3</td></tr>
+  <tr><td><span class="tag profit">収益性</span></td><td>地利</td><td>道からの水平距離（m）</td><td><span class="abs">絶対値</span></td><td>面積でおおよそ3等分</td><td>3・2・1</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>傾斜</td><td>傾斜（度）</td><td><span class="abs">絶対値</span></td><td>35°・45°</td><td>1・2・3</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>地形の複雑さ</td><td>曲率の標準偏差</td><td><span class="rel">相対値</span></td><td>面積でおおよそ3等分</td><td>1・2・3</td></tr>
+  <tr><td><span class="tag risk">災害リスク</span></td><td>保全対象を含む流域</td><td>流域に建物を含むか</td><td>—（しきい値なし）</td><td>—</td><td>含まない 1・含む 2</td></tr>
+</table>
+<p><strong>絶対値と相対値</strong>：絶対値として扱う要素は、実際の値（度・m など）でしきい値を入れます。たとえば「何度より急なら災害リスクが高いと考えるか」を地域で決め、その角度を入れます。面積の割合は参考になりますが、割合だけを根拠にするのは好ましくありません。相対値として扱う要素は、値そのものに意味を持たせにくいため、統計値表示で値の分布を見ながら決めます。地位は、プラグインが全国一律の式で求めた地位指数を使う場合は相対値です。航空レーザ計測などで求めた精度の高い地位指数を使う場合は、樹高として絶対値で扱うこともできます。</p>
+<p>統計値表示で分布にはっきりした山があれば、初期値のまま見ることを基本にします。</p>
+<div class="ref">3.7.2 (1) 要素における絶対値と相対値 p.65–67、要素ごとの事例 p.68–75</div>
+<p><strong>しきい値を変えると変わるもの</strong></p>
+<ul>
+  <li>しきい値1を上げると、区分1が広がり、区分2が狭まります。</li>
+  <li>しきい値2を上げると、区分3が狭まり、区分2が広がります。</li>
+  <li>傾斜・地形の複雑さでは、しきい値を上げれば、災害リスクとしての傾斜・地形の複雑さが相対的に下がり、下げれば相対的に上がります。</li>
+  <li>収益性は、地位・集材作業効率・地利の点数の合計で、3〜9点になります。</li>
+  <li>災害リスクは、傾斜・地形の複雑さ・保全対象を含む流域の点数の合計です。初期の点数では、保全対象を含む流域が1点か2点なので、3〜8点になります。</li>
+  <li>設定タブで区分ごとの点数を変えると、その要素が合計に占める重みが変わります。</li>
+</ul>
+<figure>
+<img class="zoomable" src="../imgs/setting.png" alt="設定タブのスコア設定" data-caption="設定タブのスコア設定。要素ごとに、区分1・2・3に付ける点数を変えられる（保全対象を含む流域は、含まない・含むの2つ）">
+<figcaption>設定タブ（スコア設定）</figcaption>
+</figure>
+<div class="ref">4.3 設定値の変更（要素の点数の重みづけ）p.81</div>
+<p><strong>操作</strong></p>
+<table>
+  <tr><th>ボタン</th><th>働き</th></tr>
+  <tr><td>統計値表示</td><td>要素の値の最小・最大・平均・中央値と、今のしきい値で分けた区分ごとの画素数を表示する。分布のグラフ（ヒストグラム）も表示する（グラフを描く部品 matplotlib が QGIS に入っていない環境では、グラフだけ表示されない）</td></tr>
+  <tr><td>更新</td><td>入れたしきい値で、地図の色分けを更新する。更新した値は履歴に残る</td></tr>
+  <tr><td>戻る</td><td>一つ前に「更新」または「初期値」を押したときの値に戻す</td></tr>
+  <tr><td>初期値</td><td>初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</td></tr>
+  <tr><td>パラメータを読み込む</td><td>前回「実行」したときに出力先へ保存されたしきい値（params.json）を読み込む</td></tr>
+</table>
+
+<h4>ゾーニング：収益性・災害リスクのしきい値</h4>
+<p>収益性と災害リスクは、それぞれ1つのしきい値で「高い（しきい値より大きい）」と「低い（しきい値以下）」に分けられ、その組み合わせで4区分になります。</p>
+<figure>
+<img class="zoomable" src="../imgs/zoning.png" alt="ゾーニングタブ" data-caption="ゾーニングタブ。収益性軸・災害リスク軸のレイヤーごとに、しきい値を1つ入れる。しきい値を変えると地図の色分けがすぐ変わり、「初期値」で初期値に戻る">
+<figcaption>ゾーニングタブ</figcaption>
+</figure>
+<table>
+  <tr><th></th><th>災害リスクが低い</th><th>災害リスクが高い</th></tr>
+  <tr><th>収益性が高い</th><td>第2象限（林業経営適地）</td><td>第1象限（災害リスクに注意）</td></tr>
+  <tr><th>収益性が低い</th><td>第3象限（要収益性向上）</td><td>第4象限（災害に強い森林管理）</td></tr>
+</table>
+<p>初期値は、最小値と最大値の中間に置かれます。計算上は、高い側と低い側の面積がおおよそ半々になる値です（整数に切り捨て）。※原版も MORIZON NEXT も同じ計算を行います。</p>
+<ul>
+  <li>収益性のしきい値を上げると、収益性が高い側（第1・第2象限）が狭まります。</li>
+  <li>災害リスクのしきい値を上げると、災害リスクが高い側（第1・第4象限）が狭まります。</li>
+  <li>値は数段階の整数しかないため、しきい値を1変えるだけで区分が大きく変わることがあります。うまく分けられないときは、要素のしきい値まで戻って見直します。</li>
+</ul>
+<div class="ref">3.7.3 収益性、災害リスクに対するしきい値の考え方 p.76</div>
+
+<h4>ゾーン統計量：色表示のしきい値</h4>
+<p>小班などのポリゴンの中で、災害リスクが高い画素（第1象限と第4象限の合計）が設定した割合以上を占めるとき、そのポリゴンに斜線を重ねます。初期値は 30% です。ポリゴンの塗り分け（最も多い区分）には影響しません。</p>
+
+<h4>ゾーン統計量：針葉樹のフィーチャーだけで収益性を判定する（オプション）</h4>
+<p>収益性（地位・集材作業効率・地利）は、針葉樹の人工林で木材を生産することを前提にした指標です。広葉樹林などに「林業経営適地」「要収益性向上」の色が付いても、意味を持ちません。集計に使うポリゴンレイヤーに針葉樹を見分けられる列（例：針広別名称、樹種名称）があれば、区分の色を針葉樹のポリゴンだけに付けられます。</p>
+<ol>
+  <li>「任意のポリゴンで集計」でポリゴンレイヤーを選ぶ。</li>
+  <li>「針葉樹のフィーチャーだけで収益性を判定する」にチェックを入れる。</li>
+  <li>「照合する列」で、針葉樹を見分ける列を選ぶ。</li>
+  <li>「設定」を押し、列の値の一覧から、針葉樹とみなす値にチェックを入れて「確定」する。</li>
+  <li>「実行」する。</li>
+</ol>
+<figure>
+<img class="zoomable" src="../imgs/aggregate_conifer.png" alt="ゾーン統計量タブの針葉樹の設定" data-caption="ゾーン統計量タブ。「針葉樹のフィーチャーだけで収益性を判定する」にチェックを入れ、照合する列（この例では針広別名称）を選び、「設定」で針葉樹とみなす値（針葉樹）にチェックを入れて確定する">
+<figcaption>ゾーン統計量タブ（針葉樹とみなす値の設定）</figcaption>
+</figure>
+<p>針葉樹とみなす値に当てはまらないポリゴン（値が空のものを含む）は、4つの区分の色を付けず、薄い灰色で塗ります（凡例「針葉樹以外（区分なし）」）。災害リスクの斜線は、樹種に関係なく付きます。</p>
+<p>このオプションが切り替えるのは地図の表示だけです。集計の値（最も多い区分・区分ごとの割合など）は変わらず、属性表にはすべてのポリゴンの計算どおりの区分が残ります。「流域で集計」では使えません。</p>
+
+<h4>しきい値を決めるときに</h4>
+<figure>
+<img class="zoomable" src="../imgs/tebiki_fig3-39.png" alt="4象限図ゾーニングのしきい値の設定イメージ" style="max-width:640px" data-caption="図3-39 4象限図ゾーニングのしきい値の設定イメージ。出典：林野庁「収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール『もりぞん』【改訂版】操作マニュアル」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.76 より引用">
+<figcaption>図3-39 4象限図ゾーニングのしきい値の設定イメージ（左と同じ図は、ゾーン統計量タブにも表示されます）<br>出典：林野庁「収益性と災害リスクを考慮した森林ゾーニングの手引き　森林ゾーニング支援ツール『もりぞん』【改訂版】操作マニュアル」（令和8年3月、作成：一般社団法人 日本森林技術協会）p.76 より引用</figcaption>
+</figure>
+<p>しきい値は、結果の地図とは別の根拠で決めます（<a href="#threshold-stance">しきい値の考え方</a>）。手引には「マップ上で見た目を確認しながら」区分けするという表現があります（p.52、p.55）。これは、地域の合意を進める中で、計算結果と実際の森林管理を照らし合わせることを前提にした表現です。見たい地図になるようにしきい値を動かすことではありません。</p>
+<div class="ref">3.7.1 ワークショップ等による合意形成 p.63–64</div>
+</section>
 </section>
 <section id="legend">
 <h2>4. 凡例の見方</h2>
@@ -784,6 +950,7 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 <section id="usage">
 <h2>5. 結果の使い方と注意点</h2>
 <p class="placeholder">準備中</p>
+<p>ゾーニング図は、データが示すものをそのまま見るための地図です。地図と現地や地域の事情が合わない場所は、しきい値を変えて地図を合わせるのではなく、例外として扱います。「ここは災害リスクが高いと出ているが、○○のため、このように対処する」「ここは災害リスクが高いと出ていないが、○○のため、危険とみなす」というように、理由を付けて判断を記録します。</p>
 </section>
 <section id="index">
 <h2>付録 手引との対応表</h2>
@@ -808,5 +975,77 @@ ZoningKit は平面直角座標系の第1〜13系の地域だけで提供され�
 
 </main>
 </div>
+<dialog id="img-popup" aria-label="画像の拡大表示">
+  <button type="button" class="close" aria-label="閉じる">&times;</button>
+  <div class="stage">
+    <button type="button" class="nav prev" aria-label="前の画像">&#8249;</button>
+    <img src="" alt="">
+    <button type="button" class="nav next" aria-label="次の画像">&#8250;</button>
+  </div>
+  <div class="info"><div class="title"></div><p class="desc"></p></div>
+</dialog>
+<script>
+// 図をクリックすると大きく開き、詳しい説明を添える。左右の矢印（ボタン・← →キー）で前後の図へ移る。
+// 背景・×ボタン・Esc で閉じる
+(function () {
+  var popup = document.getElementById('img-popup');
+  var img = popup.querySelector('.stage img');
+  var title = popup.querySelector('.title');
+  var desc = popup.querySelector('.desc');
+  var prev = popup.querySelector('.prev');
+  var next = popup.querySelector('.next');
+  var items = Array.prototype.slice.call(document.querySelectorAll('img.zoomable'));
+  var current = 0;
+
+  function caption(el) {
+    var fig = el.closest('figure');
+    var cap = fig ? fig.querySelector('figcaption') : null;
+    return cap ? cap.textContent : el.alt;
+  }
+
+  function render(index) {
+    var el = items[index];
+    current = index;
+    img.src = el.src;
+    img.alt = el.alt;
+    title.textContent = caption(el);
+    if (items.length > 1) {
+      var count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = (index + 1) + ' / ' + items.length;
+      title.appendChild(count);
+    }
+    desc.textContent = el.dataset.caption || '';
+    prev.hidden = next.hidden = items.length < 2;
+  }
+
+  function move(step) {
+    if (items.length < 2) return;
+    var index = (current + step + items.length) % items.length;
+    img.classList.add('switching');
+    setTimeout(function () {
+      render(index);
+      img.classList.remove('switching');
+    }, 160);
+  }
+
+  items.forEach(function (el, index) {
+    el.addEventListener('click', function () {
+      render(index);
+      popup.showModal();
+    });
+  });
+  prev.addEventListener('click', function () { move(-1); });
+  next.addEventListener('click', function () { move(1); });
+  popup.querySelector('.close').addEventListener('click', function () { popup.close(); });
+  popup.addEventListener('click', function (e) {
+    if (e.target === popup || e.target.classList.contains('stage')) popup.close();
+  });
+  popup.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); move(1); }
+  });
+})();
+</script>
 </body>
 </html>

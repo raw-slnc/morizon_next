@@ -385,6 +385,8 @@ class ForestZoningMainDialog(QDialog):
         self.scoring.update_scoring_layer_scope()
         self.zoning.update_zoning_layer_scope()
         self.aggregate.update_aggregate_layer_scope()
+        # 前に使ったポリゴンレイヤー（プラグインの設定に保存）がまだ選ばれていなければ選び直す
+        self.aggregate.restore_conifer_settings()
         self.printlayout.update_printlayout_layer_scope()
         self.elements.refresh_elements_ui()
         self.scoring.refresh_scoring_ui()

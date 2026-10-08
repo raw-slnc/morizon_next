@@ -7,8 +7,13 @@ import glob
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import (
+    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
+)
 from qgis.core import QgsMapLayerProxyModel, QgsProject
+from qgis.gui import QgsFieldComboBox
 
 from . import processes
 from . import layer_db
@@ -16,6 +21,7 @@ from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import run_with_progress
+from .settings_manager import AggregateConiferManager
 
 
 class ForestZoningMainDialogAggregate:
@@ -74,7 +80,143 @@ class ForestZoningMainDialogAggregate:
 
         self.main.aggregateStyleThresholdspinBox.setValue(30)
 
+        self.init_conifer_ui()
         self.refresh_aggregate_ui()
+
+    # ── 針葉樹のフィーチャーだけで収益性を判定する（任意。ポリゴンに針葉樹を区別する列があるとき） ──
+    def init_conifer_ui(self):
+        """ポリゴンレイヤーの欄の下（ジオメトリの注意書きと同じ行）に、チェック・列の選択・設定ボタンを足す。
+        チェックを外していれば、集計は原版と同じ"""
+        self.conifer_values = set()  # 針葉樹とみなす値（文字列）
+        self._conifer_restoring = False  # 保存した設定を戻している間は、選択の変更で値を解かない
+        self.conifer_check = QCheckBox("針葉樹のフィーチャーだけで収益性を判定する")
+        self.conifer_check.setToolTip(
+            "収益性（林業経営適地・要収益性向上）は針葉樹の人工林を前提にした指標のため、\n"
+            "針葉樹でないポリゴンは4象限の区分を付けない（灰色で塗る。災害リスクの斜線は付く）")
+        self.conifer_field_combo = QgsFieldComboBox()
+        self.conifer_field_combo.setToolTip("針葉樹かどうかを見分ける列")
+        self.conifer_values_button = QPushButton("設定")
+        self.conifer_values_button.setToolTip("選んだ列の値から、針葉樹とみなす値を選ぶ")
+        self.conifer_values_label = QLabel()
+
+        row = QHBoxLayout()
+        row.addWidget(self.conifer_check)
+        row.addWidget(QLabel("照合する列"))
+        row.addWidget(self.conifer_field_combo, 1)
+        row.addWidget(self.conifer_values_button)
+        box = QVBoxLayout()
+        box.setContentsMargins(0, 0, 0, 0)
+        grid = self.main.findChild(QGridLayout, "gridLayout_5")
+        note = self.main.label_8  # ジオメトリの注意書き（4行目・2列目）
+        grid.removeWidget(note)
+        box.addWidget(note)
+        box.addLayout(row)
+        box.addWidget(self.conifer_values_label)
+        grid.addLayout(box, 4, 1, 1, 2)
+
+        self.conifer_field_combo.setLayer(self.main.aggregatePolygonLayerCommbobox.currentLayer())
+        self.main.aggregatePolygonLayerCommbobox.layerChanged.connect(self.on_conifer_layer_changed)
+        self.conifer_field_combo.fieldChanged.connect(self.on_conifer_field_changed)
+        self.conifer_check.toggled.connect(self.on_conifer_check_toggled)
+        self.conifer_values_button.clicked.connect(self.choose_conifer_values)
+        self.restore_conifer_settings()
+
+    # 選んだポリゴンレイヤーとチェック項目は、プラグインの設定に保存して次に開いたときに戻す
+    def restore_conifer_settings(self):
+        """保存したポリゴンレイヤーがプロジェクトにあれば選び直す（列・値・チェックは選び直しの中で戻す）"""
+        saved = AggregateConiferManager().load()
+        if not saved['layer_source'] or self.main.aggregatePolygonLayerCommbobox.currentLayer() is not None:
+            return
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.source() == saved['layer_source']:
+                self.main.aggregatePolygonLayerCommbobox.setLayer(layer)
+                return
+
+    def store_conifer_settings(self):
+        if self._conifer_restoring:
+            return
+        layer = self.main.aggregatePolygonLayerCommbobox.currentLayer()
+        AggregateConiferManager().store(
+            layer.source() if layer is not None else "",
+            self.conifer_check.isChecked(),
+            self.conifer_field_combo.currentField(),
+            self.conifer_values,
+        )
+
+    def on_conifer_layer_changed(self, layer):
+        saved = AggregateConiferManager().load()
+        self._conifer_restoring = True
+        try:
+            self.conifer_field_combo.setLayer(layer)
+            if layer is not None and layer.source() == saved['layer_source']:
+                # 前に使ったレイヤーなら、列・値・チェックを戻す（列が無くなっていれば戻さない）
+                if saved['field'] and layer.fields().indexOf(saved['field']) >= 0:
+                    self.conifer_field_combo.setField(saved['field'])
+                    self.conifer_values = set(saved['values'])
+                    self.conifer_check.setChecked(saved['enabled'])
+                else:
+                    self.conifer_values = set()
+            else:
+                self.conifer_values = set()
+        finally:
+            self._conifer_restoring = False
+        self.store_conifer_settings()
+        self.refresh_aggregate_ui()
+
+    def on_conifer_field_changed(self, *_):
+        if self._conifer_restoring:
+            return
+        # 列が変われば値の意味も変わるので、選んだ値は解く
+        self.conifer_values = set()
+        self.store_conifer_settings()
+        self.refresh_aggregate_ui()
+
+    def on_conifer_check_toggled(self, *_):
+        self.store_conifer_settings()
+        self.refresh_aggregate_ui()
+
+    def choose_conifer_values(self):
+        """選んだ列の値（重複なし）をチェックの一覧で出し、針葉樹とみなす値を選ぶ"""
+        layer = self.main.aggregatePolygonLayerCommbobox.currentLayer()
+        field = self.conifer_field_combo.currentField()
+        if layer is None or not field:
+            return
+        index = layer.fields().indexOf(field)
+        values = sorted(str(v) for v in layer.uniqueValues(index) if v is not None and str(v) != "NULL")
+
+        dialog = QDialog(self.main)
+        dialog.setWindowTitle("針葉樹とみなす値")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(f"列「{field}」の値から、針葉樹とみなす値にチェックを入れてください。"))
+        value_list = QListWidget()
+        for value in values:
+            item = QListWidgetItem(value)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if value in self.conifer_values
+                               else Qt.CheckState.Unchecked)
+            value_list.addItem(item)
+        layout.addWidget(value_list)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("確定")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("キャンセル")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(360, 420)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.conifer_values = {
+            value_list.item(i).text() for i in range(value_list.count())
+            if value_list.item(i).checkState() == Qt.CheckState.Checked
+        }
+        self.store_conifer_settings()
+        self.refresh_aggregate_ui()
+
+    def get_conifer_setting(self):
+        """集計に渡す (列名, 針葉樹とみなす値の集合)。使わないときは None"""
+        if not (self.main.radioButtonPolygon.isChecked() and self.conifer_check.isChecked()):
+            return None
+        return self.conifer_field_combo.currentField(), set(self.conifer_values)
 
     def set_aggregate_layer_combobox(self):
         self.update_aggregate_layer_scope()
@@ -167,6 +309,7 @@ class ForestZoningMainDialogAggregate:
             output_path=output_path,
             style_threshold=self.main.aggregateStyleThresholdspinBox.value(),
             db_path=db_path,
+            conifer=self.get_conifer_setting(),
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         outcome = run_with_progress(thread, show_detail=True)
@@ -203,6 +346,22 @@ class ForestZoningMainDialogAggregate:
             self.main.radioButtonWatershed.isChecked()
         )
 
+        # 針葉樹の判定はポリゴンで集計するときだけ。チェックを入れたときに列と値を選べる
+        if hasattr(self, "conifer_check"):
+            polygon_mode = self.main.radioButtonPolygon.isChecked()
+            self.conifer_check.setEnabled(polygon_mode)
+            use = polygon_mode and self.conifer_check.isChecked()
+            self.conifer_field_combo.setEnabled(use)
+            self.conifer_values_button.setEnabled(use and bool(self.conifer_field_combo.currentField()))
+            if use and self.conifer_values:
+                shown = "、".join(sorted(self.conifer_values))
+                self.conifer_values_label.setText(f"針葉樹とみなす値：{shown}")
+            elif use:
+                self.conifer_values_label.setText("針葉樹とみなす値：未設定（「設定」で選んでください）")
+            else:
+                self.conifer_values_label.setText("")
+            self.conifer_values_label.setVisible(use)
+
         error_texts = self.get_aggregate_error()
         has_no_error = len(error_texts) == 0
         self.main.aggregateErrorLabel.setText("\n".join(error_texts))
@@ -222,6 +381,15 @@ class ForestZoningMainDialogAggregate:
                 and self.main.aggregateDemFileWidget.filePath() == ""
         ):
             error_texts.append("DEMファイルを指定してください")
+        if (
+                hasattr(self, "conifer_check")
+                and self.main.radioButtonPolygon.isChecked()
+                and self.conifer_check.isChecked()
+        ):
+            if not self.conifer_field_combo.currentField():
+                error_texts.append("針葉樹を照合する列を指定してください")
+            elif not self.conifer_values:
+                error_texts.append("針葉樹とみなす値を「設定」で選んでください")
         if self.main.aggregateOutputDirFileWidget.filePath() == "":
             error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
 
