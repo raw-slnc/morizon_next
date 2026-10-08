@@ -4,13 +4,13 @@
 
 A QGIS plugin for forest zoning that examines forest management direction from two perspectives: forestry profitability and mountain disaster risk. It is an independent, unofficial continuation of MORIZON (もりぞん), a tool originally developed through a project commissioned by the Forestry Agency of Japan.
 
-![ゾーニング図の出力例](imgs/score_to_zoing_frrst_data_image.png)
-
-スコアリング（収益性・災害リスク）からゾーニング図を作った例です。2軸の組み合わせで、森林を4区分に色分けしています。
-
 ![ゾーン統計量の出力例](imgs/zoning_image.png)
 
 最終的な出来形（ゾーン統計量）の例です。小班ごとに、ゾーニング結果の4区分のうち最も多い区分で色分けし、災害リスクの高い範囲が3割以上の小班に斜線を重ねています。
+
+![ゾーニング図の出力例](imgs/score_to_zoing_frrst_data_image.png)
+
+スコアリング（収益性・災害リスク）からゾーニング図を作った例です。2軸の組み合わせで、森林を4区分に色分けしています。
 
 ---
 
