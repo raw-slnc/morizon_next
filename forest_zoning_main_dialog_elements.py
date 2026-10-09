@@ -1162,6 +1162,8 @@ class ForestZoningMainDialogElements:
                     "次のものは削除できませんでした（使用中の可能性があります）。\n" + "\n".join(failed),
                 )
         self.reset_elements_inputs()
+        ShcMethodManager().store_use_saga(False)
+        self.main.settings.update_shc_method_button()
         self.main.use_no_workspace(persist=True)
 
     @staticmethod
