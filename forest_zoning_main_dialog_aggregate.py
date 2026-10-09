@@ -92,7 +92,7 @@ class ForestZoningMainDialogAggregate:
         self.conifer_check = QCheckBox("針葉樹のフィーチャーだけで収益性を判定する")
         self.conifer_check.setToolTip(
             "収益性（林業経営適地・要収益性向上）は針葉樹の人工林を前提にした指標のため、\n"
-            "針葉樹でないポリゴンは4象限の区分を付けない（灰色で塗る。災害リスクの斜線は付く）")
+            "針葉樹とみなす値に当てはまらないポリゴンは4象限の区分を付けない（淡い黄色で塗る。災害リスクの斜線は付く）")
         self.conifer_field_combo = QgsFieldComboBox()
         self.conifer_field_combo.setToolTip("針葉樹かどうかを見分ける列")
         self.conifer_values_button = QPushButton("設定")
@@ -416,3 +416,5 @@ class ForestZoningMainDialogAggregate:
             utils.get_morizon_output_group().insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()
+        # ゾーン統計量を見やすくするため、ゾーニング図の表示を OFF にする
+        utils.hide_output_layers(utils.STAGE_ZONING)

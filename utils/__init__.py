@@ -509,6 +509,27 @@ def output_layers(stage: str = None, keys=None) -> list:
     return result
 
 
+def hide_output_layers(stage: str = None, keys=None):
+    """プラグインの出力レイヤーの表示を OFF にし、レイヤーパネルの凡例を閉じる（削除はしない）"""
+    root = QgsProject.instance().layerTreeRoot()
+    for layer in output_layers(stage, keys):
+        node = root.findLayer(layer.id())
+        if node is not None:
+            node.setItemVisibilityChecked(False)
+            node.setExpanded(False)
+
+
+def hide_output_groups(names):
+    """「Morizon Next」グループの直下にある、指定した名前のグループの表示を OFF にし、閉じる"""
+    root = QgsProject.instance().layerTreeRoot()
+    for child in root.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME:
+            for sub in child.children():
+                if isinstance(sub, QgsLayerTreeGroup) and sub.name() in names:
+                    sub.setItemVisibilityChecked(False)
+                    sub.setExpanded(False)
+
+
 def remove_output_layers(stage: str = None, keys=None) -> int:
     """プラグインの出力レイヤーをプロジェクトから外す（ファイルは消さない）"""
     return _remove_layers_and_empty_groups(output_layers(stage, keys))

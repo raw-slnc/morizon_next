@@ -57,7 +57,7 @@
               <string notr="true">padding:12px 4px;</string>
              </property>
              <property name="text">
-              <string>DEMブラウザから開始する</string>
+              <string>表示範囲から開始する</string>
              </property>
             </widget>
            </item>

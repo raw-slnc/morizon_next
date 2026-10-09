@@ -405,3 +405,6 @@ class ForestZoningMainDialogZoning:
             utils.get_morizon_output_group().insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()
+        # ゾーニング図を見やすくするため、前の工程（要素計算・スコアリング）とゾーン統計量の表示を OFF にする
+        utils.hide_output_groups({"スコアリング", "収益性", "災害リスク"})
+        utils.hide_output_layers(utils.STAGE_AGGREGATE)

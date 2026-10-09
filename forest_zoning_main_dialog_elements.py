@@ -567,7 +567,7 @@ class ForestZoningMainDialogElements:
 
     # 原版のキット（ZoningKit）の地位データは、座標系全体の1枚もの（例：SiteIndex/NPP/NPP08.tif）。
     # 選んだフォルダにそれがあり、プラグインの共有データにその座標系がまだ無ければ、共有データへ写す。
-    # 以後「DEMブラウザから開始する」で同じ座標系を使うとき、ダウンロードせずに済む
+    # 以後「表示範囲から開始する」で同じ座標系を使うとき、ダウンロードせずに済む
     _ZONE_FILE_PATTERN = re.compile(r"^(NPP|SRAD|VTEX)(\d{2})\.tif$", re.IGNORECASE)
 
     def _share_zone_siteindex(self, data_dir):
@@ -682,7 +682,7 @@ class ForestZoningMainDialogElements:
 
     def start_from_dem_browser(self):
         """
-        「DEMブラウザから開始する」ボタンの処理
+        「表示範囲から開始する」ボタンの処理
         現在のQGISキャンバス範囲でDEMを取得し、プラグイン管理フォルダに保存してDEMウィジェットに反映する
         """
         project_home = QgsProject.instance().homePath()
@@ -709,7 +709,7 @@ class ForestZoningMainDialogElements:
             notes.append(self.main.archive.DISCARD_MESSAGE)
         if notes:
             answer = QMessageBox.question(
-                self.main, "DEMブラウザから開始する",
+                self.main, "表示範囲から開始する",
                 "\n\n".join(notes) + "\n\n実行は、DEMブラウザで範囲を決めてから行います。",
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,

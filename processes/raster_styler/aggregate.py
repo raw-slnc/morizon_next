@@ -20,7 +20,7 @@ def _fill_color(hex_color: str) -> str:
 
 
 # 「針葉樹のフィーチャーだけで収益性を判定する」を使ったとき、区分の色は針葉樹のポリゴンだけに付け、
-# それ以外のポリゴンは黄みのある灰色（不透明度8%）で塗り、外周線は他の区分と同じ線で描く（区分の対象外であることを示す）。
+# それ以外のポリゴンは淡い黄色（記号の不透明度20%）で塗り、外周線は他の区分と同じ線で描く（区分の対象外であることを示す）。
 # 集計の値（_majority など）は変えず、表示の条件だけで分ける。条件は元のポリゴンの列と選んだ値で書く
 _CONIFER_RULE_KEY = "{3c0e8f6a-5b7d-4e29-9a61-0d2b7f4c8e15}"
 
@@ -36,10 +36,10 @@ def _conifer_condition(conifer) -> str:
 
 
 _CONIFER_SYMBOL = f"""
-      <symbol name="5" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
+      <symbol name="5" alpha="0.2" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="210,205,165,20"/>
+          <prop k="color" v="250,250,212,255"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -70,7 +70,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
     if conifer:
         condition = _conifer_condition(conifer)
         only = f" AND {condition}"  # 区分の規則に足す条件（下の @ONLY@ に入れる）
-        conifer_rule = (f' <rule filter="NOT coalesce({condition}, false)" label="針葉樹以外（区分なし）"'
+        conifer_rule = (f' <rule filter="NOT coalesce({condition}, false)" label="区分外（針葉樹フィルタオプション）"'
                         f' symbol="5" key="{_CONIFER_RULE_KEY}"/>\n')
     else:
         only = conifer_rule = ""
