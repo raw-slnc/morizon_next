@@ -42,6 +42,9 @@ class ForestZoningMainDialogSettings:
             "SAGA ON：MORIZON v2.1 の指定のまま SAGA（プラグイン「Processing Saga NextGen Provider」経由）に渡します。"
             "現行の SAGA はこの指定に対応していないため、v2.1 の結果と相違が大きく出ます。"
         )
+        # マウスで押したときだけ切り替える。フォーカスを受け取ると、ほかの操作の Enter・Space で
+        # 押されて知らないうちに SAGA ON になることがあるため、フォーカスの対象外にする
+        self.widget.shcMethodButton.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.widget.shcMethodButton.clicked.connect(self.toggle_shc_method)
         self.update_shc_method_button()
         self.set_fgd_credentials_ui_values()
