@@ -39,7 +39,7 @@ class ForestZoningMainDialogSettings:
         self.widget.shcMethodButton.setToolTip(
             "地形の複雑さの平滑化・平面曲率の計算に使うプログラムです。押すと切り替わります。\n"
             "SAGA OFF（既定）：MORIZON v2.1 の結果に合うよう、プラグイン内で計算します（σ=3・半径12セル）。\n"
-            "SAGA ON：MORIZON v2.1 の指定のまま SAGA（プラグイン「Processing Saga NextGen Provider」経由）に渡します。"
+            "SAGA ON（比較用）：MORIZON v2.1 の指定のまま SAGA（プラグイン「Processing Saga NextGen Provider」経由）に渡します。"
             "現行の SAGA はこの指定に対応していないため、v2.1 の結果と相違が大きく出ます。"
         )
         # マウスで押したときだけ切り替える。フォーカスを受け取ると、ほかの操作の Enter・Space で
@@ -59,12 +59,12 @@ class ForestZoningMainDialogSettings:
     # ボタンの状態ごとの計算形式の説明（折り返しは決めた位置の改行だけにする）
     SHC_METHOD_DESCRIPTIONS = {
         False: "計算形式：\nMORIZON v2.1 の結果に沿うよう、プラグイン内で計算します。",
-        True: "計算形式：\nMORIZON v2.1 の指定のまま SAGA に渡します。\nv2.1 の結果と相違が大きく出ます。",
+        True: "計算形式：\n比較用として SAGA に渡します。\nv2.1 の結果と相違が大きく出ます。",
     }
 
     def update_shc_method_button(self):
         use_saga = ShcMethodManager().load_use_saga()
-        self.widget.shcMethodButton.setText("SAGA ON" if use_saga else "SAGA OFF")
+        self.widget.shcMethodButton.setText("SAGA ON（比較用）" if use_saga else "SAGA OFF")
         self.widget.shcMethodDescriptionLabel.setText(self.SHC_METHOD_DESCRIPTIONS[use_saga])
 
     def toggle_shc_method(self, *_args):
@@ -88,35 +88,43 @@ class ForestZoningMainDialogSettings:
             )
             return
 
+        if not self.confirm_saga_comparison_mode(check):
+            return
+
         manager.store_use_saga(True)
         self.update_shc_method_button()
-        if not manager.load_hide_saga_notice():
-            self.show_saga_notice(check)
 
-    # SAGA ON にしたときの説明（見つかった環境の版を差し込む）
+    # SAGA ON にしたときの確認（見つかった環境の版を差し込む）
     SAGA_NOTICE_TEXT = (
-        "SAGA で計算します（地形の複雑さの平滑化と平面曲率）。<br>"
+        "SAGA で計算します（地形の複雑さの平滑化と平面曲率）。<br><br>"
         "検出した環境：SAGA {saga_version}（プラグイン Processing Saga NextGen Provider {plugin_version}）<br><br>"
         "MORIZON v2.1 の指定（平滑化：探索半径12・標準偏差3、曲率：Zevenbergen &amp; Thorne）を"
         "そのまま SAGA に渡します。現行の SAGA はこの指定に対応していないため、平滑化はほぼ行われず、"
         "平面曲率の係数も v2.1 と異なります。v2.1 の結果とは相違が大きく出ます"
         "（サンプルDEMでの3区分の一致率は約50%）。<br><br>"
-        "MORIZON v2.1 の結果に沿った計算が必要な場合は、OFF（既定）を使ってください。"
+        "通常の解析では OFF（既定）を使ってください。SAGA ON は結果の違いを確認する比較用です。"
     )
 
-    def show_saga_notice(self, check):
+    def confirm_saga_comparison_mode(self, check) -> bool:
         box = QMessageBox(self.main)
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("SAGA で計算します")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("SAGA ON（比較用）")
         box.setTextFormat(Qt.TextFormat.RichText)
         box.setText(self.SAGA_NOTICE_TEXT.format(
             saga_version=check["saga_version"], plugin_version=check["plugin_version"] or "不明",
         ))
-        hide_checkbox = QCheckBox("次回から表示しない")
-        box.setCheckBox(hide_checkbox)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        ok_button = box.button(QMessageBox.StandardButton.Ok)
+        cancel_button = box.button(QMessageBox.StandardButton.Cancel)
+        ok_button.setText("SAGA ONにする")
+        ok_button.setEnabled(False)
+        cancel_button.setText("SAGA OFFのまま")
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        confirm_checkbox = QCheckBox("違いを理解し、比較用として SAGA を ON にする")
+        box.setCheckBox(confirm_checkbox)
+        confirm_checkbox.toggled.connect(ok_button.setEnabled)
         box.exec()
-        if hide_checkbox.isChecked():
-            ShcMethodManager().store_hide_saga_notice(True)
+        return box.clickedButton() == ok_button and confirm_checkbox.isChecked()
 
     @staticmethod
     def force_odd(spinbox):
