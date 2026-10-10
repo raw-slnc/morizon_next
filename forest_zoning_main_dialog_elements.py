@@ -569,6 +569,27 @@ class ForestZoningMainDialogElements:
     # 選んだフォルダにそれがあり、プラグインの共有データにその座標系がまだ無ければ、共有データへ写す。
     # 以後「表示範囲から開始する」で同じ座標系を使うとき、ダウンロードせずに済む
     _ZONE_FILE_PATTERN = re.compile(r"^(NPP|SRAD|VTEX)(\d{2})\.tif$", re.IGNORECASE)
+    _ZONINGKIT_DIR_PATTERN = re.compile(r"^ZoningKit[_-](\d{2})$", re.IGNORECASE)
+
+    def _zoningkit_zone_from_data_dir(self, data_dir):
+        path = os.path.normpath(data_dir)
+        for _ in range(3):
+            match = self._ZONINGKIT_DIR_PATTERN.match(os.path.basename(path))
+            if match:
+                return int(match.group(1))
+            parent = os.path.dirname(path)
+            if parent == path:
+                break
+            path = parent
+        return None
+
+    def _zone_cache_destination_zone(self, data_dir, filename_zone):
+        kit_zone = self._zoningkit_zone_from_data_dir(data_dir)
+        if kit_zone is None or kit_zone == filename_zone:
+            return filename_zone
+        if kit_zone in (11, 13) and filename_zone == 12:
+            return kit_zone
+        return None
 
     def _share_zone_siteindex(self, data_dir):
         if QgsProject.instance().homePath() == "":
@@ -581,6 +602,9 @@ class ForestZoningMainDialogElements:
                 if not match or match.group(1).upper() != kind:
                     continue  # 切り出し済みのデータ（npp_clipped.tif など）は座標系全体ではないので写さない
                 zone = int(match.group(2))
+                cache_zone = self._zone_cache_destination_zone(data_dir, zone)
+                if cache_zone is None:
+                    continue
                 try:
                     crs = utils.get_tiff_info(path)["crs"].authid()
                 except RuntimeError:
@@ -589,7 +613,7 @@ class ForestZoningMainDialogElements:
                     # 名前の座標系の番号と、中身の平面直角座標系の番号が合わないものは写さない。
                     # ZoningKit の地位データは JGD2000（第8系なら EPSG:2450）。JGD2011（同 EPSG:6676）も同じ系として認める
                     continue
-                destination = zoningkit_fetcher.zone_cache_paths(zone, cache_base_dir)[kind]
+                destination = zoningkit_fetcher.zone_cache_paths(cache_zone, cache_base_dir)[kind]
                 if not os.path.exists(destination):
                     os.makedirs(os.path.dirname(destination), exist_ok=True)
                     tasks.append((path, destination + ".part"))
