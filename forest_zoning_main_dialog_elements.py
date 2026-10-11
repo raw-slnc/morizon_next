@@ -814,7 +814,7 @@ class ForestZoningMainDialogElements:
 
         available = [
             result for result in coverage_results
-            if not result["cancelled"] and result["missing"] == 0
+            if not result["cancelled"] and result["missing"] < result.get("checked", result["total"])
         ]
         if not available:
             details = "\n".join(
@@ -823,7 +823,7 @@ class ForestZoningMainDialogElements:
             )
             QMessageBox.information(
                 self.main, "DEMタイルなし",
-                "取得範囲を同一解像度でカバーできる国土地理院DEMタイルが見つかりません。\n"
+                "取得範囲で利用できる国土地理院DEMタイルが見つかりません。\n"
                 f"{details}"
             )
             return None
@@ -833,30 +833,48 @@ class ForestZoningMainDialogElements:
             skipped = [
                 self._format_gsi_coverage_result(result)
                 for result in coverage_results
-                if result["missing"] > 0
+                if result["missing"] >= result.get("checked", result["total"])
             ]
+            partial_notice = ""
+            if selected["missing"] > 0:
+                partial_notice = (
+                    "\n\n一部のDEMタイルを取得できない可能性があります。"
+                    "海域などDEM未提供部分を含む範囲として、取得できる部分で続行します。"
+                )
             if skipped:
                 message = (
                     "取得範囲内で利用可能な解像度が混在しています。\n"
                     + "\n".join(skipped)
                     + f"\n\n{selected['label']}で統一します。"
+                    + partial_notice
+                )
+            elif selected["missing"] > 0:
+                message = (
+                    "取得範囲で利用できる国土地理院DEMタイルは"
+                    f"{selected['label']}のみです。\n\n"
+                    f"{selected['label']}で統一します。"
+                    + partial_notice
                 )
             else:
                 message = (
                     "取得範囲全体をカバーできる国土地理院DEMタイルは"
                     f"{selected['label']}のみです。\n\n"
                     f"{selected['label']}で統一します。"
+                    + partial_notice
                 )
             QMessageBox.information(self.main, "DEM解像度の統一", message)
             return [selected["source"]]
 
-        labels = [result["label"] for result in available]
+        choices = [(self._format_gsi_resolution_choice(result), result) for result in available]
+        labels = [label for label, _ in choices]
         dialog = DemResolutionDialog(labels, self.main)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         selected_label = dialog.selected_label()
-        for result in available:
+        for label, result in choices:
             if result["label"] == selected_label:
+                return [result["source"]]
+            if label == selected_label:
                 return [result["source"]]
         return None
 
@@ -870,6 +888,13 @@ class ForestZoningMainDialogElements:
             )
         return f"{result['label']}（{result['missing']}/{result['total']}枚が取得不可）"
 
+    @staticmethod
+    def _format_gsi_resolution_choice(result):
+        checked = result.get("checked", result["total"])
+        if result["missing"] > 0:
+            return f"{result['label']}（一部未提供の可能性: {result['missing']}/{checked}枚）"
+        return result["label"]
+
     def set_dem_filepath(self, result: dict):
         # ウィジェットには常に実パス（プロジェクトフォルダ内）を表示する。
         # ASCII安全な別名への変換は、実際にSAGA/GRASS等へ渡す直前
@@ -880,7 +905,8 @@ class ForestZoningMainDialogElements:
         QMessageBox.information(
             self.main, "完了",
             f"DEMを取得しプロジェクトフォルダに保存しました。\n{result['info']}\n"
-            f"保存先：{dem_path}"
+            + (f"\n{result['warning']}\n" if result.get("warning") else "")
+            + f"保存先：{dem_path}"
         )
 
         # 続けて可視範囲で地位指数データ(NPP/SRAD/VTEX)を取得する。

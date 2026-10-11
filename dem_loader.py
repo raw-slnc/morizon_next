@@ -58,6 +58,8 @@ class GSITileDEMLoader:
         self.last_errors = []
         self._used_source_label = None
         self._filled_nodata_count = 0
+        self._missing_tiles_count = 0
+        self._missing_tiles_total = 0
         self._cancelled = False
 
     @staticmethod
@@ -320,13 +322,15 @@ class GSITileDEMLoader:
             return None, f"Image processing error: {e}", len(raw)
 
     def fetch_for_extent(self, lon_min, lat_min, lon_max, lat_max, sources=None, cancel_cb=None,
-                         progress_cb=None):
+                         progress_cb=None, allow_partial_tiles=False):
         """WGS84経緯度範囲のタイルをダウンロードして取得する。
         sources省略時はTILE_SOURCES(1m→5m→10m)の順で自動フォールバックする。
         progress_cb(tiles_done, tiles_total, bytes_done)は各タイル取得後に呼ばれる。"""
         self.last_errors = []
         self._used_source_label = None
         self._filled_nodata_count = 0
+        self._missing_tiles_count = 0
+        self._missing_tiles_total = 0
         self._cancelled = False
         result = None
         source_list = sources or self.TILE_SOURCES
@@ -341,6 +345,15 @@ class GSITileDEMLoader:
 
             _, _, _, _, missing_tiles, tiles_total = candidate
             if missing_tiles > 0:
+                if allow_partial_tiles and missing_tiles < tiles_total:
+                    self.last_errors.append(
+                        f"{label}: {missing_tiles}/{tiles_total}枚のタイルが取得できません"
+                    )
+                    result = candidate
+                    self._used_source_label = label
+                    self._missing_tiles_count = missing_tiles
+                    self._missing_tiles_total = tiles_total
+                    break
                 self.last_errors.append(
                     f"{label}: {missing_tiles}/{tiles_total}枚のタイルが取得できません → 次の解像度へ"
                 )
@@ -348,6 +361,8 @@ class GSITileDEMLoader:
 
             result = candidate
             self._used_source_label = label
+            self._missing_tiles_count = 0
+            self._missing_tiles_total = tiles_total
             break
         if result is None:
             return self

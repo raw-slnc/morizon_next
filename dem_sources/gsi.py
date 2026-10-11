@@ -32,6 +32,7 @@ class GsiSource(DemSource):
     def __init__(self):
         # 取得に使うタイル方式。DEMブラウザで解像度を決めたあと呼び出し側が1つに絞る
         self.tile_sources = GSITileDEMLoader.TILE_SOURCES
+        self.allow_partial_tiles = True
 
     def fetch(self, extent, output_path, cancel_cb, reporter):
         lon_min, lat_min, lon_max, lat_max = extent
@@ -54,6 +55,7 @@ class GsiSource(DemSource):
             sources=self.tile_sources,
             cancel_cb=cancel_cb,
             progress_cb=on_tile_progress,
+            allow_partial_tiles=self.allow_partial_tiles,
         )
         if loader._cancelled:
             raise Cancelled()
@@ -76,10 +78,24 @@ class GsiSource(DemSource):
         finally:
             os.remove(mercator_path)
 
-        extra = f"NoData補間 {loader._filled_nodata_count} px" if loader._filled_nodata_count else ""
+        extra_parts = []
+        if loader._filled_nodata_count:
+            extra_parts.append(f"NoData補間 {loader._filled_nodata_count} px")
+        if loader._missing_tiles_count:
+            extra_parts.append(
+                f"未取得タイル {loader._missing_tiles_count}/{loader._missing_tiles_total}枚"
+            )
+        extra = " / ".join(extra_parts)
+        warning = ""
+        if loader._missing_tiles_count:
+            warning = (
+                "一部のDEMタイルを取得できませんでした。"
+                "海域などDEM未提供部分を含む可能性があります。"
+            )
         return {
             "path": output_path,
             "info": format_info(cols, rows, loader._used_source_label, epsg, resolution, extra),
+            "warning": warning,
         }
 
 
@@ -94,3 +110,4 @@ class TerrariumSource(GsiSource):
 
     def __init__(self):
         self.tile_sources = GSITileDEMLoader.TERRARIUM_SOURCES
+        self.allow_partial_tiles = False
