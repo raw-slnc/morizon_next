@@ -794,15 +794,23 @@ class ForestZoningMainDialogElements:
         return outcome.get("result")
 
     def _resolve_gsi_tile_sources(self, extent_wgs84):
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            coverage_results = GSITileDEMLoader.check_sources_coverage(
+        thread = processes.dem_fetch.GsiCoverageCheckThread(
+            (
                 extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
                 extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
-                GSITileDEMLoader.TILE_SOURCES,
+            ),
+            GSITileDEMLoader.TILE_SOURCES,
+        )
+        outcome = run_with_progress(thread, show_detail=True)
+        if "error" in outcome:
+            QMessageBox.information(
+                self.main, "DEM解像度の確認",
+                f"DEM解像度を確認できませんでした。\n\n{outcome['error']}"
             )
-        finally:
-            QApplication.restoreOverrideCursor()
+            return None
+        coverage_results = outcome.get("result")
+        if coverage_results is None:
+            return None
 
         available = [
             result for result in coverage_results
@@ -810,12 +818,12 @@ class ForestZoningMainDialogElements:
         ]
         if not available:
             details = "\n".join(
-                f"{result['label']}: {result['missing']}/{result['total']}枚が取得不可"
+                self._format_gsi_coverage_result(result)
                 for result in coverage_results
             )
             QMessageBox.information(
                 self.main, "DEMタイルなし",
-                "取得範囲全体を同一解像度でカバーできる国土地理院DEMタイルがありません。\n"
+                "取得範囲を同一解像度でカバーできる国土地理院DEMタイルが見つかりません。\n"
                 f"{details}"
             )
             return None
@@ -823,7 +831,7 @@ class ForestZoningMainDialogElements:
         if len(available) == 1:
             selected = available[0]
             skipped = [
-                f"{result['label']}（{result['missing']}/{result['total']}枚不足）"
+                self._format_gsi_coverage_result(result)
                 for result in coverage_results
                 if result["missing"] > 0
             ]
@@ -851,6 +859,16 @@ class ForestZoningMainDialogElements:
             if result["label"] == selected_label:
                 return [result["source"]]
         return None
+
+    @staticmethod
+    def _format_gsi_coverage_result(result):
+        checked = result.get("checked", result["total"])
+        if result.get("sampled"):
+            return (
+                f"{result['label']}（代表タイル確認: "
+                f"{result['missing']}/{checked}枚が取得不可、範囲全体は{result['total']}枚）"
+            )
+        return f"{result['label']}（{result['missing']}/{result['total']}枚が取得不可）"
 
     def set_dem_filepath(self, result: dict):
         # ウィジェットには常に実パス（プロジェクトフォルダ内）を表示する。

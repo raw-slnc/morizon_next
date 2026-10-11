@@ -81,57 +81,87 @@ class GSITileDEMLoader:
 
     @classmethod
     def check_source_coverage(cls, lon_min, lat_min, lon_max, lat_max, source,
-                              cancel_cb=None):
-        """指定範囲の全タイルがPNGとして取得できるかを確認する。標高NoDataは判定しない。"""
+                              cancel_cb=None, progress_cb=None):
+        """指定範囲の代表タイルがPNGとして取得できるかを確認する。
+
+        広い範囲で全タイルを事前確認すると、取得本体の前に数千リクエストが
+        発生して待ち時間が長くなる。ここでは狭い範囲だけ全数確認し、広い範囲は
+        四隅・辺中央・中心を確認する。標高NoDataは判定しない。
+        """
         import requests
         from qgis.PyQt.QtGui import QImage
 
         tile_url, tile_zoom, label, _ = source
         x0, y0, x1, y1 = cls._tile_range(lon_min, lat_min, lon_max, lat_max, tile_zoom)
         total = (x1 - x0 + 1) * (y1 - y0 + 1)
+        sample_tiles = cls._coverage_sample_tiles(x0, y0, x1, y1)
         missing = 0
         errors = []
-        for ty in range(y0, y1 + 1):
-            for tx in range(x0, x1 + 1):
-                if cancel_cb is not None and cancel_cb():
-                    return {
-                        "source": source,
-                        "label": label,
-                        "total": total,
-                        "missing": total,
-                        "cancelled": True,
-                        "errors": errors,
-                    }
-                url = tile_url.format(z=tile_zoom, x=tx, y=ty)
-                try:
-                    resp = requests.get(
-                        url,
-                        headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
-                        timeout=15,
-                    )
-                    resp.raise_for_status()
-                    raw = resp.content
-                    img = QImage()
-                    if not img.loadFromData(raw):
-                        missing += 1
-                        errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: PNG decode failed")
-                except Exception as e:
+        for tx, ty in sample_tiles:
+            if cancel_cb is not None and cancel_cb():
+                return {
+                    "source": source,
+                    "label": label,
+                    "total": total,
+                    "checked": len(sample_tiles),
+                    "missing": len(sample_tiles),
+                    "sampled": len(sample_tiles) < total,
+                    "cancelled": True,
+                    "errors": errors,
+                }
+            url = tile_url.format(z=tile_zoom, x=tx, y=ty)
+            try:
+                resp = requests.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                raw = resp.content
+                img = QImage()
+                if not img.loadFromData(raw):
                     missing += 1
-                    errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: {e}")
+                    errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: PNG decode failed")
+            except Exception as e:
+                missing += 1
+                errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: {e}")
+            if progress_cb is not None:
+                progress_cb(label, tx, ty)
         return {
             "source": source,
             "label": label,
             "total": total,
+            "checked": len(sample_tiles),
             "missing": missing,
+            "sampled": len(sample_tiles) < total,
             "cancelled": False,
             "errors": errors,
         }
 
+    @staticmethod
+    def _coverage_sample_tiles(x0, y0, x1, y1):
+        total = (x1 - x0 + 1) * (y1 - y0 + 1)
+        if total <= 16:
+            return [
+                (tx, ty)
+                for ty in range(y0, y1 + 1)
+                for tx in range(x0, x1 + 1)
+            ]
+
+        xm = (x0 + x1) // 2
+        ym = (y0 + y1) // 2
+        xs = (x0, xm, x1)
+        ys = (y0, ym, y1)
+        return sorted({(tx, ty) for tx in xs for ty in ys})
+
     @classmethod
     def check_sources_coverage(cls, lon_min, lat_min, lon_max, lat_max, sources,
-                               cancel_cb=None):
+                               cancel_cb=None, progress_cb=None):
         return [
-            cls.check_source_coverage(lon_min, lat_min, lon_max, lat_max, source, cancel_cb)
+            cls.check_source_coverage(
+                lon_min, lat_min, lon_max, lat_max,
+                source, cancel_cb, progress_cb,
+            )
             for source in sources
         ]
 

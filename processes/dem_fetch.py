@@ -7,6 +7,7 @@ import time
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
+from ..dem_loader import GSITileDEMLoader
 from ..dem_sources.base import Cancelled, FetchReporter
 
 # 最後の工程（保存）の表示を見せる最短の時間（秒）。保存はほとんどの範囲で一瞬で終わり、
@@ -74,5 +75,58 @@ class DemFetchThread(QThread):
             self.processFinished.emit(result)
         except Cancelled:
             self.processFailed.emit("処理を中断しました。")
+        except Exception as e:
+            self.processFailed.emit(str(e))
+
+
+class GsiCoverageCheckThread(QThread):
+    """国土地理院DEMの解像度候補を確認するスレッド。"""
+
+    processStarted = pyqtSignal(int)
+    addProgress = pyqtSignal(int)
+    postMessage = pyqtSignal(str)
+    postDetail = pyqtSignal(str)
+    processFinished = pyqtSignal(list)
+    setAbortable = pyqtSignal(bool)
+    processFailed = pyqtSignal(str)
+
+    def __init__(self, extent, sources):
+        """extent: WGS84経緯度の (lon_min, lat_min, lon_max, lat_max)"""
+        super().__init__()
+        self.extent = extent
+        self.sources = sources
+        self.abort_flag = False
+
+    def set_abort_flag(self, flag=True):
+        self.abort_flag = flag
+
+    def run(self):
+        try:
+            self.setAbortable.emit(True)
+            lon_min, lat_min, lon_max, lat_max = self.extent
+            total = 0
+            for source in self.sources:
+                _, zoom, _, _ = source
+                x0, y0, x1, y1 = GSITileDEMLoader._tile_range(
+                    lon_min, lat_min, lon_max, lat_max, zoom
+                )
+                total += len(GSITileDEMLoader._coverage_sample_tiles(x0, y0, x1, y1))
+            self.processStarted.emit(max(total, 1))
+            self.postMessage.emit("国土地理院DEMの解像度を確認中")
+
+            def on_checked(label, tx, ty):
+                self.postDetail.emit(f"{label}: タイル x={tx}, y={ty}")
+                self.addProgress.emit(1)
+
+            result = GSITileDEMLoader.check_sources_coverage(
+                lon_min, lat_min, lon_max, lat_max,
+                self.sources,
+                cancel_cb=lambda: self.abort_flag,
+                progress_cb=on_checked,
+            )
+            if self.abort_flag:
+                self.processFailed.emit("処理を中断しました。")
+                return
+            self.processFinished.emit(result)
         except Exception as e:
             self.processFailed.emit(str(e))

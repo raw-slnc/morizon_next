@@ -207,7 +207,8 @@ class DemResolutionDialog(_ComboOkCancelFocusMixin, QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             "複数のDEMタイル方式が取得範囲全体をカバーしています。\n"
-            "解析範囲内で統一して使用する解像度を選択してください。"
+            "解析範囲内で統一して使用する解像度を選択してください。\n"
+            "広い範囲では、処理時間とデータ量を抑えるため10mをおすすめします。"
         ))
         self.resolutionCombobox = QComboBox()
         self.resolutionCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)

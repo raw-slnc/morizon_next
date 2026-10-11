@@ -15,7 +15,8 @@ SAGA を使うには、QGIS のプラグイン Processing Saga NextGen Provider 
 import os
 import platform
 import shutil
-import subprocess
+# Used with fixed argv and shell=False to query saga_cmd version.
+import subprocess  # nosec B404
 
 from qgis.core import Qgis, QgsApplication, QgsMessageLog
 

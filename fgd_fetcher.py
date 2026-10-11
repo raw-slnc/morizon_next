@@ -5,7 +5,8 @@
 import os
 import platform
 import shutil
-import subprocess
+# Used with fixed argv and shell=False for ogr2ogr conversion.
+import subprocess  # nosec B404
 import time
 
 import requests
