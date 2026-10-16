@@ -173,9 +173,11 @@ def merge_layers(zip_paths: list, output_path: str,
                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
                  include_layer_names=None, driver_format="ESRI Shapefile",
                  output_layer=None, dst_crs="EPSG:4326",
-                 clip_to_extent=True, zip_done_cb=None) -> bool:
+                 clip_to_extent=True, zip_done_cb=None, cancel_cb=None) -> bool:
     """複数ZIP内のGMLレイヤーを1つのベクタファイルへ範囲クリップしつつ統合する。
     zip_done_cb(ZIPのパス) は、ZIPを1つまとめ終えるごとに呼ぶ。
+    cancel_cb() が True を返したら、レイヤーごと・変換の途中で止めて InterruptedError を送出する
+    （まとめる量が多いと Windows では数分かかり、中断できないと進捗の窓が閉じられないため）。
     include_layer_names未指定の場合はZIP内の全レイヤーを対象にする。
     driver_formatは"ESRI Shapefile"（既存のフォルダ読み込み規約=INPUT_BUILDING/INPUT_NETWORKに合わせる）
     または"GPKG"。1件以上書き込めた場合はTrueを返す。
@@ -200,6 +202,7 @@ def merge_layers(zip_paths: list, output_path: str,
             for member in _zip_member_names(zip_for_read):
                 if not _is_feature_xml(member):
                     continue
+                _check_cancel(cancel_cb)
                 src = f"/vsizip/{zip_for_read}/{member}"
                 ds = gdal.OpenEx(src, gdal.OF_VECTOR)
                 if ds is None:
@@ -207,6 +210,7 @@ def merge_layers(zip_paths: list, output_path: str,
                 layer_count = ds.GetLayerCount()
                 ds = None
                 for i in range(layer_count):
+                    _check_cancel(cancel_cb)
                     ds = gdal.OpenEx(src, gdal.OF_VECTOR)
                     layer = ds.GetLayer(i)
                     name = layer.GetName()
@@ -236,6 +240,7 @@ def merge_layers(zip_paths: list, output_path: str,
                     translated = _translate_layer(
                         src, output_path, name, kwargs, driver_format, output_layer,
                         first, clip_to_extent, (lon_min, lat_min, lon_max, lat_max), dst_crs,
+                        cancel_cb=cancel_cb,
                     )
                     if translated is not None:
                         translated = None
@@ -315,7 +320,7 @@ def _remove_shapefile_dataset(output_path: str):
 
 def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
                      driver_format: str, output_layer: str, first: bool,
-                     clip_to_extent: bool, extent_wgs84: tuple, dst_crs: str):
+                     clip_to_extent: bool, extent_wgs84: tuple, dst_crs: str, cancel_cb=None):
     """1レイヤーを書き出す。外部の ogr2ogr があればそれを使い、無ければ QGIS に付いている GDAL の変換機能を使う。
 
     ogr2ogr を優先する理由：QGIS の中で基盤地図情報の GML を読むと、座標の緯度と経度の順番が QGIS の外で
@@ -334,7 +339,7 @@ def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
     if ogr2ogr:
         return _translate_layer_with_ogr2ogr(
             ogr2ogr, src, output_path, layer_name, driver_format, output_layer,
-            first, clip_to_extent, extent_wgs84, dst_crs,
+            first, clip_to_extent, extent_wgs84, dst_crs, cancel_cb=cancel_cb,
         )
 
     from osgeo import gdal
@@ -345,18 +350,32 @@ def _translate_layer(src: str, output_path: str, layer_name: str, kwargs: dict,
     previous = {key: gdal.GetThreadLocalConfigOption(key, None) for key in options}
     for key, value in options.items():
         gdal.SetThreadLocalConfigOption(key, value)
+    if cancel_cb is not None:
+        # 変換の途中でも中断を確かめる（0 を返すと GDAL が変換を止める）
+        kwargs = dict(kwargs, callback=lambda *_args: 0 if cancel_cb() else 1)
     try:
-        return gdal.VectorTranslate(output_path, src, **kwargs)
+        result = gdal.VectorTranslate(output_path, src, **kwargs)
+    except RuntimeError:
+        if cancel_cb is not None and cancel_cb():
+            raise InterruptedError()
+        raise
     finally:
         for key, value in previous.items():
             gdal.SetThreadLocalConfigOption(key, value)
+    _check_cancel(cancel_cb)
+    return result
+
+
+def _check_cancel(cancel_cb):
+    if cancel_cb is not None and cancel_cb():
+        raise InterruptedError()
 
 
 def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
                                   layer_name: str, driver_format: str,
                                   output_layer: str, first: bool,
                                   clip_to_extent: bool, extent_wgs84: tuple,
-                                  dst_crs: str):
+                                  dst_crs: str, cancel_cb=None):
     target_layer = output_layer or os.path.splitext(os.path.basename(output_path))[0]
     cmd = [ogr2ogr, "-f", driver_format]
     if not first:
@@ -387,19 +406,29 @@ def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
     # the extent returns no features. ogr2ogr is therefore run as a separate process.
     # The executable is ogr2ogr found on PATH and all arguments are built by the plugin from fixed values,
     # internal file paths and coordinates. No user input is passed directly and no shell is used.
-    completed = subprocess.run(  # nosec B603
+    process = subprocess.Popen(  # nosec B603
         cmd,
-        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
         text=True,
         **kwargs,
     )
-    if completed.returncode != 0:
+    # 終わるまで待ちきらず、少しずつ待ちながら中断を確かめる。中断なら ogr2ogr を終わらせる
+    # （communicate は待っている間も出力を読み続けるので、出力が詰まって止まることはない）
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            if cancel_cb is not None and cancel_cb():
+                process.kill()
+                process.communicate()
+                raise InterruptedError()
+    if process.returncode != 0:
         raise RuntimeError(
             "基盤地図情報の変換に失敗しました。\n"
-            + (completed.stderr.strip() or completed.stdout.strip())
+            + (stderr.strip() or stdout.strip())
         )
     return True
 

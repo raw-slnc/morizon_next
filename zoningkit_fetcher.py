@@ -10,7 +10,9 @@
 小笠原等）は対象外。
 """
 
+import functools
 import json
+import math
 import os
 import struct
 import time
@@ -40,16 +42,123 @@ ZONE_BOUNDS = {
 }
 
 
+# 各系の原点（緯度, 経度）。法令（平成14年国土交通省告示第9号）による
+ZONE_ORIGINS = {
+    1: (33, 129.5), 2: (33, 131), 3: (36, 132 + 10 / 60), 4: (33, 133.5), 5: (36, 134 + 20 / 60),
+    6: (36, 136), 7: (36, 137 + 10 / 60), 8: (36, 138.5), 9: (36, 139 + 50 / 60), 10: (40, 140 + 50 / 60),
+    11: (44, 140.25), 12: (44, 142.25), 13: (44, 144.25),
+}
+
+# 都道府県コード → 系（法令は都道府県ごとに系を決めている）。
+# 1つの道県に複数の系がある北海道・東京都・鹿児島県・沖縄県は _zone_in_split_prefecture で決める
+PREFECTURE_ZONES = {
+    2: 10, 3: 10, 4: 10, 5: 10, 6: 10,                  # 青森・岩手・宮城・秋田・山形
+    7: 9, 8: 9, 9: 9, 10: 9, 11: 9, 12: 9, 14: 9,       # 福島・茨城・栃木・群馬・埼玉・千葉・神奈川
+    15: 8, 19: 8, 20: 8, 22: 8,                         # 新潟・山梨・長野・静岡
+    16: 7, 17: 7, 21: 7, 23: 7,                         # 富山・石川・岐阜・愛知
+    18: 6, 24: 6, 25: 6, 26: 6, 27: 6, 29: 6, 30: 6,    # 福井・三重・滋賀・京都・大阪・奈良・和歌山
+    28: 5, 31: 5, 33: 5,                                # 兵庫・鳥取・岡山
+    32: 3, 34: 3, 35: 3,                                # 島根・広島・山口
+    36: 4, 37: 4, 38: 4, 39: 4,                         # 徳島・香川・愛媛・高知
+    40: 2, 41: 2, 43: 2, 44: 2, 45: 2,                  # 福岡・佐賀・熊本・大分・宮崎
+    42: 1,                                              # 長崎
+}
+
+# 北海道の11系・13系の市町村コード（法令の区分。ほかは12系）。コードと名前は国土地理院の市区町村コードの表で確かめた
+_HOKKAIDO_ZONE11 = frozenset(
+    [1202, 1203, 1233, 1236]                    # 函館市・小樽市・伊達市・北斗市
+    + list(range(1331, 1348))                   # 渡島総合振興局の所管区域
+    + list(range(1361, 1372))                   # 檜山振興局の所管区域
+    + list(range(1391, 1410))                   # 後志総合振興局の所管区域
+    + [1571, 1575, 1584]                        # 胆振のうち豊浦町・壮瞥町・洞爺湖町
+)
+_HOKKAIDO_ZONE13 = frozenset(
+    [1206, 1207, 1208, 1211, 1223]              # 釧路市・帯広市・北見市・網走市・根室市
+    + list(range(1543, 1565))                   # オホーツク総合振興局の所管区域（紋別市は12系）
+    + list(range(1631, 1650))                   # 十勝総合振興局の所管区域
+    + list(range(1661, 1669))                   # 釧路総合振興局の所管区域
+    + list(range(1691, 1701))                   # 根室振興局の所管区域
+)
+
+REVERSE_GEOCODER_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress"
+# 地点が海などで市区町村が返らないとき、まわりを探す距離（度）と方向
+_SEARCH_RADII = (0.01, 0.02, 0.05, 0.1)
+_SEARCH_DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+
+
 def find_zone_for_point(lon: float, lat: float):
     """
-    経度緯度(WGS84)が属する座標系ゾーン番号(1-13)を返す。
-    どのゾーンにも属さない場合（14-19系相当の地域等）はNoneを返す。
-    複数ゾーンの範囲が重なる場合は番号が若い方を優先する。
+    経度緯度(WGS84)の地点の平面直角座標系の系(1-13)を返す。14-19系の地域（ZoningKitが無い）はNoneを返す。
+    法令は都道府県ごとに系を決めているため、国土地理院の逆ジオコーディングで都道府県を調べて決める。
+    調べられないとき（通信できない、近くに陸が無い）は、ZONE_BOUNDS の範囲と原点の近さで決める（県境付近でずれ得る）。
+    DEMの座標系と、使うZoningKitの両方をこれで決める。同じ地点の結果は覚えておき、通信を繰り返さない。
     """
-    for zone, (_, lon_min, lat_min, lon_max, lat_max) in ZONE_BOUNDS.items():
-        if lon_min <= lon <= lon_max and lat_min <= lat <= lat_max:
-            return zone
+    fallback = _zone_by_bounds(lon, lat)
+    if fallback is None:
+        # 1〜13系のどの範囲にも入らない（国外・14〜19系の地域）。問い合わせるまでもない
+        return None
+    municipality = _municipality_code_near(round(lon, 4), round(lat, 4))
+    if municipality is None:
+        return fallback
+    prefecture = municipality // 1000
+    if prefecture in PREFECTURE_ZONES:
+        return PREFECTURE_ZONES[prefecture]
+    return _zone_in_split_prefecture(prefecture, municipality, lon, lat)
+
+
+def _zone_in_split_prefecture(prefecture: int, municipality: int, lon: float, lat: float):
+    """1つの道県に複数の系がある北海道・東京都・鹿児島県・沖縄県の系"""
+    if prefecture == 1:
+        # 北海道は市町村ごとに11・12・13系に分かれる
+        if municipality in _HOKKAIDO_ZONE11:
+            return 11
+        if municipality in _HOKKAIDO_ZONE13:
+            return 13
+        return 12
+    if prefecture == 13:
+        # 東京都：北緯28度より南（小笠原諸島など）は14・18・19系で、ZoningKitが無い
+        return 9 if lat >= 28 else None
+    if prefecture == 46:
+        # 鹿児島県：北緯27〜32度・東経128度18分〜130度の島（奄美群島は東経130度13分まで）はI系、ほかはII系
+        if 27 <= lat <= 32 and 128.3 <= lon <= 130:
+            return 1
+        if 27 <= lat <= 28.6 and lon <= 130 + 13 / 60:
+            return 1
+        return 2
+    # 沖縄県は15・16・17系で、ZoningKitが無い
     return None
+
+
+@functools.lru_cache(maxsize=64)
+def _municipality_code_near(lon: float, lat: float):
+    """地点の市区町村コード（5桁の数）。地点が海などで市区町村が返らなければ、まわりを近い順に調べる。分からなければNone"""
+    points = [(lon, lat)] + [(lon + dx * r, lat + dy * r) for r in _SEARCH_RADII for dx, dy in _SEARCH_DIRECTIONS]
+    for x, y in points:
+        try:
+            resp = requests.get(REVERSE_GEOCODER_URL, params={"lat": f"{y:.6f}", "lon": f"{x:.6f}"}, timeout=5)
+            resp.raise_for_status()
+            code = ((resp.json() or {}).get("results") or {}).get("muniCd")
+        except Exception:
+            # 通信できない。まわりを調べても同じなので、すぐ予備の判定に回す
+            return None
+        if code and str(code).isdigit():
+            return int(code)
+    return None
+
+
+def _nearest_origin_zone(lon: float, lat: float, zones):
+    """候補の系のうち、原点が最も近い系"""
+    scale = math.cos(math.radians(lat))
+    return min(zones, key=lambda z: ((lon - ZONE_ORIGINS[z][1]) * scale) ** 2 + (lat - ZONE_ORIGINS[z][0]) ** 2)
+
+
+def _zone_by_bounds(lon: float, lat: float):
+    """予備の判定：ZONE_BOUNDS の範囲に入る系のうち、原点が最も近い系。どの範囲にも入らなければNone"""
+    candidates = [zone for zone, (_, lon_min, lat_min, lon_max, lat_max) in ZONE_BOUNDS.items()
+                  if lon_min <= lon <= lon_max and lat_min <= lat <= lat_max]
+    if not candidates:
+        return None
+    return _nearest_origin_zone(lon, lat, candidates)
 
 
 def get_zoningkit_resources():

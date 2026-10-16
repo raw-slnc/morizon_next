@@ -178,6 +178,7 @@ class BuildingRoadFetchThread(QThread):
                     dst_crs=self._get_dem_crs(),
                     clip_to_extent=self.clip_to_extent,
                     zip_done_cb=on_zip_done,
+                    cancel_cb=lambda: self.abort_flag,
                 )
                 self.addProgress.emit(1)
             times["merge"] = time.monotonic() - step

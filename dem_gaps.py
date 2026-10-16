@@ -161,8 +161,10 @@ def _memory_vector_datasource():
     return ogr.GetDriverByName("Memory").CreateDataSource("")
 
 
-def _label_with_gdal(mask):
-    """scipy が無い環境用。つながった画素をポリゴン化し、番号を焼き戻して番号付けする"""
+def _label(mask):
+    """8近傍でつながった True の画素のかたまりに 1 から番号を振る。(番号の配列, かたまりの数)
+    つながった画素をGDALでポリゴン化し、番号を焼き戻して番号付けする。scipy は QGIS の環境によって
+    入っていないことがあるため使わない（1m・約7,000万画素でも数秒で、取得全体の時間にはほぼ影響しない）"""
     rows, cols = mask.shape
     gt = (0.0, 1.0, 0.0, float(rows), 0.0, -1.0)
     driver = gdal.GetDriverByName("MEM")
@@ -185,16 +187,6 @@ def _label_with_gdal(mask):
     labels = dst.GetRasterBand(1).ReadAsArray().astype(np.int32)
     labels[~mask] = 0
     return labels, len(fids)
-
-
-def _label(mask):
-    """8近傍でつながった True の画素のかたまりに 1 から番号を振る。(番号の配列, かたまりの数)"""
-    try:
-        from scipy import ndimage
-    except ImportError:
-        return _label_with_gdal(mask)
-    labels, count = ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))
-    return labels.astype(np.int32), int(count)
 
 
 def _touching(labels, count, seeds):
