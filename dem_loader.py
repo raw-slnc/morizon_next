@@ -61,6 +61,9 @@ class GSITileDEMLoader:
         self._missing_tiles_count = 0
         self._missing_tiles_total = 0
         self._cancelled = False
+        # classify_gaps=True で取得したときの欠けの分類（dem_gaps.MASK_*）とその補足
+        self.gap_mask = None
+        self.gap_notes = {}
 
     @staticmethod
     def _lonlat_to_tile(lon, lat, z):
@@ -84,21 +87,25 @@ class GSITileDEMLoader:
     @classmethod
     def check_source_coverage(cls, lon_min, lat_min, lon_max, lat_max, source,
                               cancel_cb=None, progress_cb=None):
-        """指定範囲の代表タイルがPNGとして取得できるかを確認する。
+        """指定範囲の代表タイルが取得できるか、陸地のどれだけが欠けているかを確認する。
 
         広い範囲で全タイルを事前確認すると、取得本体の前に数千リクエストが
         発生して待ち時間が長くなる。ここでは狭い範囲だけ全数確認し、広い範囲は
-        四隅・辺中央・中心を確認する。標高NoDataは判定しない。
+        四隅・辺中央・中心を確認する。陸の欠け（land_gap_ratio）は、代表タイルの欠けのうち
+        地理院ベクトルタイルの水域の外にある画素の割合で、見込みにとどまる（水域データが
+        取れなければ None）。正確な内訳は取得後に dem_gaps のマスクで示す。
         """
-        import requests
-        from qgis.PyQt.QtGui import QImage
+        from . import dem_gaps
 
-        tile_url, tile_zoom, label, _ = source
+        tile_url, tile_zoom, label, encoding = source
         x0, y0, x1, y1 = cls._tile_range(lon_min, lat_min, lon_max, lat_max, tile_zoom)
         total = (x1 - x0 + 1) * (y1 - y0 + 1)
         sample_tiles = cls._coverage_sample_tiles(x0, y0, x1, y1)
         missing = 0
         errors = []
+        land_px = 0
+        land_gap_px = 0
+        water_known = True
         for tx, ty in sample_tiles:
             if cancel_cb is not None and cancel_cb():
                 return {
@@ -110,25 +117,29 @@ class GSITileDEMLoader:
                     "sampled": len(sample_tiles) < total,
                     "cancelled": True,
                     "errors": errors,
+                    "land_gap_ratio": None,
                 }
             url = tile_url.format(z=tile_zoom, x=tx, y=ty)
-            try:
-                resp = requests.get(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)"},
-                    timeout=15,
-                )
-                resp.raise_for_status()
-                raw = resp.content
-                img = QImage()
-                if not img.loadFromData(raw):
-                    missing += 1
-                    errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: PNG decode failed")
-            except Exception as e:
+            tile, err, _ = cls._fetch_tile_array(url, encoding)
+            if tile is None:
                 missing += 1
-                errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: {e}")
+                errors.append(f"{label} z={tile_zoom} x={tx} y={ty}: {err}")
+            if water_known:
+                try:
+                    counts = dem_gaps.sample_land_gap(tile, tile_zoom, tx, ty)
+                except Exception:
+                    counts = None
+                if counts is None:
+                    water_known = False
+                else:
+                    land_px += counts[0]
+                    land_gap_px += counts[1]
             if progress_cb is not None:
                 progress_cb(label, tx, ty)
+        if not water_known:
+            land_gap_ratio = None
+        else:
+            land_gap_ratio = land_gap_px / land_px if land_px > 0 else 0.0
         return {
             "source": source,
             "label": label,
@@ -138,6 +149,7 @@ class GSITileDEMLoader:
             "sampled": len(sample_tiles) < total,
             "cancelled": False,
             "errors": errors,
+            "land_gap_ratio": land_gap_ratio,
         }
 
     @staticmethod
@@ -294,7 +306,7 @@ class GSITileDEMLoader:
         try:
             img = QImage()
             if not img.loadFromData(raw):
-                return None, "PNG decode failed"
+                return None, "PNG decode failed", len(raw)
             img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
             ptr = img.bits()
@@ -322,16 +334,21 @@ class GSITileDEMLoader:
             return None, f"Image processing error: {e}", len(raw)
 
     def fetch_for_extent(self, lon_min, lat_min, lon_max, lat_max, sources=None, cancel_cb=None,
-                         progress_cb=None, allow_partial_tiles=False):
+                         progress_cb=None, allow_partial_tiles=False, classify_gaps=False, stage_cb=None):
         """WGS84経緯度範囲のタイルをダウンロードして取得する。
         sources省略時はTILE_SOURCES(1m→5m→10m)の順で自動フォールバックする。
-        progress_cb(tiles_done, tiles_total, bytes_done)は各タイル取得後に呼ばれる。"""
+        progress_cb(tiles_done, tiles_total, bytes_done)は各タイル取得後に呼ばれる。
+        classify_gaps=True（国土地理院DEM）なら、欠けを海・水面・陸の欠けに分け（dem_gaps）、
+        海と水面はNaNのまま残す。stage_cb(工程名, 済み, 全体)はその工程の進捗。
+        False なら従来どおり欠けをすべて周囲から補間する。"""
         self.last_errors = []
         self._used_source_label = None
         self._filled_nodata_count = 0
         self._missing_tiles_count = 0
         self._missing_tiles_total = 0
         self._cancelled = False
+        self.gap_mask = None
+        self.gap_notes = {}
         result = None
         source_list = sources or self.TILE_SOURCES
         for i, item in enumerate(source_list):
@@ -377,7 +394,21 @@ class GSITileDEMLoader:
         x_origin = -WORLD_M + x0 * tile_m
         y_origin = WORLD_M - y0 * tile_m
         gt = (x_origin, px_m, 0.0, y_origin, 0.0, -px_m)
-        total_arr, self._filled_nodata_count = self._fill_nodata(total_arr)
+        if classify_gaps:
+            from . import dem_gaps
+            coarser = [s for s in self.TILE_SOURCES if s[1] < zoom_used]
+            gaps = dem_gaps.classify_and_fill(
+                total_arr, gt, zoom_used,
+                fill_sources=coarser[:-1],
+                base_source=coarser[-1] if coarser else None,
+                cancel_cb=cancel_cb, progress=stage_cb,
+            )
+            if gaps is None:
+                self._cancelled = True
+                return self
+            total_arr, self.gap_mask, self.gap_notes = gaps
+        else:
+            total_arr, self._filled_nodata_count = self._fill_nodata(total_arr)
 
         try:
             from osgeo import osr
@@ -487,10 +518,11 @@ def nominal_resolution(cell_size_m):
     return max(1, round(cell_size_m))
 
 
-def reproject_geotiff(src_path, dst_path, dst_epsg, resolution):
+def reproject_geotiff(src_path, dst_path, dst_epsg, resolution, resample_alg="bilinear", nodata=-9999.0):
     """GeoTIFFを指定の投影座標系・解像度へ変換して保存する。
     座標系の回転で生じる縁の空白(NoData)を解析に持ち込まないよう、
-    元データの内側に収まる矩形で出力する。(列数, 行数)を返す。"""
+    元データの内側に収まる矩形で出力する。(列数, 行数)を返す。
+    同じ大きさ・位置の元データなら、出力のグリッドも同じになる（DEMとそのマスクを揃えられる）。"""
     if not HAS_GDAL:
         raise RuntimeError("GDAL is not available")
 
@@ -531,8 +563,8 @@ def reproject_geotiff(src_path, dst_path, dst_epsg, resolution):
         dstSRS=f"EPSG:{dst_epsg}",
         outputBounds=(x_min, y_min, x_max, y_max),
         xRes=resolution, yRes=resolution,
-        resampleAlg="bilinear",
-        srcNodata=-9999.0, dstNodata=-9999.0,
+        resampleAlg=resample_alg,
+        srcNodata=nodata, dstNodata=nodata,
         creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"],
     )
     if ds is None:

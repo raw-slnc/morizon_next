@@ -152,3 +152,94 @@ def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
     return target_tiff_filepath
+
+
+# 計算用に埋めたDEMで作った成果物へ、元のDEMのNoDataを戻すときの値（成果物にNoData値が無い場合）
+OUTPUT_NODATA = -3.40282347e+38
+
+
+def fill_dem_nodata_for_processing(dem_filepath: str, output_filepath: str, feedback=None) -> str:
+    """
+    DEMにNoData（海・水面など）があれば、周囲の値で埋めたコピーを output_filepath に作り、そのパスを返す。
+    無ければ dem_filepath をそのまま返す。
+    傾斜・曲率・集水などの計算はNoDataの縁で値が崩れたり途切れたりするため、計算には埋めたDEMを使い、
+    最終成果物では restore_dem_nodata() で元のNoDataの場所をNoDataに戻す
+    """
+    import numpy as np
+
+    if not HAS_GDAL:
+        raise RuntimeError("GDAL is not available")
+    src = gdal.Open(dem_filepath)
+    band = src.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    if nodata is None:
+        return dem_filepath
+    data = band.ReadAsArray()
+    invalid = np.isnan(data) if np.isnan(nodata) else data == nodata
+    if not invalid.any():
+        return dem_filepath
+    del data, invalid
+
+    if feedback is not None:
+        feedback.pushInfo("DEMのデータなし（海・水面など）を計算用に周囲の値で埋めています")
+    ds = gdal.Translate(output_filepath, src,
+                        creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    src = None
+    if ds is None:
+        raise RuntimeError("計算用のDEMを作成できませんでした")
+    gdal.FillNodata(ds.GetRasterBand(1), None, 1000, 0)
+    ds.FlushCache()
+    ds = None
+    return output_filepath
+
+
+def restore_dem_nodata(target_tiff_filepath: str, dem_filepath: str, feedback=None) -> str:
+    """
+    元のDEMがNoDataの画素（海・水面など）を、成果物でもNoDataにする。
+    fill_dem_nodata_for_processing() で埋めたDEMから計算した成果物に使う
+    """
+    import numpy as np
+
+    if not HAS_GDAL:
+        raise RuntimeError("GDAL is not available")
+    target = gdal.Open(target_tiff_filepath, gdal.GA_Update)
+    band = target.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    if nodata is None:
+        if band.DataType not in (gdal.GDT_Float32, gdal.GDT_Float64):
+            # 整数の成果物で空いている値が分からないときは手を付けない
+            target = None
+            return target_tiff_filepath
+        nodata = OUTPUT_NODATA
+        band.SetNoDataValue(nodata)
+
+    dem = gdal.Open(dem_filepath)
+    dem_nodata = dem.GetRasterBand(1).GetNoDataValue()
+    dem = None
+    if dem_nodata is None:
+        target = None
+        return target_tiff_filepath
+    gt = target.GetGeoTransform()
+    cols, rows = target.RasterXSize, target.RasterYSize
+    x_min, y_max = gt[0], gt[3]
+    x_max, y_min = gt[0] + cols * gt[1], gt[3] + rows * gt[5]
+    if feedback is not None:
+        feedback.pushInfo("DEMのデータなし（海・水面など）を成果物でもデータなしにしています")
+    dem_on_grid = gdal.Warp(
+        "", dem_filepath, format="MEM",
+        dstSRS=target.GetProjection(),
+        outputBounds=(x_min, min(y_min, y_max), x_max, max(y_min, y_max)),
+        width=cols, height=rows,
+        resampleAlg="near",
+        dstNodata=dem_nodata,
+    )
+    dem_values = dem_on_grid.GetRasterBand(1).ReadAsArray()
+    dem_on_grid = None
+    invalid = np.isnan(dem_values) if np.isnan(dem_nodata) else dem_values == dem_nodata
+    if invalid.any():
+        data = band.ReadAsArray()
+        data[invalid] = nodata
+        band.WriteArray(data)
+        band.FlushCache()
+    target = None
+    return target_tiff_filepath

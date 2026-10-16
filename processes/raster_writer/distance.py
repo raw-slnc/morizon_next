@@ -101,7 +101,8 @@ def generate(basis_dem_filepath: str,
             resampling_alg_name="nearest",
             feedback=feedback)
 
-        # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 AND 1) を使う
+        # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 > -100000) を使う
+        # （原版の (dem@1 AND 1) は標高がちょうど0mのセルで結果が0になるため、どの標高でも真になる比較にする）
         distance_rlayer = _make_raster_layer(adjusted_dis_filepath, "道路距離")
         distance_entry = QgsRasterCalculatorEntry()
         distance_entry.ref = 'dis@1'
@@ -116,7 +117,7 @@ def generate(basis_dem_filepath: str,
 
         output_filepath = os.path.join(output_dir, OUTPUT_DISTANCE['FILE_NAME'] + ".tif")
 
-        calc = QgsRasterCalculator('dis@1 * (dem@1 AND 1)',
+        calc = QgsRasterCalculator('dis@1 * (dem@1 > -100000)',
                                    output_filepath,
                                    'GTiff',
                                    dem_rlayer.extent(),

@@ -200,19 +200,21 @@ class DemResolutionDialog(_ComboOkCancelFocusMixin, QDialog):
     Qt 標準の入力ダイアログ（QInputDialog.getItem）ではキーボードのフォーカスが動かなかったため、
     DEMブラウザと同じ作りにしている"""
 
-    def __init__(self, labels, parent=None):
+    def __init__(self, labels, parent=None, default_index=0):
         super().__init__(parent)
         self.setWindowTitle("DEM解像度の選択")
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
-            "複数のDEMタイル方式が取得範囲全体をカバーしています。\n"
+            "取得範囲で利用できる国土地理院DEMの解像度が複数あります。\n"
             "解析範囲内で統一して使用する解像度を選択してください。\n"
+            "「部分的・非推奨」の解像度は陸地の一部に値が無く、その部分を粗い解像度で補います。\n"
             "広い範囲では、処理時間とデータ量を抑えるため10mをおすすめします。"
         ))
         self.resolutionCombobox = QComboBox()
         self.resolutionCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resolutionCombobox.addItems(labels)
+        self.resolutionCombobox.setCurrentIndex(default_index)
         layout.addWidget(self.resolutionCombobox)
 
         self.button_box = QDialogButtonBox(

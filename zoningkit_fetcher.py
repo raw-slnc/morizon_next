@@ -348,6 +348,51 @@ def clip_siteindex_to_extent(zone_cache: dict, output_dir: str,
     return result
 
 
+def siteindex_has_data(dem_path: str, siteindex_paths) -> bool:
+    """
+    DEMの範囲に、NPP/SRAD/VTEXのすべてに値があるセルが1つでもあるかを返す。
+    地位指数データ（もりぞんデータセット）は伊豆諸島などの離島を含まない。座標系としてはその系でも、
+    データの外の場所では地位指数が全面データなしになり、スコアリング・ゾーニングに進めない。
+    森林があっても解析できる場所だと誤解させないよう、それを先に見つけて止めるのに使う
+    （市街地などはデータの中でも値が無いが、範囲内に森林が少しでもあれば値がある）。
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    dem = gdal.Open(dem_path)
+    gt = dem.GetGeoTransform()
+    cols, rows = dem.RasterXSize, dem.RasterYSize
+    bounds = (gt[0], gt[3] + rows * gt[5], gt[0] + cols * gt[1], gt[3])
+    projection = dem.GetProjection()
+    dem = None
+    # 地位指数データ（約50m）に合わせた粗い格子で調べる
+    options = dict(format="MEM", dstSRS=projection, outputBounds=bounds, xRes=50, yRes=50, dstNodata=np.nan,
+                   outputType=gdal.GDT_Float32, resampleAlg="near")
+    covered = None
+    for path in siteindex_paths:
+        ds = gdal.Warp("", path, **options)
+        valid = ~np.isnan(ds.GetRasterBand(1).ReadAsArray())
+        ds = None
+        covered = valid if covered is None else covered & valid
+    return bool(covered is not None and covered.any())
+
+
+SITEINDEX_OUT_OF_RANGE_TITLE = "地位指数データの整備範囲外"
+
+
+def siteindex_out_of_range_message(dem_fetched: bool) -> str:
+    """地位指数データの整備範囲外で止めたときの知らせ。
+    dem_fetched: DEMブラウザで取得したDEMを、この知らせの後で解放（削除）するとき True。手で指定したDEMには触らない"""
+    message = (
+        f"{'取得した' if dem_fetched else '指定した'}DEM範囲では、対になる地位指数データは存在しません。\n"
+        "地位指数データ（林野庁「もりぞん」データセット）の整備範囲外です。\n\n"
+        "この地域ではスコアリング・ゾーニングまで処理を進めることが出来ないため、ここで中止しました。"
+    )
+    if dem_fetched:
+        message += "\n取得したDEMは使わないため、削除します。"
+    return message
+
+
 def download_zoningkit_zip(zone: int, dest_path: str, progress_cb=None, cancel_cb=None):
     """
     指定ゾーンのZoningKit_XX.zipをdest_pathへダウンロードする。

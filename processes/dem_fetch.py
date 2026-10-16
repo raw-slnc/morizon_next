@@ -2,11 +2,13 @@
 # Copyright (C) 2026 Hideharu Masai
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
+import os
 import time
 
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
+from ..dem_gaps import mask_path_for
 from ..dem_loader import GSITileDEMLoader
 from ..dem_sources.base import Cancelled, FetchReporter
 
@@ -63,6 +65,14 @@ class DemFetchThread(QThread):
     def run(self):
         try:
             self.setAbortable.emit(True)
+            # 前回取得したDEMのマスク（国土地理院DEMのみ作る）を、今回のDEMのものと取り違えないよう消しておく
+            stale_mask_path = mask_path_for(self.output_path)
+            if os.path.exists(stale_mask_path):
+                try:
+                    os.remove(stale_mask_path)
+                except OSError:
+                    # QGISで開いているなど（Windowsでは消せない）。取得は続け、新しいマスクを書けなければ知らせる
+                    pass
             reporter = _SignalReporter(self)
             result = self.source.fetch(
                 self.extent, self.output_path,

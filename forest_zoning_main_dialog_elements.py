@@ -31,6 +31,7 @@ from qgis.core import (
 from .progress_dialog import run_with_progress
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog, DemResolutionDialog
 from .dem_loader import GSITileDEMLoader
+from . import dem_gaps
 from .settings_manager import OutputLayerStyleManager, ShcMethodManager
 from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZoningMainDialogArchive
 from . import saga_check
@@ -462,6 +463,30 @@ class ForestZoningMainDialogElements:
 
         return error_texts
 
+    def _confirm_siteindex_coverage(self) -> bool:
+        """地位指数を計算するとき、DEMの範囲が地位指数データの整備範囲外（離島など）なら、計算を始める前に知らせて止める。
+        地位指数が全面データなしになると、スコアリング・ゾーニングまで進めないため。続けてよければ True"""
+        if not self.main.elementsSiteIdxCheckbox.isChecked():
+            return True
+        dem_path = self.main.elementsDemFileWidget.filePath()
+        paths = [w.filePath() for w in (self.main.elementsNppFileWidget, self.main.elementsSradFileWidget,
+                                        self.main.elementsVtexFileWidget)]
+        if not dem_path or not all(paths) or not all(os.path.exists(p) for p in [dem_path] + paths):
+            return True
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            has_data = zoningkit_fetcher.siteindex_has_data(dem_path, paths)
+        except Exception:
+            # 判定できないときは止めない（従来どおり計算する）
+            return True
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not has_data:
+            QMessageBox.information(self.main, zoningkit_fetcher.SITEINDEX_OUT_OF_RANGE_TITLE,
+                                    zoningkit_fetcher.siteindex_out_of_range_message(dem_fetched=False))
+            return False
+        return True
+
     def _confirm_shc_method(self) -> bool:
         """地形の複雑さを SAGA で計算する設定（SAGA ON）なのに SAGA が使えない場合、計算を始める前に知らせる。
         OFF（プラグイン内で計算）に切り替えて続けるなら True、やめるなら False"""
@@ -835,12 +860,7 @@ class ForestZoningMainDialogElements:
                 for result in coverage_results
                 if result["missing"] >= result.get("checked", result["total"])
             ]
-            partial_notice = ""
-            if selected["missing"] > 0:
-                partial_notice = (
-                    "\n\n一部のDEMタイルを取得できない可能性があります。"
-                    "海域などDEM未提供部分を含む範囲として、取得できる部分で続行します。"
-                )
+            partial_notice = self._gsi_gap_notice(selected)
             if skipped:
                 message = (
                     "取得範囲内で利用可能な解像度が混在しています。\n"
@@ -848,7 +868,7 @@ class ForestZoningMainDialogElements:
                     + f"\n\n{selected['label']}で統一します。"
                     + partial_notice
                 )
-            elif selected["missing"] > 0:
+            elif selected["missing"] > 0 or partial_notice:
                 message = (
                     "取得範囲で利用できる国土地理院DEMタイルは"
                     f"{selected['label']}のみです。\n\n"
@@ -867,7 +887,11 @@ class ForestZoningMainDialogElements:
 
         choices = [(self._format_gsi_resolution_choice(result), result) for result in available]
         labels = [label for label, _ in choices]
-        dialog = DemResolutionDialog(labels, self.main)
+        # 陸地の欠けが多い解像度（部分的・非推奨）は既定で選ばない
+        default_index = next(
+            (i for i, (_, result) in enumerate(choices) if not self._is_gsi_partial(result)), 0
+        )
+        dialog = DemResolutionDialog(labels, self.main, default_index=default_index)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         selected_label = dialog.selected_label()
@@ -889,8 +913,46 @@ class ForestZoningMainDialogElements:
         return f"{result['label']}（{result['missing']}/{result['total']}枚が取得不可）"
 
     @staticmethod
-    def _format_gsi_resolution_choice(result):
+    def _is_gsi_partial(result):
+        """代表タイルで見た陸地の欠けが、粗い解像度での補完をすすめない割合以上か"""
+        ratio = result.get("land_gap_ratio")
+        return ratio is not None and ratio >= dem_gaps.LAND_FILL_WARN_RATIO
+
+    @classmethod
+    def _gsi_gap_notice(cls, result):
+        """解像度を1つに決めたときに添える、海・水面と陸の欠けの見込み"""
+        ratio = result.get("land_gap_ratio")
+        if ratio is None:
+            if result["missing"] > 0:
+                return (
+                    "\n\n一部のDEMタイルを取得できない可能性があります。"
+                    "海・水面は解析対象外とし、陸の欠けは粗い解像度で補います（内訳は取得後に表示します）。"
+                )
+            return ""
+        if cls._is_gsi_partial(result):
+            return (
+                f"\n\n陸地の約{ratio * 100:.0f}%（代表タイルでの見込み）に{result['label']}がありません。"
+                "その部分は粗い解像度の値で補うため、傾斜などがなだらかに出ます。"
+            )
+        if ratio > 0:
+            return (
+                f"\n\n陸地のごく一部（代表タイルでの見込み 約{ratio * 100:.1f}%）は"
+                "粗い解像度の値で補います。"
+            )
+        if result["missing"] > 0:
+            return "\n\n海・水面を含む範囲です。海・水面は解析対象外になります。"
+        return ""
+
+    @classmethod
+    def _format_gsi_resolution_choice(cls, result):
         checked = result.get("checked", result["total"])
+        ratio = result.get("land_gap_ratio")
+        if cls._is_gsi_partial(result):
+            return f"{result['label']}（部分的・非推奨：陸の約{ratio * 100:.0f}%に値が無い見込み）"
+        if ratio is not None and ratio > 0:
+            return f"{result['label']}（陸のごく一部を補完する見込み）"
+        if ratio is not None and result["missing"] > 0:
+            return f"{result['label']}（海・水面を含む）"
         if result["missing"] > 0:
             return f"{result['label']}（一部未提供の可能性: {result['missing']}/{checked}枚）"
         return result["label"]
@@ -945,10 +1007,47 @@ class ForestZoningMainDialogElements:
             zone, cache_base_dir, output_dir,
             extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
             extent_wgs84.xMaximum(), extent_wgs84.yMaximum(),
+            dem_path=self.main.elementsDemFileWidget.filePath(),
         )
-        result = self._run_fetch(thread, "地位指数データの取得に失敗しました。", show_set_progress=True)
+        outcome = run_with_progress(thread, show_detail=True, show_set_progress=True)
+        if thread.out_of_range:
+            # 取得したDEMの範囲に地位指数データが無い（離島など）。照合している様子を見せてから知らせ、
+            # 利用者が確認した後でDEMを解放する
+            run_with_progress(processes.siteindex_fetch.DemRangeCheckDisplayThread(), abortable=False)
+            QMessageBox.information(
+                self.main, zoningkit_fetcher.SITEINDEX_OUT_OF_RANGE_TITLE,
+                zoningkit_fetcher.siteindex_out_of_range_message(dem_fetched=self._is_fetched_dem_set()),
+            )
+            self._release_fetched_dem()
+            return
+        if "error" in outcome:
+            QMessageBox.information(self.main, "エラー", f"地位指数データの取得に失敗しました。\n\n{outcome['error']}")
+            return
+        result = outcome.get("result")
         if result is not None:
             self.set_siteindex_filepaths(result)
+
+    def _is_fetched_dem_set(self) -> bool:
+        """DEMの欄に、DEMブラウザで取得したDEMが入っているか（手で指定したDEMではないか）"""
+        dem_path = self.main.elementsDemFileWidget.filePath()
+        return bool(dem_path) and dem_path == getattr(self, "_dem_browser_dem_path", None)
+
+    def _release_fetched_dem(self):
+        """地位指数データの整備範囲外で止めたとき、この範囲で取得したDEMを解放する。
+        DEMが残っていると、この範囲で解析を続けられると誤解させるため、欄を空に戻してファイルも消す"""
+        dem_path = self.main.elementsDemFileWidget.filePath()
+        if self._is_fetched_dem_set():
+            self._set_input_path("dem", "")
+            for path in (dem_path, dem_path + ".aux.xml", dem_gaps.mask_path_for(dem_path)):
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+        self._dem_browser_dem_path = None
+        self._pending_extent_wgs84 = None
+        self._pending_final_extent_wgs84 = None
+        self.refresh_elements_ui()
 
     def set_siteindex_filepaths(self, result: dict):
         if "NPP" in result:
@@ -1332,6 +1431,8 @@ class ForestZoningMainDialogElements:
         return names
 
     def run_elements(self):
+        if not self._confirm_siteindex_coverage():
+            return
         if not self._confirm_shc_method():
             return
         self.main.hide()

@@ -96,11 +96,12 @@ def generate(basis_dem_filepath: str,
             # QgsRasterCalculator は ProcessingFeedback を受け取れないため工程を手動通知する。
             feedback.pushInfo(f"地位指数を計算しています: {os.path.basename(output_filepath)}")
         # 地位指数 = 定数 + (NPP - NPP1) * NPP2 - (SRAD - SRAD1) * 0.01 * SRAD2 - (VTEX - VTEX1) * 0.01 * VTEX2
-        # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 AND 1) を使う
+        # DEMのNo-DATAの部分は結果でもNo-DATAにするために、expressionに *(dem@1 > -100000) を使う
+        # （原版の (dem@1 AND 1) は標高がちょうど0mのセルで結果が0になるため、どの標高でも真になる比較にする）
         expression = (
             f'({siteidx_params[0]} + (npp@1 - {siteidx_params[1]}) * {siteidx_params[2]}'
             f' - (srad@1 - {siteidx_params[3]}) * 0.01 * {siteidx_params[4]}'
-            f' - (vtex@1 - {siteidx_params[5]}) * 0.01 * {siteidx_params[6]}) * (dem@1 AND 1)'
+            f' - (vtex@1 - {siteidx_params[5]}) * 0.01 * {siteidx_params[6]}) * (dem@1 > -100000)'
         )
         # 計算に失敗したとき前回の出力が残って使われないよう、先に削除しておく
         if os.path.exists(output_filepath):

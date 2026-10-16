@@ -54,7 +54,7 @@
               </size>
              </property>
              <property name="styleSheet">
-              <string notr="true">padding:12px 4px;</string>
+              <string notr="true">padding:12px 4px; outline: none;</string>
              </property>
              <property name="text">
               <string>表示範囲から開始する</string>
@@ -76,7 +76,7 @@
               </size>
              </property>
              <property name="styleSheet">
-              <string notr="true">padding:12px 4px;</string>
+              <string notr="true">padding:12px 4px; outline: none;</string>
              </property>
              <property name="text">
               <string>フォルダ選択から開始する</string>
@@ -98,7 +98,7 @@
               </size>
              </property>
              <property name="styleSheet">
-              <string notr="true">padding:12px 4px;</string>
+              <string notr="true">padding:12px 4px; outline: none;</string>
              </property>
              <property name="text">
               <string>保存ファイルを読み込む</string>
@@ -120,7 +120,7 @@
               </size>
              </property>
              <property name="styleSheet">
-              <string notr="true">padding:12px 4px;</string>
+              <string notr="true">padding:12px 4px; outline: none;</string>
              </property>
              <property name="text">
               <string>設定をクリアする</string>

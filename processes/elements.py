@@ -50,6 +50,8 @@ class ProcessingThread(QThread):
 
         self.abort_flag = False
         self.feedback = None
+        # DEMにNoDataがあるとき、その元のDEM（成果物のNoDataを戻すのに使う）。無ければ None
+        self._dem_with_nodata = None
 
     def set_abort_flag(self, flag=True):
         self.abort_flag = flag
@@ -57,6 +59,9 @@ class ProcessingThread(QThread):
             self.feedback.cancel()
 
     def _clip_final_output(self, filepath: str) -> str:
+        """最終成果物を仕上げる：元のDEMのNoData（海・水面など）を戻し、表示・解析範囲で切り出す"""
+        if filepath and self._dem_with_nodata is not None:
+            raster_writer.restore_dem_nodata(filepath, self._dem_with_nodata, feedback=self.feedback)
         if filepath and self.final_extent_wgs84 is not None:
             return raster_writer.replace_with_clipped_wgs84_extent(
                 filepath, self.final_extent_wgs84, feedback=self.feedback
@@ -102,15 +107,21 @@ class ProcessingThread(QThread):
             self.processStarted.emit(sum_of_processes)
             progress_counter = 0
 
+            # DEMのNoData（海・水面など）は計算用に埋め、最終成果物で元に戻す（_clip_final_output）
+            dem_for_processes = raster_writer.fill_dem_nodata_for_processing(
+                self.input_files_dict["dem"], os.path.join(intermediate_dir, "dem_filled.tif"),
+                feedback=self.feedback)
+            if dem_for_processes != self.input_files_dict["dem"]:
+                self._dem_with_nodata = self.input_files_dict["dem"]
+
             # 必要ならDEMをリサンプリング
-            dem_for_processes = self.input_files_dict["dem"]
             if is_resampling:
                 self.addProgress.emit(1)
                 progress_counter += 1
                 self.postMessage.emit('DEMをリサンプリング中')
                 resampled_dem_filepath = os.path.join(intermediate_dir, "dem_resampled_10m.tif")
                 dem_for_processes = raster_writer.resampling(
-                    self.input_files_dict["dem"], 10,
+                    dem_for_processes, 10,
                     output_filepath=resampled_dem_filepath, feedback=self.feedback)
                 if not os.path.exists(dem_for_processes):
                     raise RuntimeError(f"リサンプリング後のDEMを作成できませんでした: {dem_for_processes}")
