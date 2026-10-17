@@ -85,7 +85,7 @@ class BuildingRoadFetchThread(QThread):
         return self._dem_crs
 
     def _fetch_and_merge(self, type_code: str, label: str, output_path: str, kind: str,
-                         include_layer_names=None):
+                         include_layer_names=None, attribute_filter=None):
         """基盤地図情報を取得し、描画用の DB（layer_db.py）に入れてから、作業フォルダへ互換用の shp を書き出す
         （DB → shp の順）。まとめる作業は一時フォルダの GPKG で行う（shp だと属性名が10バイトで切り詰められる）。
         (shp のパス, 地物が無かったか) を返す。地物が無いときは空のデータを作る"""
@@ -147,6 +147,8 @@ class BuildingRoadFetchThread(QThread):
         # まとめ直しても同じ結果になるので、そのまま使う
         area = fetch_area_key(self.lon_min, self.lat_min, self.lon_max, self.lat_max, self._get_dem_crs())
         zips = ",".join(sorted(os.path.basename(path) for path in zip_paths))
+        # 使うレイヤー・絞り込みの条件も「同じ条件」に含める（変えたら、取得済みでもまとめ直す）
+        zips += f";layers={','.join(include_layer_names or [])};filter={attribute_filter or ''}"
         record = layer_db.get_fetch_record(db_path, kind)
         if (record and record[0] == area and record[1] == zips and os.path.isfile(output_path)
                 and layer_db.has_layer(db_path, kind) and layer_db.shp_fingerprint(output_path) == record[2]):
@@ -179,6 +181,7 @@ class BuildingRoadFetchThread(QThread):
                     clip_to_extent=self.clip_to_extent,
                     zip_done_cb=on_zip_done,
                     cancel_cb=lambda: self.abort_flag,
+                    attribute_filter=attribute_filter,
                 )
                 self.addProgress.emit(1)
             times["merge"] = time.monotonic() - step
@@ -226,6 +229,7 @@ class BuildingRoadFetchThread(QThread):
             result["road"], result["road_empty"] = self._fetch_and_merge(
                 fgd_fetcher.TYPE_CODE_ROAD_EDGE, "道路縁データ", road_path, layer_db.KIND_ROAD,
                 include_layer_names=fgd_fetcher.ROAD_LAYERS,
+                attribute_filter=fgd_fetcher.ROAD_ATTRIBUTE_FILTER,
             )
             if self.abort_flag:
                 self.processFailed.emit("処理を中断しました。")

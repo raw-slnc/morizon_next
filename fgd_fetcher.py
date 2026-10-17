@@ -17,7 +17,10 @@ TYPE_CODE_ROAD_EDGE = "06"
 TYPE_CODE_BUILDING = "11"
 
 # 道路縁ZIP内の実レイヤー名（実サンプルFG-GML-523807-06-*.zipで確認済み）
-ROAD_LAYERS = ["RdEdg", "RdCompt"]
+# 道路は道路縁（RdEdg）のうち真幅道路だけを使う。手引（5.4）のとおり、山地を通るトンネルや徒歩道、
+# 庭園路等、歩道・側溝などの道路構成線（RdCompt）は、地利を実際より良く見せるため除く
+ROAD_LAYERS = ["RdEdg"]
+ROAD_ATTRIBUTE_FILTER = "type = '真幅道路'"
 # 建物ポリゴンとして使うため、建築物の面データのみ採用する（BldLは線データ）。
 BUILDING_LAYERS = ["BldA"]
 
@@ -173,11 +176,14 @@ def merge_layers(zip_paths: list, output_path: str,
                  lon_min: float, lat_min: float, lon_max: float, lat_max: float,
                  include_layer_names=None, driver_format="ESRI Shapefile",
                  output_layer=None, dst_crs="EPSG:4326",
-                 clip_to_extent=True, zip_done_cb=None, cancel_cb=None) -> bool:
+                 clip_to_extent=True, zip_done_cb=None, cancel_cb=None, attribute_filter=None) -> bool:
     """複数ZIP内のGMLレイヤーを1つのベクタファイルへ範囲クリップしつつ統合する。
     zip_done_cb(ZIPのパス) は、ZIPを1つまとめ終えるごとに呼ぶ。
     cancel_cb() が True を返したら、レイヤーごと・変換の途中で止めて InterruptedError を送出する
     （まとめる量が多いと Windows では数分かかり、中断できないと進捗の窓が閉じられないため）。
+    attribute_filter（OGR の属性の条件）を渡すと、まとめた後で条件に合わない地物を消す。
+    外部の ogr2ogr の引数に日本語の条件を渡すと、Windows では文字コードが合わず1件も残らないおそれがあるため、
+    条件はまとめた後に QGIS の中の GDAL で当てる
     include_layer_names未指定の場合はZIP内の全レイヤーを対象にする。
     driver_formatは"ESRI Shapefile"（既存のフォルダ読み込み規約=INPUT_BUILDING/INPUT_NETWORKに合わせる）
     または"GPKG"。1件以上書き込めた場合はTrueを返す。
@@ -253,11 +259,38 @@ def merge_layers(zip_paths: list, output_path: str,
     if first:
         return False
 
+    if attribute_filter:
+        _check_cancel(cancel_cb)
+        _delete_features_not_matching(output_path, attribute_filter)
+
     valid_count = _count_non_empty_geometries(output_path)
     if valid_count == 0:
         _remove_shapefile_dataset(output_path)
         return False
     return True
+
+
+def _delete_features_not_matching(vector_path: str, attribute_filter: str):
+    """条件に合わない地物を消す（全レイヤー）"""
+    from osgeo import ogr
+
+    ds = ogr.Open(vector_path, 1)
+    if ds is None:
+        return
+    try:
+        for i in range(ds.GetLayerCount()):
+            layer = ds.GetLayer(i)
+            layer.SetAttributeFilter(f"NOT ({attribute_filter}) OR ({attribute_filter}) IS NULL")
+            fids = [feature.GetFID() for feature in layer]
+            layer.SetAttributeFilter(None)
+            if not fids:
+                continue
+            layer.StartTransaction()
+            for fid in fids:
+                layer.DeleteFeature(fid)
+            layer.CommitTransaction()
+    finally:
+        ds = None
 
 
 def create_empty_shapefile(output_path: str, dst_crs="EPSG:4326",
