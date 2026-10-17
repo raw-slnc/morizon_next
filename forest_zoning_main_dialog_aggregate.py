@@ -117,7 +117,19 @@ class ForestZoningMainDialogAggregate:
             "森林計画図の小班線など、ほかのレイヤーを重ねて見るときに使う（表示だけで、集計の値は変わらない）")
         self.no_outline_check.setChecked(AggregateStyleManager().load_no_outline())
         self.no_outline_check.toggled.connect(lambda checked: AggregateStyleManager().store_no_outline(checked))
-        box.addWidget(self.no_outline_check)
+        # 「不透明度を100％設定」（「外周線を出力しない」の横。表示だけで、集計の値は変わらない）
+        self.full_opacity_check = QCheckBox("不透明度を100％設定")
+        self.full_opacity_check.setToolTip(
+            "区分の塗りを不透明度100%で描く（既定は35%で、背景の地図が透けて見える）。\n"
+            "表示だけで、集計の値は変わらない")
+        self.full_opacity_check.setChecked(AggregateStyleManager().load_full_opacity())
+        self.full_opacity_check.toggled.connect(
+            lambda checked: AggregateStyleManager().store_full_opacity(checked))
+        style_row = QHBoxLayout()
+        style_row.addWidget(self.no_outline_check)
+        style_row.addWidget(self.full_opacity_check)
+        style_row.addStretch(1)
+        box.addLayout(style_row)
         box.addLayout(row)
         box.addWidget(self.conifer_values_label)
         grid.addLayout(box, 4, 1, 1, 2)
@@ -319,6 +331,7 @@ class ForestZoningMainDialogAggregate:
             db_path=db_path,
             conifer=self.get_conifer_setting(),
             no_outline=self.no_outline_check.isChecked(),
+            full_opacity=self.full_opacity_check.isChecked(),
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         outcome = run_with_progress(thread, show_detail=True)

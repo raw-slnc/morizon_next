@@ -26,7 +26,8 @@ class DataRestoreThread(QThread):
     processFailed = pyqtSignal(str)
 
     def __init__(self, youso_dir, costcsv_path, zoning_dir, aggregate_shp, aggregate_threshold,
-                 db_dir, road_shp=None, building_shp=None):
+                 db_dir, road_shp=None, building_shp=None, aggregate_conifer=None, aggregate_no_outline=False,
+                 aggregate_full_opacity=False):
         """db_dir は描画用の DB の場所（layer_db.py）。道路・建物は DB を作り直すだけで、レイヤーは作らない"""
         super().__init__()
         self.youso_dir = youso_dir
@@ -34,6 +35,9 @@ class DataRestoreThread(QThread):
         self.zoning_dir = zoning_dir
         self.aggregate_shp = aggregate_shp
         self.aggregate_threshold = aggregate_threshold
+        self.aggregate_conifer = aggregate_conifer
+        self.aggregate_no_outline = aggregate_no_outline
+        self.aggregate_full_opacity = aggregate_full_opacity
         self.db_dir = db_dir
         self.road_shp = road_shp
         self.building_shp = building_shp
@@ -55,7 +59,9 @@ class DataRestoreThread(QThread):
             ("aggregate", "集計の出力レイヤーを作成中",
              lambda: morizon_restore.build_aggregate_layers(
                  self.aggregate_shp, layer_db.db_file(self.db_dir, layer_db.KIND_AGGREGATE),
-                 self.aggregate_threshold, problems)),
+                 self.aggregate_threshold, problems,
+                 conifer=self.aggregate_conifer, no_outline=self.aggregate_no_outline,
+                 full_opacity=self.aggregate_full_opacity)),
             ("road", "道路縁のデータを取り込み中",
              lambda: self._import_to_db(layer_db.KIND_ROAD, self.road_shp, "道路縁", problems)),
             ("building", "建物ポリゴンのデータを取り込み中",

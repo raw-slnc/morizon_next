@@ -175,9 +175,12 @@ def find_aggregate_shp(directory):
     return os.path.join(directory, shps[0]) if shps else None
 
 
-def build_aggregate_layers(shp_path, db_path, style_threshold, problems):
+def build_aggregate_layers(shp_path, db_path, style_threshold, problems, conifer=None, no_outline=False,
+                           full_opacity=False):
     """集計結果から {表示名: レイヤー}（集計タブの出力と同じ形）。
-    保存データ（shp と、あれば同じ名前の GPKG）から描画用の DB を作り直し、レイヤーは DB から作る（layer_db.py）"""
+    保存データ（shp と、あれば同じ名前の GPKG）から描画用の DB を作り直し、レイヤーは DB から作る（layer_db.py）。
+    表示スタイルを作り直すときは、しきい値・針葉樹・外周線・不透明度とも今の集計タブの設定を使う
+    （針葉樹の列が集計結果に無ければ針葉樹は使わない）"""
     try:
         source = layer_db.import_saved(db_path, layer_db.KIND_AGGREGATE, shp_path)
     except Exception as e:
@@ -193,6 +196,10 @@ def build_aggregate_layers(shp_path, db_path, style_threshold, problems):
         return {}
     directory = os.path.dirname(shp_path)
     file_name = os.path.splitext(os.path.basename(shp_path))[0]
+    if conifer and layer.fields().indexOf(conifer[0]) < 0:
+        conifer = None
     _style_layer(layer, directory, file_name, (".qml",),
-                 lambda: raster_styler.aggregate.write_qml(shp_path, style_threshold), problems)
+                 lambda: raster_styler.aggregate.write_qml(
+                     shp_path, style_threshold, conifer=conifer, no_outline=no_outline,
+                     full_opacity=full_opacity), problems)
     return {OUTPUT_AGGREGATE["DISPLAY_NAME"]: layer}

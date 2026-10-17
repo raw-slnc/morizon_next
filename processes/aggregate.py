@@ -58,7 +58,7 @@ class ProcessingThread(QThread):
     processFailed = pyqtSignal(str)
 
     def __init__(self, mode: str, zoning_layer_path: str, input_layer, output_path: str,
-                 style_threshold: int, db_path: str, conifer=None, no_outline=False):
+                 style_threshold: int, db_path: str, conifer=None, no_outline=False, full_opacity=False):
         """output_path は作業フォルダの互換用の shp、db_path は描画用の DB（layer_db.py）"""
         super().__init__()
         self.mode = mode
@@ -70,6 +70,7 @@ class ProcessingThread(QThread):
         # (列名, 針葉樹とみなす値の集合)。None なら樹種で分けない。集計の値は変えず、表示（スタイル）だけで分ける
         self.conifer = conifer
         self.no_outline = no_outline  # 「外周線を出力しない」（表示だけ）
+        self.full_opacity = full_opacity  # 「不透明度を100％設定」（表示だけ）
 
         self.abort_flag = False
         self.feedback = None
@@ -153,7 +154,7 @@ class ProcessingThread(QThread):
             qml_filepath = raster_styler.aggregate.write_qml(
                 self.output_path, self.style_threshold,
                 conifer=self.conifer if self.mode == "polygon" else None,
-                no_outline=self.no_outline)
+                no_outline=self.no_outline, full_opacity=self.full_opacity)
             vlayer.loadNamedStyle(qml_filepath)
             vlayer_dict[OUTPUT_AGGREGATE["DISPLAY_NAME"]] = vlayer
         except Exception as e:

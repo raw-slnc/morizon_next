@@ -5,22 +5,23 @@
 from ...constants import ZONING_COLORS
 
 
-# 地面（背景の地図）を隠さないよう、塗りは不透明度60%にする（外周線と斜線は不透明のまま）
-FILL_OPACITY = 0.6
+# 地面（背景の地図）を隠さないよう、塗りは不透明度35%にする（外周線と斜線は不透明のまま）。
+# 記号の不透明度はどの区分も100%にし、薄さは塗りの色の不透明度だけで付ける
+FILL_OPACITY = 0.35
 # 外周線は濃い紺。背景の等高線（茶系）や、重ねた森林計画図の小班線（黒）と見分けやすく、
 # 区分3・4の水色・青の塗りの上でも縁が見える。赤は「災害リスク高」の斜線の意味なので使わない
 OUTLINE_COLOR = "31,78,156,255"
 
 
-def _fill_color(hex_color: str) -> str:
-    """#rrggbb を QGIS のスタイルの r,g,b,a（不透明度 FILL_OPACITY）にする"""
+def _fill_color(hex_color: str, opacity=FILL_OPACITY) -> str:
+    """#rrggbb を QGIS のスタイルの r,g,b,a（不透明度 opacity）にする"""
     value = hex_color.lstrip("#")
     r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
-    return f"{r},{g},{b},{round(255 * FILL_OPACITY)}"
+    return f"{r},{g},{b},{round(255 * opacity)}"
 
 
 # 「針葉樹のフィーチャーだけで収益性を判定する」を使ったとき、区分の色は針葉樹のポリゴンだけに付け、
-# それ以外のポリゴンは淡い黄色（記号の不透明度20%）で塗り、外周線は他の区分と同じ線で描く（区分の対象外であることを示す）。
+# それ以外のポリゴンは淡い黄色（塗りの不透明度は他の区分と同じ）で塗り、外周線は他の区分と同じ線で描く（区分の対象外であることを示す）。
 # 集計の値（_majority など）は変えず、表示の条件だけで分ける。条件は元のポリゴンの列と選んだ値で書く
 _CONIFER_RULE_KEY = "{3c0e8f6a-5b7d-4e29-9a61-0d2b7f4c8e15}"
 
@@ -35,11 +36,12 @@ def _conifer_condition(conifer) -> str:
     return html.escape(f"to_string({quoted_field}) IN ({literals})", quote=True)
 
 
-_CONIFER_SYMBOL = f"""
-      <symbol name="5" alpha="0.2" force_rhr="0" clip_to_extent="1" type="fill">
+def _conifer_symbol(fill_opacity) -> str:
+    return f"""
+      <symbol name="5" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="250,250,212,255"/>
+          <prop k="color" v="{_fill_color("#fafad4", fill_opacity)}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -53,8 +55,8 @@ _CONIFER_SYMBOL = f"""
       </symbol>"""
 
 
-# 区分の塗り（第1〜第4象限・区分なし）の外周線。「外周線を出力しない」ときは、この組み合わせだけを描かない形にする
-# （斜線の記号の外周線は色が違うので当たらない）
+# 区分の塗り（第1〜第4象限・区分外）と斜線の記号の外周線（どれも同じ線）。
+# 「外周線を出力しない」ときは、この組み合わせを描かない形にする
 _ZONE_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="solid"/>'
 _ZONE_NO_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="no"/>'
 # 「外周線を出力しない」のとき（ほかのレイヤーに重ねて見る使い方）は、斜線を不透明度30%にする
@@ -62,11 +64,13 @@ _HATCH_SYMBOL = '<symbol name="4" alpha="1"'
 _HATCH_SYMBOL_LIGHT = '<symbol name="4" alpha="0.3"'
 
 
-def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=False) -> str:
+def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=False, full_opacity=False) -> str:
     """conifer：「針葉樹のフィーチャーだけで収益性を判定する」の (列名, 針葉樹とみなす値)。None なら使わない
     no_outline：「外周線を出力しない」。区分の塗り（第1〜第4象限・区分なし）の外周線を描かず、
-    斜線（災害リスク高）を不透明度30%にする（ほかのレイヤーに重ねて見る使い方。斜線そのものは描く）"""
+    斜線（災害リスク高）を不透明度30%にする（ほかのレイヤーに重ねて見る使い方。斜線そのものは描く）
+    full_opacity：「不透明度を100％設定」。区分の塗り（第1〜第4象限・区分外）を不透明度100%にする（原版と同じ塗り）"""
     output_filepath = output_shp_path.replace(".shp", ".qml")
+    fill_opacity = 1.0 if full_opacity else FILL_OPACITY
     if conifer:
         condition = _conifer_condition(conifer)
         only = f" AND {condition}"  # 区分の規則に足す条件（下の @ONLY@ に入れる）
@@ -95,7 +99,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
       <symbol name="0" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{_fill_color(ZONING_COLORS[0])}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[0], fill_opacity)}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -117,7 +121,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
       <symbol name="1" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{_fill_color(ZONING_COLORS[1])}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[1], fill_opacity)}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -139,7 +143,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
       <symbol name="2" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{_fill_color(ZONING_COLORS[2])}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[2], fill_opacity)}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -161,7 +165,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
       <symbol name="3" alpha="1" force_rhr="0" clip_to_extent="1" type="fill">
         <layer enabled="1" pass="0" class="SimpleFill" locked="0">
           <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
-          <prop k="color" v="{_fill_color(ZONING_COLORS[3])}"/>
+          <prop k="color" v="{_fill_color(ZONING_COLORS[3], fill_opacity)}"/>
           <prop k="joinstyle" v="bevel"/>
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
@@ -296,9 +300,9 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset" v="0,0"/>
           <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
           <prop k="offset_unit" v="MM"/>
-          <prop k="outline_color" v="35,35,35,255"/>
+          <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.1"/>
+          <prop k="outline_width" v="0.2"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -309,7 +313,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
             </Option>
           </data_defined_properties>
         </layer>
-      </symbol>{_CONIFER_SYMBOL if conifer else ""}
+      </symbol>{_conifer_symbol(fill_opacity) if conifer else ""}
     </symbols>
   </renderer-v2>
   <blendMode>0</blendMode>

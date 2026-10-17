@@ -313,7 +313,7 @@ class AggregateConiferManager:
 
 class AggregateStyleManager:
     """
-    ゾーン統計量の表示の設定（「外周線を出力しない」）。作業の好みなので QGISの設定に保存する
+    ゾーン統計量の表示の設定（「外周線を出力しない」「不透明度を100％設定」）。作業の好みなので QGISの設定に保存する
     """
 
     SETTING_GROUP = '/MORIZON/aggregate_style'
@@ -330,4 +330,19 @@ class AggregateStyleManager:
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
         qsettings.setValue(self.NO_OUTLINE_KEY, bool(no_outline))
+        qsettings.endGroup()
+
+    FULL_OPACITY_KEY = 'full_opacity'
+
+    def load_full_opacity(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.FULL_OPACITY_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_full_opacity(self, full_opacity: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.FULL_OPACITY_KEY, bool(full_opacity))
         qsettings.endGroup()
