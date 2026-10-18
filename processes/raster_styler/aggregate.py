@@ -5,9 +5,13 @@
 from ...constants import ZONING_COLORS
 
 
-# 地面（背景の地図）を隠さないよう、塗りは不透明度35%にする（外周線と斜線は不透明のまま）。
-# 記号の不透明度はどの区分も100%にし、薄さは塗りの色の不透明度だけで付ける
-FILL_OPACITY = 0.35
+# 地面（背景の地図）を隠さないよう、塗りは不透明度40%にし、レイヤーの描画モードを乗算にする
+# （外周線と斜線は不透明のまま）。記号の不透明度はどの区分も100%にし、薄さは塗りの色の不透明度だけで付ける。
+# 「不透明度を100％設定」では、原版と同じく塗り100%・描画モード通常にする
+FILL_OPACITY = 0.4
+# QGIS のスタイルの描画モードの値（通常・乗算）
+BLEND_NORMAL = 0
+BLEND_MULTIPLY = 6
 # 外周線は濃い紺。背景の等高線（茶系）や、重ねた森林計画図の小班線（黒）と見分けやすく、
 # 区分3・4の水色・青の塗りの上でも縁が見える。赤は「災害リスク高」の斜線の意味なので使わない
 OUTLINE_COLOR = "31,78,156,255"
@@ -68,9 +72,11 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
     """conifer：「針葉樹のフィーチャーだけで収益性を判定する」の (列名, 針葉樹とみなす値)。None なら使わない
     no_outline：「外周線を出力しない」。区分の塗り（第1〜第4象限・区分なし）の外周線を描かず、
     斜線（災害リスク高）を不透明度30%にする（ほかのレイヤーに重ねて見る使い方。斜線そのものは描く）
-    full_opacity：「不透明度を100％設定」。区分の塗り（第1〜第4象限・区分外）を不透明度100%にする（原版と同じ塗り）"""
+    full_opacity：「不透明度を100％設定」。区分の塗り（第1〜第4象限・区分外）を不透明度100%、
+    描画モードを通常にする（原版と同じ描き方）。使わないときは塗り40%・描画モード乗算"""
     output_filepath = output_shp_path.replace(".shp", ".qml")
     fill_opacity = 1.0 if full_opacity else FILL_OPACITY
+    blend_mode = BLEND_NORMAL if full_opacity else BLEND_MULTIPLY
     if conifer:
         condition = _conifer_condition(conifer)
         only = f" AND {condition}"  # 区分の規則に足す条件（下の @ONLY@ に入れる）
@@ -316,7 +322,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
       </symbol>{_conifer_symbol(fill_opacity) if conifer else ""}
     </symbols>
   </renderer-v2>
-  <blendMode>0</blendMode>
+  <blendMode>{blend_mode}</blendMode>
   <featureBlendMode>0</featureBlendMode>
   <layerGeometryType>2</layerGeometryType>
 </qgis>

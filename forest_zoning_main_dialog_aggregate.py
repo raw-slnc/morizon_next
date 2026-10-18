@@ -119,7 +119,7 @@ class ForestZoningMainDialogAggregate:
         note = self.main.label_8  # ジオメトリの注意書き（4行目・2列目）
         grid.removeWidget(note)
         box.addWidget(note)
-        # 「外周線を出力しない」（針葉樹のオプションの上。表示だけで、集計の値は変わらない）
+        # 「外周線を出力しない」（ゾーニング図の選択欄の下。表示だけで、集計の値は変わらない）
         self.no_outline_check = QCheckBox("外周線を出力しない")
         self.no_outline_check.setToolTip(
             "区分の塗りの外周線を描かず、災害リスクの斜線を薄く（不透明度30%）描く。\n"
@@ -129,7 +129,8 @@ class ForestZoningMainDialogAggregate:
         # 「不透明度を100％設定」（「外周線を出力しない」の横。表示だけで、集計の値は変わらない）
         self.full_opacity_check = QCheckBox("不透明度を100％設定")
         self.full_opacity_check.setToolTip(
-            "区分の塗りを不透明度100%で描く（既定は35%で、背景の地図が透けて見える）。\n"
+            "区分の塗りを不透明度100%・描画モード通常で描く（原版と同じ）。\n"
+            "既定は塗り40%・描画モード乗算で、背景の地図が透けて見える。\n"
             "表示だけで、集計の値は変わらない")
         self.full_opacity_check.setChecked(AggregateStyleManager().load_full_opacity())
         self.full_opacity_check.toggled.connect(
@@ -138,7 +139,17 @@ class ForestZoningMainDialogAggregate:
         style_row.addWidget(self.no_outline_check)
         style_row.addWidget(self.full_opacity_check)
         style_row.addStretch(1)
-        box.addLayout(style_row)
+        # 表示の設定は「任意のポリゴン」「流域」のどちらでも使うため、ゾーニング図の選択欄（1行目・2列目）の下に置く。
+        # 同じ行の「ゾーニング図」の文字と再読込ボタンは、選択欄の横にそろうよう上寄せにする
+        zoning_combo = self.main.aggregateZoningLayerCombobox
+        grid.removeWidget(zoning_combo)
+        zoning_box = QVBoxLayout()
+        zoning_box.setContentsMargins(0, 0, 0, 0)
+        zoning_box.addWidget(zoning_combo)
+        zoning_box.addLayout(style_row)
+        grid.addLayout(zoning_box, 0, 1)
+        for widget in (self.main.aggregateVectorLayerText_2, self.main.aggregateSetLayersButton):
+            grid.setAlignment(widget, Qt.AlignmentFlag.AlignTop)
         box.addLayout(row)
         box.addWidget(self.conifer_values_label)
         grid.addLayout(box, 4, 1, 1, 2)
