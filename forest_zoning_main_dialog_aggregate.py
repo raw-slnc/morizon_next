@@ -74,6 +74,15 @@ class ForestZoningMainDialogAggregate:
         )
         self.main.aggregateDemFileWidget.fileChanged.connect(self.refresh_aggregate_ui)
 
+        # 「流域で集計」のDEMは、要素計算のDEM（取得・調整済みで、海・水面を対象外にしたもの）を既定にする。
+        # ゾーニング図と同じDEMで流域を作るため。要素計算のDEMが変わったら合わせる（流域用に別のDEMを選び直すことはできる）
+        self.main.elementsDemFileWidget.fileChanged.connect(self.main.aggregateDemFileWidget.setFilePath)
+        if self.main.aggregateDemFileWidget.filePath() == "":
+            self.main.aggregateDemFileWidget.setFilePath(self.main.elementsDemFileWidget.filePath())
+        self.main.aggregateDemFileWidget.setToolTip(
+            "要素計算のDEMが自動で入ります（ゾーニング図と同じDEMで流域を作るため）。\n"
+            "流域用に別のDEMを使うときだけ選び直してください")
+
         # ラジオボタンの変更時にUI更新
         # 一方のラジオボタンの変更が発火するともう一方も発火するので一方だけconnect
         self.main.radioButtonPolygon.toggled.connect(self.refresh_aggregate_ui)

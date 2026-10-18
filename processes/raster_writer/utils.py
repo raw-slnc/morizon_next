@@ -154,17 +154,15 @@ def replace_with_clipped_wgs84_extent(target_tiff_filepath: str,
     return target_tiff_filepath
 
 
-# 計算用に埋めたDEMで作った成果物へ、元のDEMのNoDataを戻すときの値（成果物にNoData値が無い場合）
+# 成果物へDEMのNoDataをそろえるときの値（成果物にNoData値が無い場合）
 OUTPUT_NODATA = -3.40282347e+38
 
 
-def fill_dem_nodata_for_processing(dem_filepath: str, output_filepath: str, feedback=None) -> str:
-    """
-    DEMにNoData（海・水面など）があれば、周囲の値で埋めたコピーを output_filepath に作り、そのパスを返す。
-    無ければ dem_filepath をそのまま返す。
-    傾斜・曲率・集水などの計算はNoDataの縁で値が崩れたり途切れたりするため、計算には埋めたDEMを使い、
-    最終成果物では restore_dem_nodata() で元のNoDataの場所をNoDataに戻す
-    """
+def dem_has_nodata(dem_filepath: str) -> bool:
+    """DEMにNoData（海・水面など）の画素があるか。
+    要素計算はNoDataを埋めずにそのまま計算する（原版と同じく水面は抜けのまま。水面へ直接流れ込む湖岸の斜面は
+    流域が付かず、ゾーニングもゾーン統計量も同じ所が抜ける）。NoDataがあれば、DEMを使わない要素（地位・地利）
+    の成果物も restore_dem_nodata() で同じ場所をNoDataにそろえる"""
     import numpy as np
 
     if not HAS_GDAL:
@@ -173,30 +171,15 @@ def fill_dem_nodata_for_processing(dem_filepath: str, output_filepath: str, feed
     band = src.GetRasterBand(1)
     nodata = band.GetNoDataValue()
     if nodata is None:
-        return dem_filepath
+        return False
     data = band.ReadAsArray()
-    invalid = np.isnan(data) if np.isnan(nodata) else data == nodata
-    if not invalid.any():
-        return dem_filepath
-    del data, invalid
-
-    if feedback is not None:
-        feedback.pushInfo("DEMのデータなし（海・水面など）を計算用に周囲の値で埋めています")
-    ds = gdal.Translate(output_filepath, src,
-                        creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
-    src = None
-    if ds is None:
-        raise RuntimeError("計算用のDEMを作成できませんでした")
-    gdal.FillNodata(ds.GetRasterBand(1), None, 1000, 0)
-    ds.FlushCache()
-    ds = None
-    return output_filepath
+    return bool((np.isnan(data) if np.isnan(nodata) else data == nodata).any())
 
 
 def restore_dem_nodata(target_tiff_filepath: str, dem_filepath: str, feedback=None) -> str:
     """
     元のDEMがNoDataの画素（海・水面など）を、成果物でもNoDataにする。
-    fill_dem_nodata_for_processing() で埋めたDEMから計算した成果物に使う
+    DEMの欠けと関係なく値が出る成果物（地位・地利など）を、DEMの水面などの抜けにそろえるのに使う
     """
     import numpy as np
 

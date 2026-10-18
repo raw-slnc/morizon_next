@@ -107,12 +107,11 @@ class ProcessingThread(QThread):
             self.processStarted.emit(sum_of_processes)
             progress_counter = 0
 
-            # DEMのNoData（海・水面など）は計算用に埋め、最終成果物で元に戻す（_clip_final_output）
-            dem_for_processes = raster_writer.fill_dem_nodata_for_processing(
-                self.input_files_dict["dem"], os.path.join(intermediate_dir, "dem_filled.tif"),
-                feedback=self.feedback)
-            if dem_for_processes != self.input_files_dict["dem"]:
-                self._dem_with_nodata = self.input_files_dict["dem"]
+            # DEMのNoData（海・水面など）は埋めずにそのまま計算する（原版と同じ）。
+            # DEMを使わない要素（地位・地利）の成果物も、最終成果物で同じ場所をNoDataにそろえる（_clip_final_output）
+            dem_for_processes = self.input_files_dict["dem"]
+            if raster_writer.dem_has_nodata(dem_for_processes):
+                self._dem_with_nodata = dem_for_processes
 
             # 必要ならDEMをリサンプリング
             if is_resampling:
