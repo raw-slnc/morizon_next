@@ -16,6 +16,9 @@
   （河道の移動などで水域ポリゴンに入っていない川の水面。5Aも水面は欠測になる）
 
 どこをどう扱ったかはマスク（MASK_* の値）で返す。QGIS API には依存しない（ワーカースレッドから呼ぶ）。
+
+取得元を問わず、保存したDEMの水域（WA）の内側は、値があっても exclude_water() で NoData にする
+（航空レーザのDTMなどは水面にも高さの値を持つため）。
 """
 
 import math
@@ -297,7 +300,7 @@ def _classify_and_fill(data, gt, zoom, fill_sources, base_source, cancel_cb, pro
     water = codes > 0
     if base_source is None:
         # 10Bの水域内の値（湖面・海岸の水際）は水面の高さで、地形ではないので対象外にする。
-        # 1A/5Aは水域内でも値があれば残す（防波堤・岸壁など水域ポリゴンに含まれる構造物）
+        # 1A/5Aの水域内の値は、保存後の exclude_water() で取得元をそろえて対象外にする
         missing |= water
         data[water] = np.nan
     mask[missing & (codes == SEA_VT_CODE)] = MASK_SEA
@@ -366,6 +369,121 @@ def _classify_and_fill(data, gt, zoom, fill_sources, base_source, cancel_cb, pro
         notes["fallback_interpolated"] = True
 
     return data, mask, notes
+
+
+def exclude_water(dem_path, cancel_cb=None, progress=None):
+    """保存したDEM（取得元を問わない）のうち、地理院ベクトルタイルの水域（WA）の内側を NoData にし、
+    どこを対象外にしたかをマスク（mask_path_for）に書く。マスクが既にあれば（国土地理院DEM）書き足す。
+
+    取得元によっては湖や川の水面にも高さの値がある（航空レーザのDTMなど）。そのままでは水面が地形として
+    解析されるため、どの取得元でも水面は解析対象外にそろえる。
+    戻り値は {"available": 水域データを使えたか, "complete": 全タイルを取得できたか,
+    "water_px": 対象外にした画素数, "total_px": 画素数, "mask_path": マスクのパス（書かなければ None）,
+    "mask_write_failed": マスクを書けなかったか}。中断されたら None。"""
+    try:
+        return _exclude_water(dem_path, cancel_cb, progress)
+    except _Cancelled:
+        return None
+
+
+def _exclude_water(dem_path, cancel_cb, progress):
+    ds = gdal.Open(dem_path)
+    gt = ds.GetGeoTransform()
+    cols, rows = ds.RasterXSize, ds.RasterYSize
+    wkt = ds.GetProjection()
+    ds = None
+    result = {"available": True, "complete": True, "water_px": 0, "total_px": cols * rows,
+              "mask_path": None, "mask_write_failed": False}
+
+    # DEMの範囲を覆う Webメルカトルのグリッド（画素の大きさはDEMの解像度にそろえる）に水域を焼き込む
+    local = osr.SpatialReference()
+    local.ImportFromWkt(wkt)
+    mercator = osr.SpatialReference()
+    mercator.ImportFromEPSG(3857)
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    for srs in (local, mercator, wgs84):
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    to_mercator = osr.CoordinateTransformation(local, mercator)
+    x_min, y_max = gt[0], gt[3]
+    x_max, y_min = gt[0] + cols * gt[1], gt[3] + rows * gt[5]
+    steps = 16
+    xs, ys = [], []
+    for i in range(steps + 1):
+        t = i / steps
+        x = x_min + (x_max - x_min) * t
+        y = y_min + (y_max - y_min) * t
+        for px, py in ((x, y_min), (x, y_max), (x_min, y), (x_max, y)):
+            mx, my = to_mercator.TransformPoint(px, py)[:2]
+            xs.append(mx)
+            ys.append(my)
+    center_lat = osr.CoordinateTransformation(local, wgs84).TransformPoint(
+        (x_min + x_max) / 2, (y_min + y_max) / 2)[1]
+    pixel = abs(gt[1]) / math.cos(math.radians(center_lat))
+    m_cols = int(math.ceil((max(xs) - min(xs)) / pixel)) + 1
+    m_rows = int(math.ceil((max(ys) - min(ys)) / pixel)) + 1
+    m_gt = (min(xs), pixel, 0.0, max(ys), 0.0, -pixel)
+    codes, complete = water_codes(m_gt, (m_rows, m_cols), VECTOR_TILE_MAX_ZOOM, cancel_cb, progress)
+    if codes is None:
+        result["available"] = False
+        result["complete"] = False
+        return result
+    result["complete"] = complete
+    _check_cancel(cancel_cb)
+
+    src = _mem_raster((m_rows, m_cols), m_gt, gdal.GDT_UInt16)
+    src.GetRasterBand(1).WriteArray(codes)
+    del codes
+    dst = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_UInt16)
+    dst.SetGeoTransform(gt)
+    dst.SetProjection(wkt)
+    gdal.Warp(dst, src, resampleAlg="near")
+    src = None
+    local_codes = dst.GetRasterBand(1).ReadAsArray()
+    dst = None
+
+    ds = gdal.Open(dem_path, gdal.GA_Update)
+    band = ds.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    if nodata is None:
+        nodata = -9999.0
+        band.SetNoDataValue(nodata)
+    data = band.ReadAsArray()
+    valid = np.isfinite(data) & (data != nodata)
+    water = (local_codes > 0) & valid
+    result["water_px"] = int(water.sum())
+    if result["water_px"]:
+        data[water] = nodata
+        band.WriteArray(data)
+        band.FlushCache()
+    ds = None
+    del data
+
+    mask_path = mask_path_for(dem_path)
+    has_mask = os.path.exists(mask_path)
+    if not result["water_px"] and not has_mask:
+        return result
+    try:
+        if has_mask:
+            mask_ds = gdal.Open(mask_path, gdal.GA_Update)
+            mask_band = mask_ds.GetRasterBand(1)
+            mask = mask_band.ReadAsArray()
+        else:
+            mask = np.full((rows, cols), MASK_VALID, dtype=np.uint8)
+            mask[~valid] = MASK_NODATA
+        mask[water & (local_codes == SEA_VT_CODE)] = MASK_SEA
+        mask[water & (local_codes != SEA_VT_CODE)] = MASK_WATER
+        if has_mask:
+            mask_band.WriteArray(mask)
+            mask_band.FlushCache()
+            mask_ds = None
+        else:
+            save_mask_geotiff(mask, gt, wkt, mask_path)
+        result["mask_path"] = mask_path
+    except Exception:
+        # 前回のマスクをQGISで開いているなど（Windowsでは上書きできない）。DEMの水面は対象外にできている
+        result["mask_write_failed"] = True
+    return result
 
 
 def sample_land_gap(tile_array, zoom, x, y):

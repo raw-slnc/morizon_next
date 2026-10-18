@@ -8,6 +8,7 @@ import time
 # QGIS-API
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
+from .. import dem_gaps
 from ..dem_gaps import mask_path_for
 from ..dem_loader import GSITileDEMLoader
 from ..dem_sources.base import Cancelled, FetchReporter
@@ -79,6 +80,7 @@ class DemFetchThread(QThread):
                 cancel_cb=lambda: self.abort_flag,
                 reporter=reporter,
             )
+            self._exclude_water(result, reporter)
             remaining = LAST_STEP_MIN_SECONDS - (time.monotonic() - reporter.last_message_time)
             if remaining > 0:
                 time.sleep(remaining)
@@ -87,6 +89,55 @@ class DemFetchThread(QThread):
             self.processFailed.emit("処理を中断しました。")
         except Exception as e:
             self.processFailed.emit(str(e))
+
+    def _exclude_water(self, result, reporter):
+        """取得元を問わず、DEMの水面（地理院ベクトルタイルの水域）を解析対象外にし、結果の知らせに書き足す。
+        中断されたら、水面を外していないDEMを使わせないよう、保存したDEMとマスクを消して Cancelled を送出する"""
+        current = {"message": None}
+
+        def on_stage(message, done, total):
+            if message != current["message"]:
+                current["message"] = message
+                reporter.start(total)
+                reporter.message(message)
+            reporter.step()
+            reporter.detail(f"{done}/{total}枚")
+
+        path = result["path"]
+        water = dem_gaps.exclude_water(path, cancel_cb=lambda: self.abort_flag, progress=on_stage)
+        if water is None:
+            for stale in (path, path + ".aux.xml", mask_path_for(path)):
+                try:
+                    if os.path.exists(stale):
+                        os.remove(stale)
+                except OSError:
+                    pass
+            raise Cancelled()
+
+        warnings = [result["warning"]] if result.get("warning") else []
+        if not water["available"]:
+            warnings.append(
+                "水域データ（地理院ベクトルタイル）を読み込めないため（GDALにMVTの読み込み機能がありません）、"
+                "水面にも値がある取得元では、水面が地形として解析されます。"
+            )
+        if water["water_px"]:
+            ratio = water["water_px"] / max(water["total_px"], 1)
+            result["info"] += f"  |  水面を対象外 {'0.1%未満' if ratio < 0.001 else f'{ratio * 100:.1f}%'}"
+            message = "海・水面は解析の対象外（NoData）にしました。"
+            if not any(message in text for text in warnings):
+                warnings.append(message)
+        if water["available"] and not water["complete"]:
+            warnings.append("水域データ（地理院ベクトルタイル）を一部取得できなかったため、水面の一部が解析に含まれることがあります。")
+        if water["mask_write_failed"]:
+            warnings.append(
+                "どこを対象外にしたかを示すファイル（dem_fetched_mask.tif）を書き込めませんでした。"
+                "QGISで開いている場合は、レイヤーを削除してから取得し直してください。"
+            )
+        elif water["mask_path"] and water["water_px"] and not any(water["mask_path"] in text for text in warnings):
+            warnings.append(f"どこを補ったか・対象外にしたかは次のファイルで確認できます：\n{water['mask_path']}")
+        if water["mask_path"]:
+            result["mask_path"] = water["mask_path"]
+        result["warning"] = "\n".join(warnings)
 
 
 class GsiCoverageCheckThread(QThread):

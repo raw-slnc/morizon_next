@@ -166,6 +166,28 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         if estimate:
             text += f"\n\n{estimate}"
         self.infoLabel.setText(text)
+        self._fit_height()
+
+    def _fit_height(self):
+        """折り返した説明文が見切れないよう、今の幅で必要な高さを最小の高さにする。
+        Qt の窓は折り返す文章の高さを最小サイズに数えないため、文章が変わるたび・幅が変わるたびに計算し直す"""
+        layout = self.layout()
+        if layout is None:
+            return
+        height = layout.totalHeightForWidth(self.width())
+        self.setMinimumHeight(height)
+        if self.height() < height:
+            self.resize(self.width(), height)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 表示のときに Qt が大きさを決め直すため、その後で合わせる
+        QTimer.singleShot(0, self._fit_height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self._fit_height()
 
     def _update_extent_label(self):
         extent = self._extent
