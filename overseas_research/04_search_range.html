@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>探す範囲</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">目次・進捗</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a>
+  <a href="02_planning_and_research.html">2 計画の詰めと調査</a>
+  <a href="03_literature_sources.html">3 論文の入手先</a>
+  <a class="current" href="04_search_range.html">4 探す範囲</a>
+  <a class="lang" href="en/04_search_range.html" lang="en">English</a>
+</nav>
+<main>
+
+<h1>探す範囲</h1>
+<p class="meta">Mitsuda &amp; Ito（2015）の search range とは何か、計画にどう効くか ｜ ページ3「まだ分からないこと」#1 を受けた調査 ｜ 2026-10-19</p>
+
+<p>文献：Mitsuda, Y., Ito, S.（2015）J. For. Plann. 20: 45–51。J-STAGE で無料公開：<a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">J-STAGE</a></p>
+
+<h2>1. 定義</h2>
+<p>Introduction（p.46）より：ラスター DEM で地形因子を計算するアルゴリズムは、対象のセルの現象に影響する地形を<strong>どこまで探すか</strong>を決める任意のパラメータ（半径またはウィンドウの大きさ）を必要とする。そのパラメータで決まる範囲（円または矩形）を search range と呼ぶ。</p>
+<p>つまり、あるセルの値を計算するときに、周りの地形を何 m まで見るかという距離。セルの細かさ（解像度）と並ぶ、地形解析の「スケール」のもう一つの軸と位置づけられている（Wilson et al. 2000 を引用）。</p>
+
+<h2>2. 3つの要素ごとの使われ方（p.47）</h2>
+<div class="table-wrap">
+<table>
+<tr><th>要素</th><th>探す範囲で決まること</th></tr>
+<tr><td>SRI（＝SRAD）</td><td>太陽がそのセルから見て周りの稜線より上にあるか（日陰の判定）を、範囲内の標高で判断する</td></tr>
+<tr><td>UCA（集水面積）</td><td>範囲内で、そのセルに水が集まってくる面積を求める（ZoningKit には含まれない）</td></tr>
+<tr><td>VTEX</td><td>8方向それぞれで範囲内の最も低い点を探し、そこへの俯角を合計する</td></tr>
+</table>
+</div>
+<p>試した範囲：100・250・500・1000 m。DEM：国土地理院50m（GSI50）、国土地理院10m（GSI10）、等高線のデジタル化（CNT）。解像度：10・12.5・25・50 m。対象地：宮崎大学田野演習林、18地点（伐倒・樹幹解析による地位指数）。</p>
+
+<h2>3. 結果</h2>
+<ul>
+<li><strong>VTEX：</strong>範囲が広いほど、地位指数との相関がどの DEM でも悪くなった。適した範囲は「明らかに100m」。VTEX は「尾根らしさ」を表し、範囲が広いと尾根の向こうの谷底まで拾って尾根らしさを過大に見積もるため</li>
+<li><strong>SRI・UCA：</strong>範囲が広がると相関はすぐ頭打ちになり、範囲の影響ははっきりしなかった</li>
+</ul>
+<h3>最良モデルで採用された組み合わせ（Table 2）</h3>
+<div class="table-wrap">
+<table>
+<tr><th>モデル</th><th>SRI</th><th>UCA</th><th>VTEX</th></tr>
+<tr><td>全データ</td><td>1000 m（CNT-10）</td><td>100 m（CNT-12.5）</td><td>100 m（GSI50-50）</td></tr>
+<tr><td>国土地理院 DEM（GSI）</td><td>1000 m（GSI50-50）</td><td>100 m（GSI10-10）</td><td>100 m（GSI50-50）</td></tr>
+<tr><td>国土地理院50m のみ（GSI50）</td><td>1000 m（50 m）</td><td>—</td><td>100 m（50 m）</td></tr>
+</table>
+</div>
+<div class="note">Discussion の本文には「UCA・SRI・VTEX の範囲はそれぞれ 1000 m、100 か 250 m、100 m」とあり、表と SRI・UCA の順番が逆になっている。表のほうが正しいと考える。</div>
+<h3>DEM の細かさとの相性</h3>
+<ul>
+<li>UCA は、情報の多い DEM（CNT、GSI10）の細かい解像度（10〜12.5 m）が向く。地下水の流れという細かい現象のため</li>
+<li>SRI は、情報の少ない DEM（GSI50）の粗い解像度（50 m）が向く。日射は広い範囲の現象で、細かい DEM は「細かすぎて」かえって表しにくい</li>
+<li>粗い元データを細かくしたもの（GSI50-10 など）や、細かい元データを粗くしたもの（CNT-50 など）は役に立たなかった。元データの質に合った解像度を選ぶ必要がある</li>
+</ul>
+
+<h2>4. 計画への意味</h2>
+<ol>
+<li><strong>ZoningKit の設定の手がかり：</strong>ZoningKit は国土地理院50m DEM から作った50mのデータなので、この論文の「50m のみ」の最良モデルと同じく SRAD 1000 m・VTEX 100 m で作られた可能性がある（推測）。手元の DEM で VTEX を計算して ZoningKit の値と比べれば確かめられる</li>
+<li><strong>外国での設定値：</strong>範囲の効き方は対象地の地形（試験地は起伏の激しい土地）に左右されると論文は書いている。外国では探す範囲をプラグインで変えられる設定にし、既定値を VTEX 100 m・SRAD 1000 m にするのが自然</li>
+<li><strong>DEM の細かさ：</strong>外国で LiDAR 1 m の DEM を使う場合も、SRAD は粗くしてから計算する必要があるかもしれない。設計に効く点</li>
+</ol>
+
+<h2>5. 残ること</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>項目</th><th>状態</th></tr>
+<tr><td>1</td><td>ZoningKit を作ったときの探す範囲（SRAD 1000 m・VTEX 100 m という推測の検証）</td><td><span class="status part">手がかりあり</span></td></tr>
+<tr><td>2</td><td>SRAD で、どの日時の太陽の位置を合計したか</td><td><span class="status todo">未</span></td></tr>
+<tr><td>3</td><td>NPP をどの樹種のモデルで計算したか</td><td><span class="status todo">未</span></td></tr>
+</table>
+</div>
+
+</main>
+</body>
+</html>

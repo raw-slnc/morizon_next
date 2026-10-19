@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overseas Deployment Research</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<nav class="pages">
+  <a class="current" href="index.html">Contents &amp; Progress</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a>
+  <a href="02_planning_and_research.html">2 Planning and Research</a>
+  <a href="03_literature_sources.html">3 Where to Get the Papers</a>
+  <a href="04_search_range.html">4 Search Range</a>
+  <a class="lang" href="../index.html" lang="ja">日本語</a>
+</nav>
+<main>
+
+<h1>Overseas Deployment Research</h1>
+<p class="meta">Research toward making MORIZON NEXT usable outside Japan ｜ Last updated 2026-10-19</p>
+
+<h2>Pages</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Page</th><th>Date</th><th>Content</th></tr>
+<tr><td><a href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a></td><td>2026-10-19</td><td>Contents of ZoningKit, how the plugin uses it, what is needed to use it outside Japan, building it from open data, national forest inventories of three countries</td></tr>
+<tr><td><a href="02_planning_and_research.html">2 Planning and Research</a></td><td>2026-10-19</td><td>Plugin premise (how the site index works). Discussion following page 1: problem statement, issues, decided premises, what the three elements are, ways to supply site index, country comparison, open items</td></tr>
+<tr><td><a href="03_literature_sources.html">3 Where to Get the Papers</a></td><td>2026-10-19</td><td>Where to obtain the sources of the three elements; calculation methods learned from the conference abstract (free) and Mitsuda &amp; Ito 2015 (free); what is still unknown</td></tr>
+<tr><td><a href="04_search_range.html">4 Search Range</a></td><td>2026-10-19</td><td>Definition of the search range in Mitsuda &amp; Ito 2015, how each element uses it, results, implications for the plan (clue to ZoningKit settings, defaults abroad, DEM resolution)</td></tr>
+</table>
+</div>
+
+<h2>Progress</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Stage</th><th>Content</th><th>Status</th><th>Page</th></tr>
+<tr><td>0</td><td>Contents of ZoningKit and how the plugin uses it</td><td><span class="status done">Done</span></td><td><a href="zoningkit_analysis.html">1</a></td></tr>
+<tr><td>1</td><td>Decide the purpose and audience</td><td><span class="status done">Done</span></td><td><a href="02_planning_and_research.html#s3">2-3</a></td></tr>
+<tr><td>2</td><td>Confirm the definitions of the three site data elements</td><td><span class="status part">Partial</span></td><td><a href="02_planning_and_research.html#s4">2-4</a>・<a href="03_literature_sources.html">3</a>・<a href="04_search_range.html">4</a></td></tr>
+<tr><td>2b</td><td>Ways to supply site index when users prepare the data (design)</td><td><span class="status part">Draft</span></td><td><a href="02_planning_and_research.html#s5">2-5</a></td></tr>
+<tr><td>3</td><td>Compare candidate countries</td><td><span class="status part">First pass</span></td><td><a href="02_planning_and_research.html#s6">2-6</a></td></tr>
+<tr><td>4</td><td>Open data feasibility for each candidate country</td><td><span class="status part">Partial</span></td><td><a href="02_planning_and_research.html#s7">2-7</a></td></tr>
+<tr><td>5</td><td>Trial in one region</td><td><span class="status todo">Not started</span></td><td>—</td></tr>
+<tr><td>Parallel</td><td>Translation infrastructure (<code>tr()</code>, .ts/.qm)</td><td><span class="status todo">Not started</span></td><td>—</td></tr>
+</table>
+</div>
+
+<h2>Discussion</h2>
+<h3>The danger of treating the site index as correct (2026-10-19)</h3>
+<ul>
+<li>The abstract of Mitsuda &amp; Kitahara (2017) says the relationship between site index and terrain "was clear for sugi and karamatsu, but unclear for hinoki". This shows in the coefficients: hinoki's solar radiation coefficient is 0.093, less than one tenth of sugi's (1.001) (<a href="02_planning_and_research.html#base">page 2, section 0</a>)</li>
+<li>Whatever validation was done, since this concerns mountain forests, all of it is acceptable only as a mere index</li>
+<li>For general users of the plugin, it is "dangerous". The output is named "site index", and its values, such as 18 or 21, look like tree heights in metres. The guide also says "a value of 18 means a tree height of 18 m at age 40", so it may be used as a correct value for decisions on planting species and silviculture</li>
+<li>In reality it is only an estimate from a uniform nationwide formula, 1 km climate and 50 m terrain</li>
+<li>Caveats in the guide and manual ("treat as a relative value") are not enough. How the output is presented is itself the countermeasure. Example directions (undecided): label it "site index (relative)", show it as a rank within the region (percentile), and state on screen when a species has weak support</li>
+<li>Overseas, the Japanese formula or provisional coefficients would be used without local coefficients, making this problem even more serious. How to present the site index is one of the issues for the plan</li>
+</ul>
+
+<h2>Change log</h2>
+<ul>
+<li>2026-10-19 Created. Page 1 (the original HTML), page 2 (the discussion that followed)</li>
+<li>2026-10-19 Added page 3 (where to get the papers)</li>
+<li>2026-10-19 Added English versions</li>
+<li>2026-10-19 Added page 4 (search range)</li>
+<li>2026-10-19 Added "0. Plugin premise: how the site index works" to page 2</li>
+<li>2026-10-19 Added "Discussion" (the danger of treating the site index as correct) to the contents page</li>
+<li>2026-10-19 Removed the bundled guide (r8) PDF and added where to obtain it on page 2</li>
+<li>2026-10-19 Removed the bundled Mitsuda &amp; Ito 2015 PDF and changed the link on page 4 to J-STAGE</li>
+</ul>
+
+</main>
+</body>
+</html>

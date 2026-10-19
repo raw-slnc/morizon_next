@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>論文の入手先</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">目次・進捗</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a>
+  <a href="02_planning_and_research.html">2 計画の詰めと調査</a>
+  <a class="current" href="03_literature_sources.html">3 論文の入手先</a>
+  <a href="04_search_range.html">4 探す範囲</a>
+  <a class="lang" href="en/03_literature_sources.html" lang="en">English</a>
+</nav>
+<main>
+
+<h1>論文の入手先</h1>
+<p class="meta">ページ2の確認事項 #1・#2（3要素の計算方法と NPP の出どころ）を受けた調査 ｜ 2026-10-19</p>
+
+<h2>1. 入手先</h2>
+<div class="table-wrap">
+<table>
+<tr><th>文献</th><th>入手</th><th>場所</th></tr>
+<tr><td>光田 靖・北原文章（2017）日本全国を対象としたスギ、ヒノキ、カラマツ地位指数分布の推定. 第128回日本森林学会大会 C2</td><td><span class="status done">無料</span> J-STAGE「日本森林学会大会発表データベース」、会議録・要旨集フリー</td><td><a href="https://www.jstage.jst.go.jp/article/jfsc/128/0/128_41/_article/-char/ja">J-STAGE</a>（DOI 10.11519/jfsc.128.0_41）</td></tr>
+<tr><td>Mitsuda, Y. et al.（2007）Predicting the site index of sugi plantations from GIS-derived environmental factors in Miyazaki Prefecture. J. For. Res. 12(3)</td><td><span class="status todo">有料</span> こちらからは本文に入れなかった</td><td><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Springer</a> ／ <a href="https://www.tandfonline.com/doi/abs/10.1007/s10310-007-0004-1">Taylor &amp; Francis</a>（DOI 10.1007/s10310-007-0004-1）</td></tr>
+<tr><td>Mitsuda, Y., Ito, S.（2015）Modifying the site index model of sugi planted forests in Miyazaki Prefecture considering the effects of DEM quality and scale of digital terrain analysis. J. For. Plann. 20(2): 45–51</td><td><span class="status done">無料</span> J-STAGE、フリー。2007年の論文の代わりに計算方法がかなり分かる</td><td><a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">J-STAGE</a></td></tr>
+</table>
+</div>
+<p>2007年の論文の入手方法の候補（いずれも確認を推奨）：版元での購入、大学図書館や文献複写サービス、日本森林学会の会員向けの閲覧（J. For. Res. は同学会の英文誌）、<a href="https://www.researchgate.net/publication/226004816_Predicting_the_site_index_of_sugi_plantations_from_GIS-derived_environmental_factors_in_Miyazaki_Prefecture">ResearchGate</a> での本文の依頼、著者（光田先生、宮崎大学）への問い合わせ。</p>
+
+<h2>2. 学会要旨（光田・北原 2017）から分かったこと</h2>
+<ul>
+<li>NPP は、気象値を入れる炭素収支型の林分成長モデルで推定した1km解像度の分布</li>
+<li>説明変数は、凹凸度、緯度経度・傾斜・斜面方位から計算した日射係数、NPP</li>
+<li>データは、森林資源モニタリング調査（現在の森林生態系多様性基礎調査）、1kmの気象要因、国土地理院の50m DEM</li>
+<li><strong>NPP をどの樹種のモデルで計算したかは書かれていない。</strong>探す範囲も書かれていない</li>
+</ul>
+
+<h2>3. Mitsuda &amp; Ito（2015）から分かった計算方法</h2>
+<div class="table-wrap">
+<table>
+<tr><th>要素</th><th>計算方法</th></tr>
+<tr><td>VTEX</td><td>8つの主な方位それぞれで、探す範囲の中の最も低い点への俯角を測り、合計する。横山の「地下開度（negative openness）」に近い（Yokoyama et al. 2002）</td></tr>
+<tr><td>SRAD（論文では SRI）</td><td>太陽の入射角の余弦に比例する。入射角は太陽の天頂角・方位角と、地表の傾き・向きから計算する（Smith et al. 1980）。太陽の位置が周りの地形の稜線より上かどうかを、探す範囲の標高で判定する</td></tr>
+<tr><td>探す範囲</td><td>100・250・500・1000m を試した。VTEX は探す範囲で地位指数との相関が大きく変わり、範囲が広いほど相関が下がった。SRAD と集水面積はあまり変わらなかった</td></tr>
+</table>
+</div>
+<p>外国での作成への意味：VTEX・SRAD とも、QGIS で DEM から作れる見込みがさらに強まった。VTEX は地下開度に近いので、SAGA などの既存の開度ツールとの違いを確かめれば代わりに使える可能性がある（要確認）。</p>
+
+<h2>4. まだ分からないこと</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>項目</th><th>手がかり</th><th>状態</th></tr>
+<tr><td>1</td><td>ZoningKit を作ったときの探す範囲</td><td>2007年の論文か、著者・林野庁への問い合わせ。ZoningKit のラスターから逆算できるかも検討</td><td><span class="status todo">未</span></td></tr>
+<tr><td>2</td><td>SRAD で、どの日時の太陽の位置を合計したか</td><td>ZoningKit の値は最大1751で、何かを合計していると考えられる。2007年の論文で確認</td><td><span class="status todo">未</span></td></tr>
+<tr><td>3</td><td>NPP をどの樹種のモデルで計算したか</td><td>要旨には無い。著者への問い合わせが必要かもしれない</td><td><span class="status todo">未</span></td></tr>
+</table>
+</div>
+
+<h2>出典</h2>
+<ul class="sources">
+<li><a href="https://www.jstage.jst.go.jp/article/jfsc/128/0/128_41/_article/-char/ja">光田・北原 2017, 第128回日本森林学会大会 C2（J-STAGE）</a></li>
+<li><a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">Mitsuda &amp; Ito 2015, J. For. Plann. 20(2)（J-STAGE）</a></li>
+<li><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Mitsuda et al. 2007, J. For. Res. 12(3)</a></li>
+</ul>
+
+</main>
+</body>
+</html>

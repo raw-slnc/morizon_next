@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning and Research</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">Contents &amp; Progress</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a>
+  <a class="current" href="02_planning_and_research.html">2 Planning and Research</a>
+  <a href="03_literature_sources.html">3 Where to Get the Papers</a>
+  <a href="04_search_range.html">4 Search Range</a>
+  <a class="lang" href="../02_planning_and_research.html" lang="ja">日本語</a>
+</nav>
+<main>
+
+<h1>Planning and Research</h1>
+<p class="meta">Record of the discussion following page 1. Firming up the plan as a premise for translation (overseas deployment) ｜ 2026-10-19</p>
+
+<p>Contents: <a href="#base">0. Plugin premise</a> ／ <a href="#s1">1. Problem statement</a> ／ <a href="#s2">2. Organizing the issues</a> ／ <a href="#s3">3. Decided premises</a> ／ <a href="#s4">4. What the three site data elements are</a> ／ <a href="#s5">5. Ways to supply site index</a> ／ <a href="#s6">6. Country comparison</a> ／ <a href="#s7">7. Open items</a></p>
+
+<h2 id="base">0. Plugin premise: how the site index works</h2>
+<p class="meta">Added 2026-10-19. Based on comparing the "Guide to Forest Zoning Considering Profitability and Disaster Risk" (Forestry Agency, revised March 2026, in Japanese; freely available from the G-Spatial Information Center: <a href="https://www.geospatial.jp/ckan/dataset/rinya-morizon-dateset/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061">Forest Zoning Guide (R8.3 revision)</a>) with the plugin code (<code>processes/raster_writer/siteidx.py</code>, <code>profit.py</code>)</p>
+
+<h3>The guide's formula differs from the code's formula</h3>
+<p>Formula in the MEMO on p.70 of the guide:</p>
+<pre>Sugi site index = 21.28 + 1.028*NPP − 1.001*SRAD − 1.111*VTEX</pre>
+<p>Formula the plugin actually calculates:</p>
+<pre>Sugi site index = 21.28 + (NPP − 15.82)×1.028 − (SRAD − 1347.09)×0.01×1.001 − (VTEX − 58.85)×0.01×1.111</pre>
+<p>The guide's formula omits subtracting a reference value from each input (15.82, 1347.09, 58.85) and the ×0.01. Calculated as written in the guide, with SRAD around 1400 the result would be something like −1400 m, which makes no sense. This is an issue with how the original guide is written.</p>
+
+<h3>How to read the formula</h3>
+<p>It has the form "tree height at an average site ± adjustments for conditions".</p>
+<ul>
+<li><strong>a (21.28 for sugi):</strong> the site index when NPP, SRAD and VTEX are at their reference values (b, d, f; probably the means of the fitting data). At an average site, about 21 m at age 40</li>
+<li><strong>Each term:</strong> adds for conditions better than the reference, subtracts for worse ones</li>
+<li><strong>×0.01:</strong> likely a conversion to align the magnitude of SRAD and VTEX values (basis unconfirmed)</li>
+</ul>
+
+<h3>What the three elements are and why they matter</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Element</th><th>What it is</th><th>Effect on site index</th><th>Rationale</th></tr>
+<tr><td>NPP (net primary productivity)</td><td>How much plants can grow in a year on that land, determined by climate alone: carbon absorbed by photosynthesis minus carbon released by respiration. Calculated on a 1 km grid by running Prof. Mitsuda's growth model with climate data</td><td>Positive (higher means better site)</td><td>Trees grow better where it is warm and the air is not too dry. Represents broad-scale (regional) differences</td></tr>
+<tr><td>SRAD (solar radiation index)</td><td>How sunlight hits the surface, determined by slope aspect and steepness. Highest on steep south-facing slopes</td><td>Negative (stronger sun means poorer site)</td><td>Strong sunlight dries the soil. Sugi is sensitive to drought, so it grows better on shaded north-facing or valley slopes</td></tr>
+<tr><td>VTEX (topographic exposure / concavity)</td><td>How far the cell looks down on low points in the eight surrounding directions. High on ridges, low in valleys</td><td>Negative (ridges mean poorer site)</td><td>Ridges are wind-exposed and dry, and water does not collect there. Valleys collect water and stay moist</td></tr>
+</table>
+</div>
+<p>In short, the idea is to take "the land's base capacity determined by climate (NPP)" and subtract "susceptibility to drying (SRAD, VTEX)". The statement on p.16 of the guide that "topographic indices related to soil moisture, which strongly affects plant growth, … are highly correlated with site index" is the reason SRAD and VTEX are used.</p>
+
+<h3>Differences in coefficients between species</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Species</th><th>NPP (climate)</th><th>SRAD (sunlight)</th><th>VTEX (ridge)</th><th>Character it suggests</th></tr>
+<tr><td>Sugi</td><td>1.028</td><td>1.001</td><td>1.111</td><td>Sensitive to both climate and drying. Prefers moist valleys and north-facing slopes</td></tr>
+<tr><td>Hinoki</td><td>0.969</td><td><strong>0.093</strong></td><td>0.862</td><td>Sensitive to climate, but almost unaffected by sunlight</td></tr>
+<tr><td>Karamatsu</td><td><strong>0.129</strong></td><td>0.294</td><td>1.125</td><td>Climate differences matter little; ridge versus valley is the main factor</td></tr>
+</table>
+</div>
+
+<h3>How much each element matters (estimate with zone VIII values, sugi)</h3>
+<p>Values obtained by putting the 1st–99th percentiles of the data (table on page 1) into the formula.</p>
+<ul>
+<li>NPP: −4.5 m to +1.6 m (range about 6 m)</li>
+<li>SRAD: +6.8 m to −3.1 m (range about 10 m)</li>
+<li>VTEX: +0.7 m to −1.2 m (range about 2 m)</li>
+</ul>
+<p>For sugi in zone VIII, sunlight (SRAD) has the largest effect.</p>
+
+<h3>How the plugin uses it</h3>
+<ol>
+<li>Create site index rasters for the three species (<code>siteidx.py</code>)</li>
+<li>The user picks one species and sets two thresholds to divide it into scores of 1, 2 and 3 (<code>profit.py</code>)</li>
+<li>That score is added to the scores for "yarding efficiency" and "distance from roads" to give "profitability"</li>
+<li>Profitability and disaster risk are combined for zoning</li>
+</ol>
+<div class="note">The site index is used only to divide sites into scores; the height values themselves do not remain in the calculation. This is why the guide says to "treat it as a relative value": the design works as long as the ranking of sites is correct. Outside Japan, the formula need not be reproduced exactly; any indicator that correctly ranks site quality can be used.</div>
+
+<h2 id="s1">1. Problem statement (user)</h2>
+<ul>
+<li>If <code>morizon_next copy</code> is to be translated: page 1 lists Spain, Canada and Brazil as examples, but whether to proceed with these as the first countries needs to be considered</li>
+<li>Assuming open data is used as page 1 suggests, there is also the question of whether that is possible</li>
+<li>The plan needs to be firmed up as a premise</li>
+</ul>
+<p>Note: the CRS notation in the code mentioned in page 1 (JGD2011 vs. JGD2000) is an issue of the original MORIZON and is not addressed.</p>
+
+<h2 id="s2">2. Organizing the issues (Claude)</h2>
+<h3>Current state of translation</h3>
+<p>Files using <code>tr()</code>: 0. Python files with hard-coded Japanese: 74; .ui files: 3; <code>docs/manual.html</code> is also in Japanese. There is no translation infrastructure yet.</p>
+<h3>Translation and localization are separate tasks</h3>
+<ul>
+<li><strong>Translation:</strong> wrapping strings in <code>tr()</code> and preparing .ts/.qm files. Needed for any country and can proceed without waiting for the country choice</li>
+<li><strong>Localization:</strong> replacing site index, DEM, CRS and harvesting systems. Directly depends on the country choice and open data feasibility</li>
+</ul>
+<h3>Questions on whether open data really works</h3>
+<ol>
+<li>Are the definitions known: how NPP, SRAD and VTEX are made (prerequisite)</li>
+<li>Licence: does the plugin fetch source data at run time, or do we host and distribute processed data</li>
+<li>Access: stable URLs, whether authentication is required, whether automated access is permitted (precedent: blocked by the Shizuoka Prefecture open data portal)</li>
+<li>Scientific validity: the gap between satellite canopy height and "dominant tree height". A trial in one region is needed</li>
+</ol>
+<h3>Proposed steps</h3>
+<ol>
+<li>Decide the purpose and audience</li>
+<li>Confirm the definitions of the three elements</li>
+<li>Compare candidate countries</li>
+<li>Open data feasibility for each candidate country</li>
+<li>Trial in one region (translation infrastructure in parallel)</li>
+</ol>
+
+<h2 id="s3">3. Decided premises (user)</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Item</th><th>Answer</th></tr>
+<tr><td>Purpose</td><td>Simply interested in whether there are countries where this system can be used effectively; no local contacts are assumed. As a characteristic of QGIS, if users can prepare the data and the plugin can guide or create that preparation, it can be offered as a good tool. Interested in this as a designer</td></tr>
+<tr><td>Translation scope</td><td>Everything, as a general-purpose tool. English first. Depending on where the open data comes from, that country's language may take priority</td></tr>
+<tr><td>Next task</td><td>Proceed with research (definitions of the three elements, country comparison, open data feasibility)</td></tr>
+</table>
+</div>
+
+<h2 id="s4">4. What the three site data elements are (research)</h2>
+<h3>Source</h3>
+<p>"Mitsuda, Y. and Kitahara, F. (2017)" is a conference presentation, not a paper: Mitsuda, Y. and Kitahara, F. "Estimating the distribution of site index of sugi, hinoki and karamatsu across Japan", 128th Annual Meeting of the Japanese Forest Society (Kagoshima), 27 March 2017. An outcome of KAKENHI 15K07483 (2015–2017, PI: Yasushi Mitsuda). The abstract itself was not yet confirmed at this point (see <a href="03_literature_sources.html">page 3</a>).</p>
+<h3>Definitions (from the papers)</h3>
+<p>For the meaning of each element and why it affects the site index, see <a href="#base">0. Plugin premise</a>.</p>
+<div class="table-wrap">
+<table>
+<tr><th>Element</th><th>Definition</th><th>Can it be made abroad?</th></tr>
+<tr><td>SRAD</td><td>Solar radiation index. Calculated from the solar zenith and azimuth angles and the slope and aspect of the surface (Smith et al. 1980). Sunlight intensity related to soil drying. 50 m</td><td><span class="status done">Yes</span> From a DEM with the QGIS raster calculator</td></tr>
+<tr><td>VTEX</td><td>Vertical exposure index. Sum of nadir angles in eight directions (Mitsuda et al. 2007). Susceptibility to wind-driven evapotranspiration. 50 m</td><td><span class="status done">Yes</span> Search distance etc. to be confirmed in Mitsuda et al. 2007</td></tr>
+<tr><td>NPP</td><td>Mean growth over 10 years simulated on a 1 km grid with a carbon-balance-based stand growth model, with uniform initial conditions. Climate 1971–2000. Higher where temperature is high and atmospheric dryness is low</td><td><span class="status todo">Not the same thing</span> Output of a model tuned to Japanese species</td></tr>
+</table>
+</div>
+<p>The fitting used the GSI 50 m DEM, the Japan Meteorological Agency 1 km gridded climate data, and the nationwide Japanese National Forest Inventory (NFI).</p>
+<div class="note">There is only one NPP raster, used in common for all three species. Which species' model was used must be confirmed in the abstract.</div>
+<p><strong>Conclusion:</strong> outside Japan, it will be rebuilt as "a climate factor replacing NPP (MODIS NPP 500 m, WorldClim temperature and dryness, etc.) + SRAD and VTEX + coefficients fitted locally". The form of the formula (a constant plus three linear terms) can be kept.</p>
+
+<h2 id="s5">5. Ways to supply site index (design draft)</h2>
+<p>Three levels, assuming users prepare the data and the plugin guides or creates it.</p>
+<div class="table-wrap">
+<table>
+<tr><th>Level</th><th>What the user prepares</th><th>What the plugin does</th><th>Suited regions</th></tr>
+<tr><td>A. Ready-made site index</td><td>A local site index raster</td><td>Point to sources, align CRS and extent</td><td>New Zealand, British Columbia (Canada), etc.</td></tr>
+<tr><td>B. Calculate from three elements</td><td>DEM, climate data (download guided)</td><td>Automatically create SRAD and VTEX from the DEM. Coefficients are defaults or entered manually</td><td>Regions without a ready-made site index</td></tr>
+<tr><td>C. Fit coefficients</td><td>Plot CSV with height, age, species and coordinates</td><td>Sample the three elements at plot locations and fit coefficients</td><td>Users with survey data. Vegetation survey summaries come in here</td></tr>
+</table>
+</div>
+<ul>
+<li>The current plugin's "custom site index" input field is the basis for A. B and C are new</li>
+<li>For licensing, the safest approach is not to bundle or relay data, but to guide users to obtain it themselves. Even non-commercial, no-derivatives data (Scion) remains usable by users themselves</li>
+<li>Other replacements: CRS (UTM, etc.), DEM (global default Copernicus DEM 30 m), buildings and roads (OpenStreetMap), yarding efficiency (existing editor), reference age (configurable per species)</li>
+</ul>
+
+<h2 id="s6">6. Country comparison (first pass)</h2>
+<p>Criteria: fit with the tool's premise (dividing steep plantation forests into production and protection), data, ready-made site index, language. The three countries in page 1 were examples without a stated rationale, so New Zealand was added.</p>
+<div class="table-wrap">
+<table>
+<tr><th></th><th>New Zealand</th><th>Canada (BC)</th><th>Spain</th><th>Brazil</th></tr>
+<tr><th>Language</th><td>English</td><td>English, French</td><td>Spanish</td><td>Portuguese</td></tr>
+<tr><th>Fit with premise</th><td>Steep radiata pine plantations (share of cable yarding unconfirmed)</td><td>Steep terrain exists but mainly natural forests</td><td>Pine and eucalyptus plantations in northern mountains</td><td>Short-rotation eucalyptus, mostly flat</td></tr>
+<tr><th>DEM</th><td>National LiDAR 1 m, CC BY 4.0, over 80% of the country</td><td>HRDEM 1–2 m (OGL, partial coverage), MRDEM 30 m (full coverage)</td><td>PNOA LiDAR MDT 2 m/5 m (CC BY 4.0 to be confirmed)</td><td>No national high-resolution DEM confirmed</td></tr>
+<tr><th>Ready-made site index</th><td>Scion site index and 300 Index (25 m). CC BY-NC-ND 4.0</td><td>PSPL (22 species). Licence unconfirmed</td><td>Not found</td><td>Not found</td></tr>
+<tr><th>Plot data</th><td>Unconfirmed</td><td>Partly application-based; the province protects coordinates</td><td>Georeferenced since IFN3 (Access format), licence unconfirmed</td><td>State CSVs have diameter only; licence shown as "none"</td></tr>
+</table>
+</div>
+<p>Global common data: Copernicus DEM GLO-30 (free; attribution notice and disclaimer required), MODIS NPP (stated as having no restrictions on use or redistribution).</p>
+<p><strong>Provisional view (not a decision):</strong> 1. New Zealand　2. British Columbia, Canada　3. Spain (gateway to the Spanish-speaking world)　4. Brazil (candidate for later)</p>
+
+<h2 id="s7">7. Open items</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>Item</th><th>Purpose</th><th>Status</th></tr>
+<tr><td>1</td><td>Full text of Mitsuda et al. (2007) J. For. Res. 12(3) (paywalled)</td><td>Exact calculation of VTEX and SRAD</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>2</td><td>Abstract of the 128th Annual Meeting of the Japanese Forest Society</td><td>Which species' model was used for NPP</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>3</td><td>Licence of PNOA MDT02/MDT05</td><td>Confirm on the CNIG page</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>4</td><td>Licence and format of BC PSPL</td><td>Whether it can be used for level A</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>5</td><td>Licence of Spanish IFN plot data</td><td>Whether it can be used as training data for level C</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>6</td><td>Licence and current coverage of the LINZ national DEM</td><td>The statements are not consolidated in one place</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>7</td><td>Reference age of New Zealand's site index</td><td>Recalled as 20 years; needs confirmation</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>8</td><td>Share of cable yarding and availability of plot data in New Zealand</td><td>Support for fit with the premise</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>9</td><td>How to obtain the Scion site index (whether Koordinates requires login)</td><td>Whether users can be guided</td><td><span class="status todo">Open</span></td></tr>
+</table>
+</div>
+
+<h2>Sources</h2>
+<ul class="sources">
+<li><a href="https://www.jstage.jst.go.jp/article/formath/14/0/14_14.003/_article">Mitsuda &amp; Kitahara 2015, FORMATH 14</a></li>
+<li><a href="https://kaken.nii.ac.jp/ja/file/KAKENHI-PROJECT-15K07483/15K07483seika.pdf">KAKENHI 15K07483 final research report (Japanese)</a></li>
+<li><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Mitsuda et al. 2007, J. For. Res. 12(3)</a></li>
+<li><a href="https://developers.google.cn/earth-engine/datasets/catalog/MODIS_061_MOD17A3HGF">MOD17A3HGF v6.1</a></li>
+<li><a href="https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf">Copernicus DEM GLO-30 License</a></li>
+<li><a href="https://www.linz.govt.nz/products-services/data/licensing-and-using-data/attributing-elevation-or-aerial-imagery-data">LINZ Attributing elevation data</a> ／ <a href="https://catalogue.data.govt.nz/dataset/new-zealand-lidar-1m-dem1">New Zealand LiDAR 1m DEM</a> ／ <a href="https://www.linz.govt.nz/node/5917">PGF LiDAR programme</a></li>
+<li><a href="https://landuseopportunities.nz/dataset/radiata-pine-spatial-productivity-indices">Radiata pine spatial productivity indices (Scion)</a> ／ <a href="https://nzif.org.nz/nzif-journal/publications/article/22589">Mapping and explaining the productivity of Pinus radiata in New Zealand</a></li>
+<li><a href="https://www2.gov.bc.ca/gov/content/industry/forestry/managing-our-forest-resources/forest-inventory/site-productivity/provincial-site-productivity-layer">BC Provincial Site Productivity Layer</a> ／ <a href="https://www2.gov.bc.ca/assets/gov/farming-natural-resources-and-industry/forestry/stewardship/forest-analysis-inventory/site-productivity/psplv9_14may2026.pdf">PSPL v9 (May 2026)</a></li>
+<li><a href="https://canwinmap.ad.umanitoba.ca/documents/222">HRDEM product specifications</a> ／ <a href="https://natural-resources.canada.ca/maps-tools-publications/satellite-elevation-air-photos/national-elevation-data-strategy">National Elevation Data Strategy</a></li>
+<li><a href="https://inspire-geoportal.ec.europa.eu/srv/api/records/spaignMDT05">MDT05 (INSPIRE)</a> ／ <a href="https://idee.es/csw-inspire-idee/static/api/records/spaignMDS">MDS05 (IDEE)</a> ／ <a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/temas/inventarios-nacionales/documentador_sig_tcm30-536622.pdf">IFN4 documentador SIG</a> ／ <a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/estadisticas/inventarios-nacionales/IFN-Metodolog%C3%ADa.pdf">IFN Metodología</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/dap-10-por-uf-ifn/resource/7f87fb74-7639-46d5-ae52-c39fbc61e78b">IFN Brasil DAP≥10 por UF</a></li>
+</ul>
+
+</main>
+</body>
+</html>

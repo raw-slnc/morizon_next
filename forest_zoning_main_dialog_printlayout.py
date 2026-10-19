@@ -235,12 +235,17 @@ class ForestZoningMainDialogPrintlayout:
             if layout is not None:
                 layout.setAlignment(align_center)
 
+        # 基本背景は常に使うので、チェックは描かない。背景補助の行のチェックと位置がそろうよう、場所だけ残す
         for checkbox in (
             self.main.zoningPrintlayoutUseMainBackgroundCheckBox,
             self.main.aggregatePrintlayoutUseMainBackgroundCheckBox,
         ):
             checkbox.setChecked(True)
             checkbox.setEnabled(False)
+            policy = checkbox.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            checkbox.setSizePolicy(policy)
+            checkbox.setVisible(False)
 
         for widget in (
             self.main.zoningPrintlayoutBackgroundOptionsWidget,

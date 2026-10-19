@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>計画の詰めと調査</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">目次・進捗</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a>
+  <a class="current" href="02_planning_and_research.html">2 計画の詰めと調査</a>
+  <a href="03_literature_sources.html">3 論文の入手先</a>
+  <a href="04_search_range.html">4 探す範囲</a>
+  <a class="lang" href="en/02_planning_and_research.html" lang="en">English</a>
+</nav>
+<main>
+
+<h1>計画の詰めと調査</h1>
+<p class="meta">ページ1を受けたやり取りの記録。翻訳（海外展開）の前提として計画を詰める ｜ 2026-10-19</p>
+
+<p>目次：<a href="#base">0. プラグインの前提</a> ／ <a href="#s1">1. 問題提起</a> ／ <a href="#s2">2. 論点の整理</a> ／ <a href="#s3">3. 前提の決定</a> ／ <a href="#s4">4. 地位データ3要素の正体</a> ／ <a href="#s5">5. 地位指数の入れ方</a> ／ <a href="#s6">6. 国の比較</a> ／ <a href="#s7">7. 確認事項</a></p>
+
+<h2 id="base">0. プラグインの前提：地位指数の仕組み</h2>
+<p class="meta">2026-10-19 追記。「収益性と災害リスクを考慮した森林ゾーニングの手引き」（林野庁、令和8（2026）年3月改訂版。G空間情報センターで無料公開：<a href="https://www.geospatial.jp/ckan/dataset/rinya-morizon-dateset/resource/a4d0ae9c-36e8-48c6-8474-3d1d4312e061">森林ゾーニングの手引き（R8.3改訂版）</a>）とプラグインのコード（<code>processes/raster_writer/siteidx.py</code>、<code>profit.py</code>）の照合による</p>
+
+<h3>手引きの式とコードの式の違い</h3>
+<p>手引き p.70 の MEMO の式：</p>
+<pre>スギ地位指数 ＝ 21.28 + 1.028*NPP − 1.001*日射係数 − 1.111*凹凸度</pre>
+<p>プラグインが実際に計算している式：</p>
+<pre>スギ地位指数 ＝ 21.28 + (NPP − 15.82)×1.028 − (SRAD − 1347.09)×0.01×1.001 − (VTEX − 58.85)×0.01×1.111</pre>
+<p>手引きの式には、各データから基準値を引くこと（15.82、1347.09、58.85）と ×0.01 が抜けている。手引きの式のまま計算すると、SRAD は1400前後なので −1400m のような値になり、意味が通らない。原版の手引きの書き方の問題である。</p>
+
+<h3>式の読み方</h3>
+<p>「平均的な場所の樹高 ± 条件による増減」という形。</p>
+<ul>
+<li><strong>a（スギなら 21.28）：</strong>NPP・SRAD・VTEX が基準値（b・d・f、おそらく当てはめに使ったデータの平均）のときの地位指数。平均的な場所なら40年で約21m</li>
+<li><strong>各項：</strong>基準より良い条件なら足し、悪い条件なら引く</li>
+<li><strong>×0.01：</strong>SRAD・VTEX の数値の桁を合わせるための換算と考えられる（根拠は未確認）</li>
+</ul>
+
+<h3>3つの要素は何で、なぜ効くのか</h3>
+<div class="table-wrap">
+<table>
+<tr><th>要素</th><th>何か</th><th>地位指数への効き方</th><th>理屈</th></tr>
+<tr><td>NPP（純一次生産力）</td><td>気候だけで決まる「その土地で植物が1年にどれだけ育つか」。光合成で吸収した炭素から呼吸で出した分を引いた量。光田先生の成長モデルを気象データで動かして1km格子で計算したもの</td><td>プラス（高いほど地位が上がる）</td><td>暖かく、空気が乾きすぎない土地ほど木はよく育つ。広い範囲の差（地方ごとの差）を表す</td></tr>
+<tr><td>SRAD（日射係数）</td><td>斜面の向きと傾きで決まる日の当たり方。南向きの急斜面ほど高い</td><td>マイナス（日当たりが強いほど地位が下がる）</td><td>強い日射は土を乾かす。スギは乾燥に弱いので、日の当たりにくい北向きや谷の斜面のほうがよく育つ</td></tr>
+<tr><td>VTEX（凹凸度）</td><td>周り8方向の低い所をどれだけ見下ろせるか。尾根ほど高く、谷ほど低い</td><td>マイナス（尾根ほど地位が下がる）</td><td>尾根は風に当たって乾き、水も集まらない。谷は水が集まり湿る</td></tr>
+</table>
+</div>
+<p>要するに、「気候で決まる土地の基礎体力（NPP）」から「乾きやすさ（SRAD・VTEX）」を差し引く考え方。手引き p.16 の「植物の成長に大きく影響する土壌水分と関連する…地形指標は、地位指数と高い相関関係にある」が、SRAD と VTEX を使う理由にあたる。</p>
+
+<h3>樹種ごとの係数の違い</h3>
+<div class="table-wrap">
+<table>
+<tr><th>樹種</th><th>NPP（気候）</th><th>SRAD（日当たり）</th><th>VTEX（尾根）</th><th>読み取れる性格</th></tr>
+<tr><td>スギ</td><td>1.028</td><td>1.001</td><td>1.111</td><td>気候にも乾燥にも敏感。湿った谷・北向きを好む</td></tr>
+<tr><td>ヒノキ</td><td>0.969</td><td><strong>0.093</strong></td><td>0.862</td><td>気候には敏感だが、日当たりの影響はほとんど受けない</td></tr>
+<tr><td>カラマツ</td><td><strong>0.129</strong></td><td>0.294</td><td>1.125</td><td>気候の差はあまり効かず、尾根か谷かが主に効く</td></tr>
+</table>
+</div>
+
+<h3>各要素がどれだけ効くか（8系の値で試算、スギ）</h3>
+<p>データの1〜99パーセンタイル（ページ1の表）を式に入れた値。</p>
+<ul>
+<li>NPP：−4.5m 〜 +1.6m（幅 約6m）</li>
+<li>SRAD：+6.8m 〜 −3.1m（幅 約10m）</li>
+<li>VTEX：+0.7m 〜 −1.2m（幅 約2m）</li>
+</ul>
+<p>8系のスギでは、日当たり（SRAD）の効きが最も大きい。</p>
+
+<h3>プラグインの中での使われ方</h3>
+<ol>
+<li>3樹種の地位指数ラスターを作る（<code>siteidx.py</code>）</li>
+<li>ユーザーが樹種を1つ選び、しきい値を2つ決めて 1点・2点・3点に分ける（<code>profit.py</code>）</li>
+<li>その点数を「集材作業効率」「道路からの距離」の点数と足して「収益性」にする</li>
+<li>収益性と災害リスクを組み合わせてゾーニングする</li>
+</ol>
+<div class="note">地位指数は点数に分けるためだけに使われ、樹高の値そのものは計算に残らない。手引きが「相対値として扱ってください」と書いているのはこのためで、場所の順位が正しければ機能する作りである。外国では式を完全に再現しなくても、地位の良し悪しの順位を正しく出せる指標があれば使える。</div>
+
+<h2 id="s1">1. 問題提起（ユーザー）</h2>
+<ul>
+<li><code>morizon_next copy</code> を翻訳するとして、ページ1では例としてスペイン、カナダ、ブラジルを挙げているが、最初に対応する国をこの通りで進めるかは考慮する必要がある</li>
+<li>ページ1が示すようにオープンデータを利用するとして、それが可能かという問題もある</li>
+<li>前提として計画を詰める必要がある</li>
+</ul>
+<p>補足：ページ1で触れたコードの座標系の表記（JGD2011 と JGD2000）は原版の問題であり、扱わない。</p>
+
+<h2 id="s2">2. 論点の整理（Claude）</h2>
+<h3>翻訳の現状</h3>
+<p><code>tr()</code> を使っているファイルは0。日本語を直接書いた .py が74、.ui が3、<code>docs/manual.html</code> も日本語。翻訳の仕組みはまだ無い。</p>
+<h3>翻訳と現地対応は別の作業</h3>
+<ul>
+<li><strong>翻訳：</strong><code>tr()</code> 化と .ts/.qm の整備。どの国でも必要で、国の選択を待たずに進められる</li>
+<li><strong>現地対応：</strong>地位指数、DEM、座標系、作業システムの置き換え。国の選択とオープンデータの可否に直接かかる</li>
+</ul>
+<h3>オープンデータで本当にできるかの問い</h3>
+<ol>
+<li>定義が分かるか：NPP・SRAD・VTEX の作り方（前提条件）</li>
+<li>ライセンス：実行時に元データを取りに行くのか、加工したものを置いて配るのか</li>
+<li>取得の方法：URL の安定、認証の要否、自動アクセスが許されるか（静岡県オープンデータで遮断された前例）</li>
+<li>科学的に成り立つか：衛星の林冠高と「上層木の樹高」のずれ。1地域での試しが要る</li>
+</ol>
+<h3>進め方の案</h3>
+<ol>
+<li>目的と対象を決める</li>
+<li>3要素の定義を確かめる</li>
+<li>候補国を比べる</li>
+<li>候補国ごとのオープンデータの可否</li>
+<li>1地域で試す（翻訳の仕組みづくりは並行）</li>
+</ol>
+
+<h2 id="s3">3. 前提の決定（ユーザー）</h2>
+<div class="table-wrap">
+<table>
+<tr><th>項目</th><th>回答</th></tr>
+<tr><td>目的</td><td>単純に、このシステムを有効に使える国があるかに興味があるだけで、現地の窓口は想定しない。QGIS の特性として、データをユーザーが用意でき、その用意をプラグインが誘導・作成できれば、良いツールとして提供できる。そこに設計者として興味がある</td></tr>
+<tr><td>翻訳の範囲</td><td>汎用としてなので全て。英語が最初。オープンデータの出どころによっては、その国の言語を優先する</td></tr>
+<tr><td>次の作業</td><td>調査（3要素の定義、候補国の比較、オープンデータの可否）を進める</td></tr>
+</table>
+</div>
+
+<h2 id="s4">4. 地位データ3要素の正体（調査）</h2>
+<h3>出典</h3>
+<p>「光田靖・北原文章（2017）」は論文ではなく学会発表：光田 靖・北原文章「日本全国を対象としたスギ、ヒノキ、カラマツ地位指数分布の推定」第128回日本森林学会大会（鹿児島市）、2017年3月27日。科研費 15K07483（2015〜2017、代表：光田靖）の成果。要旨そのものは未確認。</p>
+<h3>定義（論文より）</h3>
+<p>各要素の意味と、地位指数への効き方の理屈は <a href="#base">0. プラグインの前提</a> を参照。</p>
+<div class="table-wrap">
+<table>
+<tr><th>要素</th><th>定義</th><th>外国で作れるか</th></tr>
+<tr><td>SRAD</td><td>日射係数。太陽の天頂角・方位角と斜面の傾き・向きから計算（Smith et al. 1980）。土壌の乾きやすさに関わる日当たり。50m</td><td><span class="status done">作れる</span> DEM から QGIS のラスター計算で</td></tr>
+<tr><td>VTEX</td><td>Vertical exposure index。8方向の俯角の合計（Mitsuda et al. 2007）。風による蒸散の受けやすさ。50m</td><td><span class="status done">作れる</span> 探す距離などは Mitsuda et al. 2007 で要確認</td></tr>
+<tr><td>NPP</td><td>炭素収支型の成長モデルで、初期条件をそろえて1km格子で10年間の成長を計算した平均。気象は1971〜2000年。気温が高く大気の乾燥が弱いほど高い</td><td><span class="status todo">同じものは作れない</span> 日本の樹種に合わせたモデルの出力</td></tr>
+</table>
+</div>
+<p>当てはめには、国土地理院の50m DEM、気象庁の1km格子気象データ、全国の森林生態系多様性基礎調査（NFI）が使われている。</p>
+<div class="note">NPP は1枚だけで3樹種に共通して使われている。どの樹種のモデルで計算したかは要旨で確かめる必要がある。</div>
+<p><strong>結論：</strong>外国では「NPP の代わりの気候の要素（MODIS NPP 500m、WorldClim の気温・乾燥度など）＋SRAD・VTEX＋現地で当てはめた係数」という形で作り直す。式の形（定数＋3項の一次式）はそのまま使える。</p>
+
+<h2 id="s5">5. 地位指数の入れ方（設計のたたき台）</h2>
+<p>ユーザーがデータを用意し、プラグインが誘導・作成する前提での3段階。</p>
+<div class="table-wrap">
+<table>
+<tr><th>段階</th><th>ユーザーが用意するもの</th><th>プラグインがすること</th><th>向く地域</th></tr>
+<tr><td>A. 既製の地位指数</td><td>現地の地位指数ラスター</td><td>取得先の案内、座標系と範囲の合わせ込み</td><td>ニュージーランド、カナダ BC州など</td></tr>
+<tr><td>B. 3要素から計算</td><td>DEM、気候データ（取得を誘導）</td><td>SRAD・VTEX を DEM から自動で作る。係数は既定値か手入力</td><td>既製の地位指数が無い地域</td></tr>
+<tr><td>C. 係数の当てはめ</td><td>樹高・林齢・樹種・座標のプロット CSV</td><td>3要素をプロットの位置で読み取り、係数を当てはめる</td><td>調査データを持つ利用者。植生調査のまとめがここに入る</td></tr>
+</table>
+</div>
+<ul>
+<li>今のプラグインの「独自の地位指数」の入力欄が A の土台になる。B・C は新しく作る</li>
+<li>ライセンスの面では、データを同梱・中継せず、ユーザー自身が取得するよう誘導するのが一番安全。非商用・改変禁止のデータ（Scion）でも、ユーザー自身が使う道は残る</li>
+<li>その他の差し替え：座標系（UTM など）、DEM（全球の既定は Copernicus DEM 30m）、建物・道路（OpenStreetMap）、集材作業効率（既存の編集画面）、基準林齢（樹種ごとに設定）</li>
+</ul>
+
+<h2 id="s6">6. 国の比較（第一段階）</h2>
+<p>選ぶ基準：ツールの前提（急傾斜の人工林を生産と保全に分ける）に合うか、データ、地位指数の既製品、言語。ページ1の3か国は例であり根拠は無かったため、ニュージーランドを加えた。</p>
+<div class="table-wrap">
+<table>
+<tr><th></th><th>ニュージーランド</th><th>カナダ（BC州）</th><th>スペイン</th><th>ブラジル</th></tr>
+<tr><th>言語</th><td>英語</td><td>英語・仏語</td><td>スペイン語</td><td>ポルトガル語</td></tr>
+<tr><th>前提に合うか</th><td>急傾斜のラジアータマツ人工林（架線集材の割合は未確認）</td><td>急傾斜はあるが天然林が中心</td><td>北部の山地にマツ・ユーカリの人工林</td><td>ユーカリの短伐期、平地が多い</td></tr>
+<tr><th>DEM</th><td>全国 LiDAR 1m、CC BY 4.0、全国の8割超</td><td>HRDEM 1〜2m（OGL、範囲は一部）、MRDEM 30m（全域）</td><td>PNOA LiDAR の MDT 2m/5m（CC BY 4.0 は要確認）</td><td>全国の高精細 DEM は確認できず</td></tr>
+<tr><th>既製の地位指数</th><td>Scion の地位指数・300 Index（25m）。CC BY-NC-ND 4.0</td><td>PSPL（22樹種）。ライセンス未確認</td><td>確認できず</td><td>確認できず</td></tr>
+<tr><th>プロットデータ</th><td>未確認</td><td>一部申請制、州が座標を保護</td><td>IFN3 以降は位置付き（Access 形式）、ライセンス未確認</td><td>州別 CSV は直径のみ、ライセンス表示「なし」</td></tr>
+</table>
+</div>
+<p>全球の共通データ：Copernicus DEM GLO-30（無料、出典の表示文と免責文が必要）、MODIS NPP（利用・再配布の制限なしと記載）。</p>
+<p><strong>暫定の見立て（決定ではない）：</strong>1. ニュージーランド　2. カナダ BC州　3. スペイン（スペイン語圏への入口）　4. ブラジル（後回しの候補）</p>
+
+<h2 id="s7">7. 確認事項</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>項目</th><th>目的</th><th>状態</th></tr>
+<tr><td>1</td><td>Mitsuda et al.（2007）J. For. Res. 12(3) の本文（有料）</td><td>VTEX・SRAD の正確な計算方法</td><td><span class="status todo">未</span></td></tr>
+<tr><td>2</td><td>第128回日本森林学会大会の要旨</td><td>NPP がどの樹種のモデルで計算されたか</td><td><span class="status todo">未</span></td></tr>
+<tr><td>3</td><td>PNOA MDT02/MDT05 のライセンス</td><td>CNIG のページで確定</td><td><span class="status todo">未</span></td></tr>
+<tr><td>4</td><td>BC州 PSPL のライセンスと形式</td><td>段階 A で使えるか</td><td><span class="status todo">未</span></td></tr>
+<tr><td>5</td><td>スペイン IFN のプロットデータのライセンス</td><td>段階 C の教師データに使えるか</td><td><span class="status todo">未</span></td></tr>
+<tr><td>6</td><td>LINZ 全国 DEM のライセンスと現在の範囲</td><td>記載が一つにまとまっていない</td><td><span class="status todo">未</span></td></tr>
+<tr><td>7</td><td>ニュージーランドの地位指数の基準林齢</td><td>20年と記憶しているが要確認</td><td><span class="status todo">未</span></td></tr>
+<tr><td>8</td><td>ニュージーランドの架線集材の割合とプロットデータの公開状況</td><td>前提に合うかの裏付け</td><td><span class="status todo">未</span></td></tr>
+<tr><td>9</td><td>Scion の地位指数の取得方法（Koordinates のログインの要否）</td><td>ユーザーを誘導できるか</td><td><span class="status todo">未</span></td></tr>
+</table>
+</div>
+
+<h2>出典</h2>
+<ul class="sources">
+<li><a href="https://www.jstage.jst.go.jp/article/formath/14/0/14_14.003/_article">Mitsuda &amp; Kitahara 2015, FORMATH 14</a></li>
+<li><a href="https://kaken.nii.ac.jp/ja/file/KAKENHI-PROJECT-15K07483/15K07483seika.pdf">科研費 15K07483 研究成果報告書</a></li>
+<li><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Mitsuda et al. 2007, J. For. Res. 12(3)</a></li>
+<li><a href="https://developers.google.cn/earth-engine/datasets/catalog/MODIS_061_MOD17A3HGF">MOD17A3HGF v6.1</a></li>
+<li><a href="https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf">Copernicus DEM GLO-30 License</a></li>
+<li><a href="https://www.linz.govt.nz/products-services/data/licensing-and-using-data/attributing-elevation-or-aerial-imagery-data">LINZ Attributing elevation data</a> ／ <a href="https://catalogue.data.govt.nz/dataset/new-zealand-lidar-1m-dem1">New Zealand LiDAR 1m DEM</a> ／ <a href="https://www.linz.govt.nz/node/5917">PGF LiDAR programme</a></li>
+<li><a href="https://landuseopportunities.nz/dataset/radiata-pine-spatial-productivity-indices">Radiata pine spatial productivity indices（Scion）</a> ／ <a href="https://nzif.org.nz/nzif-journal/publications/article/22589">Mapping and explaining the productivity of Pinus radiata in New Zealand</a></li>
+<li><a href="https://www2.gov.bc.ca/gov/content/industry/forestry/managing-our-forest-resources/forest-inventory/site-productivity/provincial-site-productivity-layer">BC Provincial Site Productivity Layer</a> ／ <a href="https://www2.gov.bc.ca/assets/gov/farming-natural-resources-and-industry/forestry/stewardship/forest-analysis-inventory/site-productivity/psplv9_14may2026.pdf">PSPL v9（2026-05）</a></li>
+<li><a href="https://canwinmap.ad.umanitoba.ca/documents/222">HRDEM 製品仕様</a> ／ <a href="https://natural-resources.canada.ca/maps-tools-publications/satellite-elevation-air-photos/national-elevation-data-strategy">National Elevation Data Strategy</a></li>
+<li><a href="https://inspire-geoportal.ec.europa.eu/srv/api/records/spaignMDT05">MDT05（INSPIRE）</a> ／ <a href="https://idee.es/csw-inspire-idee/static/api/records/spaignMDS">MDS05（IDEE）</a> ／ <a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/temas/inventarios-nacionales/documentador_sig_tcm30-536622.pdf">IFN4 documentador SIG</a> ／ <a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/estadisticas/inventarios-nacionales/IFN-Metodolog%C3%ADa.pdf">IFN Metodología</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/dap-10-por-uf-ifn/resource/7f87fb74-7639-46d5-ae52-c39fbc61e78b">IFN Brasil DAP≥10 por UF</a></li>
+</ul>
+
+</main>
+</body>
+</html>

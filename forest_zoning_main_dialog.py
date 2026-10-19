@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
-from qgis.core import Qgis, QgsMessageLog, QgsProject
+from qgis.core import Qgis, QgsApplication, QgsMessageLog, QgsProject
 
 from .forest_zoning_main_dialog_elements import ForestZoningMainDialogElements
 from .forest_zoning_main_dialog_scoring import ForestZoningMainDialogScoring
@@ -56,6 +56,7 @@ class ForestZoningMainDialog(QDialog):
         )
         self.settingsTabLayout.addWidget(self.settings_widget)
         self._init_tab_shortcuts()
+        self._init_research_link()
 
         # 各タブのUIを初期化する：実装は各クラスへ移譲
         self.elements = ForestZoningMainDialogElements(self)
@@ -509,6 +510,42 @@ class ForestZoningMainDialog(QDialog):
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(self.MANUAL_PATH)):
             QMessageBox.information(
                 self, "マニュアル", f"マニュアルを開けませんでした。次のファイルを直接開いてください。\n{self.MANUAL_PATH}"
+            )
+
+    # ── 海外展開の調査（プラグインに同梱の overseas_research/ を既定のブラウザで開く） ──
+    # 作者の考えをまとめたページで、利用者がデータを用意するときの参考にしてもらう。
+    # 画面下の「Based on MORIZON」の行の左端に置く（クレジットは中央のまま、同じマスに左寄せで重ねる）
+    RESEARCH_DIR = os.path.join(os.path.dirname(__file__), "overseas_research")
+
+    def _init_research_link(self):
+        credit = self.labelCredit
+        container = self.layout()
+        index = container.indexOf(credit)
+        if index < 0:
+            return
+        link = QLabel('<a href="#">overseas_research</a>')
+        link.setStyleSheet("font-size: 8pt; padding: 4px 0;")
+        link.setToolTip("Open the author's research notes in your browser (a guide for preparing data)")
+        link.linkActivated.connect(lambda _href: self.open_research())
+        container.removeWidget(credit)
+        row = QGridLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(credit, 0, 0)
+        row.addWidget(link, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        container.insertLayout(index, row)
+
+    def open_research(self):
+        # QGIS の言語が日本語なら日本語版、それ以外は英語版を開く
+        if QgsApplication.locale().startswith("ja"):
+            path = os.path.join(self.RESEARCH_DIR, "index.html")
+        else:
+            path = os.path.join(self.RESEARCH_DIR, "en", "index.html")
+        if not os.path.isfile(path):
+            QMessageBox.information(self, "overseas_research", f"ページが見つかりません。\n{path}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+            QMessageBox.information(
+                self, "overseas_research", f"ページを開けませんでした。次のファイルを直接開いてください。\n{path}"
             )
 
     # 作業フォルダの表示。作業フォルダの中に出力先が決まる4つのタブ（要素計算・スコアリング・ゾーニング・

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where to Get the Papers</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">Contents &amp; Progress</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a>
+  <a href="02_planning_and_research.html">2 Planning and Research</a>
+  <a class="current" href="03_literature_sources.html">3 Where to Get the Papers</a>
+  <a href="04_search_range.html">4 Search Range</a>
+  <a class="lang" href="../03_literature_sources.html" lang="ja">日本語</a>
+</nav>
+<main>
+
+<h1>Where to Get the Papers</h1>
+<p class="meta">Research following open items #1 and #2 on page 2 (calculation of the three elements and the origin of NPP) ｜ 2026-10-19</p>
+
+<h2>1. Where to obtain them</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Reference</th><th>Access</th><th>Location</th></tr>
+<tr><td>Mitsuda, Y. and Kitahara, F. (2017) Estimating the distribution of site index of sugi, hinoki and karamatsu across Japan (in Japanese). 128th Annual Meeting of the Japanese Forest Society, C2</td><td><span class="status done">Free</span> J-STAGE "Annual Meeting of the Japanese Forest Society" database; proceedings/abstracts are free</td><td><a href="https://www.jstage.jst.go.jp/article/jfsc/128/0/128_41/_article/-char/ja">J-STAGE</a> (DOI 10.11519/jfsc.128.0_41)</td></tr>
+<tr><td>Mitsuda, Y. et al. (2007) Predicting the site index of sugi plantations from GIS-derived environmental factors in Miyazaki Prefecture. J. For. Res. 12(3)</td><td><span class="status todo">Paywalled</span> Could not access the full text</td><td><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Springer</a> ／ <a href="https://www.tandfonline.com/doi/abs/10.1007/s10310-007-0004-1">Taylor &amp; Francis</a> (DOI 10.1007/s10310-007-0004-1)</td></tr>
+<tr><td>Mitsuda, Y., Ito, S. (2015) Modifying the site index model of sugi planted forests in Miyazaki Prefecture considering the effects of DEM quality and scale of digital terrain analysis. J. For. Plann. 20(2): 45–51</td><td><span class="status done">Free</span> J-STAGE, free access. Reveals much of the calculation method in place of the 2007 paper</td><td><a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">J-STAGE</a></td></tr>
+</table>
+</div>
+<p>Possible ways to obtain the 2007 paper (all to be confirmed): purchase from the publisher, a university library or document delivery service, member access through the Japanese Forest Society (J. For. Res. is its English-language journal), requesting the full text on <a href="https://www.researchgate.net/publication/226004816_Predicting_the_site_index_of_sugi_plantations_from_GIS-derived_environmental_factors_in_Miyazaki_Prefecture">ResearchGate</a>, or contacting the author (Prof. Mitsuda, University of Miyazaki).</p>
+
+<h2>2. What the conference abstract (Mitsuda &amp; Kitahara 2017) tells us</h2>
+<ul>
+<li>NPP is a 1 km resolution distribution estimated with a carbon-balance-based stand growth model driven by climate values</li>
+<li>The explanatory variables are concavity, the solar radiation index calculated from latitude/longitude, slope and aspect, and NPP</li>
+<li>Data: Forest Resource Monitoring Survey (now the National Forest Inventory of Japan), 1 km climate factors, the GSI 50 m DEM</li>
+<li><strong>It does not state which species' model was used for NPP.</strong> The search range is not stated either</li>
+</ul>
+
+<h2>3. Calculation methods learned from Mitsuda &amp; Ito (2015)</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Element</th><th>Calculation method</th></tr>
+<tr><td>VTEX</td><td>For each of the eight main compass directions, measure the depression angle to the lowest point within the search range, and sum them. Similar to Yokoyama's "negative openness" (Yokoyama et al. 2002)</td></tr>
+<tr><td>SRAD (SRI in the paper)</td><td>Proportional to the cosine of the solar incident angle. The incident angle is calculated from the solar zenith and azimuth angles and the slope and aspect of the surface (Smith et al. 1980). Whether the sun is above the surrounding skyline is determined using elevations within the search range</td></tr>
+<tr><td>Search range</td><td>100, 250, 500 and 1000 m were tested. For VTEX, the correlation with site index changed greatly with the search range, decreasing as the range widened. SRAD and upslope contributing area changed little</td></tr>
+</table>
+</div>
+<p>Implication for building abroad: it is now even more likely that both VTEX and SRAD can be made from a DEM in QGIS. Since VTEX is close to negative openness, existing openness tools such as those in SAGA may be usable as a substitute once the differences are checked (to be confirmed).</p>
+
+<h2>4. Still unknown</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>Item</th><th>Clues</th><th>Status</th></tr>
+<tr><td>1</td><td>Search range used when making ZoningKit</td><td>The 2007 paper, or contacting the authors or the Forestry Agency. Also consider whether it can be back-calculated from the ZoningKit rasters</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>2</td><td>Which dates/times of solar positions were summed for SRAD</td><td>ZoningKit values reach up to 1751, suggesting something is summed. Confirm in the 2007 paper</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>3</td><td>Which species' model was used for NPP</td><td>Not in the abstract. Contacting the author may be necessary</td><td><span class="status todo">Open</span></td></tr>
+</table>
+</div>
+
+<h2>Sources</h2>
+<ul class="sources">
+<li><a href="https://www.jstage.jst.go.jp/article/jfsc/128/0/128_41/_article/-char/ja">Mitsuda &amp; Kitahara 2017, 128th Annual Meeting of the Japanese Forest Society C2 (J-STAGE)</a></li>
+<li><a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">Mitsuda &amp; Ito 2015, J. For. Plann. 20(2) (J-STAGE)</a></li>
+<li><a href="https://link.springer.com/article/10.1007/s10310-007-0004-1">Mitsuda et al. 2007, J. For. Res. 12(3)</a></li>
+</ul>
+
+</main>
+</body>
+</html>

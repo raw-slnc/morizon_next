@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZoningKit解析と海外展開</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --line: #d1d9e0;
+  --head: #f6f8fa;
+  --accent: #1a7f37;
+  --code: #eff2f5;
+  --note: #fff8c5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --line: #3d444d;
+    --head: #151b23;
+    --accent: #3fb950;
+    --code: #1f242c;
+    --note: #2e2a16;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --fg: #e6edf3;
+  --muted: #9198a1;
+  --line: #3d444d;
+  --head: #151b23;
+  --accent: #3fb950;
+  --code: #1f242c;
+  --note: #2e2a16;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans JP", sans-serif;
+  line-height: 1.75;
+  font-size: 16px;
+}
+main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+nav.pages { max-width: 920px; margin: 0 auto; padding: 12px 16px 0; font-size: 0.88rem; }
+nav.pages a { margin-right: 12px; white-space: nowrap; }
+nav.pages a.current { font-weight: bold; color: var(--fg); text-decoration: none; }
+nav.pages a.lang { display: block; width: fit-content; margin: 4px 0 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.25rem; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+h3 { font-size: 1.05rem; margin: 24px 0 8px; }
+.meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--head); white-space: nowrap; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; word-break: break-all; }
+pre { background: var(--code); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 0.9rem; }
+.note { background: var(--note); border-left: 4px solid #d4a72c; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+ol, ul { padding-left: 1.4em; }
+li { margin: 4px 0; }
+.sources li { font-size: 0.88rem; word-break: break-all; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">目次・進捗</a>
+  <a class="current" href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a>
+  <a href="02_planning_and_research.html">2 計画の詰めと調査</a>
+  <a href="03_literature_sources.html">3 論文の入手先</a>
+  <a href="04_search_range.html">4 探す範囲</a>
+  <a class="lang" href="en/zoningkit_analysis.html" lang="en">English</a>
+</nav>
+<main>
+
+<h1>ZoningKit解析と海外展開</h1>
+<p class="meta">MORIZON NEXT（QGISプラグイン）が使う ZoningKit の中身と、日本以外の地域で使うために必要なもの ｜ 2026-10-19</p>
+
+<h2>1. 目的</h2>
+<p>MORIZON NEXT がダウンロードする林野庁「もりぞん」ZoningKit の中身を調べ、ブラジル・カナダ・スペインなど日本以外の地域で林業・森林整備・環境対策に使えるようにするには何が必要かを整理する。</p>
+
+<h2>2. ZoningKit の中身</h2>
+<p>配布元は G空間情報センター（CKAN データセット <code>rinya-morizon-dateset</code>）。平面直角座標系の1〜13系ごとに <code>ZoningKit_XX.zip</code> がある（14〜19系は無い）。8系の ZIP（約423MB）の中身は次のとおり。</p>
+<div class="table-wrap">
+<table>
+<tr><th>場所</th><th>中身</th></tr>
+<tr><td><code>DATA/SiteIndex/NPP/NPP08.tif</code></td><td>純一次生産力（66MB）</td></tr>
+<tr><td><code>DATA/SiteIndex/SRAD/SRAD08.tif</code></td><td>日射係数（269MB）</td></tr>
+<tr><td><code>DATA/SiteIndex/VTEX/VTEX08.tif</code></td><td>凹凸度（130MB）</td></tr>
+<tr><td>各 <code>.tfw</code>・<code>.tif.aux.xml</code></td><td>座標の付与情報と、表示色用の属性表</td></tr>
+<tr><td><code>DATA/SAGYO-SYSTEM_CSV/集材作業効率の設定220113.xlsx</code></td><td>集材作業効率の設定。プラグインの <code>templates/</code> に同じものが入っている</td></tr>
+<tr><td><code>DATA/DEM/</code>・<code>ROAD/</code>・<code>TATEMONO/</code>・<code>YOUSO/</code>・<code>ZONING/</code></td><td>空のフォルダ（利用者が入れる場所）</td></tr>
+<tr><td><code>ゾーニングファイル構成.txt</code></td><td>フォルダ構成の説明だけ</td></tr>
+</table>
+</div>
+<p>実質的なデータは、地位指数の計算に使う NPP・SRAD・VTEX の3枚のラスターだけである。</p>
+
+<h3>3枚のラスターの性質（8系）</h3>
+<div class="table-wrap">
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>格子</td><td>3枚とも同じ。50mメッシュ、4815×8879セル、8系の全域</td></tr>
+<tr><td>型・圧縮</td><td>Float64、LZW圧縮、NoData は NaN</td></tr>
+<tr><td>座標系</td><td>EPSG:2450（JGD2000 / 平面直角座標系 VIII系）</td></tr>
+<tr><td>値のあるセル</td><td>約66%（海と系の外は NaN）</td></tr>
+<tr><td>作成ソフト</td><td>GRASS GIS 7.8.5（ファイルのメタデータより）</td></tr>
+<tr><td>単位</td><td>ファイルには書かれていない</td></tr>
+</table>
+</div>
+<div class="table-wrap">
+<table>
+<tr><th>データ</th><th>意味（マニュアルより）</th><th>1パーセンタイル</th><th>中央値</th><th>99パーセンタイル</th><th>最大</th></tr>
+<tr><td>NPP</td><td>気候から見た、植物が育つ力</td><td class="num">11.4</td><td class="num">15.6</td><td class="num">17.4</td><td class="num">17.8</td></tr>
+<tr><td>SRAD</td><td>斜面の向きや地形による日当たり</td><td class="num">664</td><td class="num">1413</td><td class="num">1657</td><td class="num">1751</td></tr>
+<tr><td>VTEX</td><td>谷か尾根か（谷ほど木がよく育つ傾向）</td><td class="num">0</td><td class="num">44</td><td class="num">168</td><td class="num">375</td></tr>
+</table>
+</div>
+<p>マニュアルには、NPP は1km格子の気候データから、SRAD・VTEX は50m格子の標高から作られた全国一律のデータとある。</p>
+<div class="note">プラグインのコード（<code>zoningkit_fetcher.py</code> 冒頭）には「JGD2011 平面直角座標系」とあるが、ファイルの実際の座標系は JGD2000 である。</div>
+
+<h2>3. プラグインでの使われ方</h2>
+<p>3枚は地位指数（40年生時の上層木の樹高、m）の推定式に入る（<code>processes/raster_writer/siteidx.py</code>）。</p>
+<pre>地位指数 = a + (NPP − b)·c − (SRAD − d)·0.01·e − (VTEX − f)·0.01·g</pre>
+<p>係数は樹種ごとに既定値がある（<code>settings_manager.py</code>）。出典は光田靖・北原文章（2017）。</p>
+<div class="table-wrap">
+<table>
+<tr><th>樹種</th><th>a</th><th>b</th><th>c</th><th>d</th><th>e</th><th>f</th><th>g</th></tr>
+<tr><td>スギ</td><td class="num">21.280</td><td class="num">15.82</td><td class="num">1.028</td><td class="num">1347.09</td><td class="num">1.001</td><td class="num">58.85</td><td class="num">1.111</td></tr>
+<tr><td>ヒノキ</td><td class="num">16.830</td><td class="num">11.05</td><td class="num">0.9688</td><td class="num">1396.0</td><td class="num">0.09319</td><td class="num">61.92</td><td class="num">0.8617</td></tr>
+<tr><td>カラマツ</td><td class="num">22.510</td><td class="num">11.61</td><td class="num">0.129</td><td class="num">1264.0</td><td class="num">0.2939</td><td class="num">44.3</td><td class="num">1.125</td></tr>
+</table>
+</div>
+
+<h2>4. 外国の地域で使うために必要なもの</h2>
+<h3>ZoningKit の部分</h3>
+<ol>
+<li><strong>NPP・SRAD・VTEX を同じ定義で作り直す。</strong>SRAD・VTEX は算出方法が分かれば、どの国の DEM からでも作れる見込みがある。NPP は気候データが要り、どの式で作ったかを光田・北原（2017）や林野庁の資料で確かめる必要がある（今回のファイルからは作り方が分からない）。</li>
+<li><strong>係数を作り直す。</strong>係数は日本の森林調査データと日本の3樹種に当てはめた値なので、外国の樹種や気候にはそのまま使えない。現地の地位指数モデルを作るか、別の方法で作った地位指数ラスターを直接入れる（マニュアルでは「独自の地位指数」を入力欄から指定できる）。</li>
+<li><strong>集材作業効率の設定を置き換える。</strong>日本の作業システムの値なので、現地の作業システムで置き換える必要がある。</li>
+</ol>
+<h3>ZoningKit 以外で日本専用になっている部分</h3>
+<div class="table-wrap">
+<table>
+<tr><th>部分</th><th>今の実装</th><th>置き換え先の例</th></tr>
+<tr><td>座標系の判定</td><td>平面直角1〜13系だけ。国土地理院の逆ジオコーダで都道府県を調べて決める</td><td>UTM など</td></tr>
+<tr><td>整備範囲のチェック</td><td>地位データが無い範囲では「整備範囲外」として処理を止める</td><td>新しい地位データの範囲に合わせる</td></tr>
+<tr><td>DEM の取得元</td><td>国土地理院、VIRTUAL SHIZUOKA、長野県</td><td>Copernicus DEM などの全球 DEM、現地の LiDAR</td></tr>
+<tr><td>建物・道路</td><td>基盤地図情報（ログインが必要）</td><td>OpenStreetMap</td></tr>
+</table>
+</div>
+<p>外国対応で一番重いのは、地位指数を出す方法、つまり3枚のラスターと日本向けの係数をどう置き換えるかである。それ以外は取得元と座標系の差し替えになる。</p>
+
+<h2>5. 植生の調査が必要になる部分</h2>
+<p>NPP・SRAD・VTEX は気候と地形から作るので、植生の調査がなくても作れる。植生の専門的な調査が必要になるのは、係数と樹種の部分である。日本の係数は、森林調査の実測値（樹高と林齢）を樹種ごとに3つのデータへ当てはめて求めている。</p>
+<p>調査のまとめとして要るもの：</p>
+<ol>
+<li><strong>対象樹種：</strong>その地域で植林・施業の対象になる樹種（日本のスギ・ヒノキ・カラマツに当たるもの）</li>
+<li><strong>成長の基準：</strong>樹種ごとの基準林齢と、その齢での上層木の樹高。「40年生時」は日本の造林に合わせた基準で、成長の速い熱帯の樹種や遅い北方の樹種では基準林齢が変わる</li>
+<li><strong>位置付きの調査プロット：</strong>樹高・林齢・樹種と座標がそろったデータ（係数を当てはめ直すのに必要）</li>
+<li><strong>既存の資料：</strong>地位の区分図や成長量の表。あれば地位指数ラスターを直接入れる方法に回せる</li>
+</ol>
+<div class="note">日本で「NPP・日射・凹凸度」の3つで地位を説明できても、外国で同じ3つで説明できるとは限らない。乾燥地なら土壌水分、熱帯なら土壌の種類のほうが効くこともある。植生の調査は、係数だけでなく、どの要素で地位を説明するかを決める材料にもなる。</div>
+
+<h2>6. オープンデータでの組み立て</h2>
+<p>オープンデータで作れれば、日本以外（ブラジル、カナダ、スペインなど）の林業・整備・環境対策に使えるツールとして、使用国を広げられる。地位指数は「基準林齢での上層木の樹高」なので、次の3層に分けて作るのが現実的である。</p>
+<div class="table-wrap">
+<table>
+<tr><th>層</th><th>役割</th><th>使えるオープンデータ</th></tr>
+<tr><td>1. 説明する要素</td><td>ZoningKit の3枚に当たる部分。国を選ばない</td><td>地形：Copernicus DEM（30m）などから日射・凹凸度に当たる値を計算。気候：WorldClim などの気候データや衛星由来の NPP</td></tr>
+<tr><td>2. 樹高と林齢</td><td>係数を当てはめるための教師データ。国ごとのプロットが無くても仮の式を作れる</td><td>樹高：UMD GLAD の全球樹高マップ（GEDI＋Landsat、30m、2019年）。林齢：GAMI v2.0（100m、2010年・2020年、CC BY 4.0）。前身は Besnard et al.（2021）の1km林齢マップ</td></tr>
+<tr><td>3. 国ごとの補正</td><td>2 の結果を各国の国家森林調査で確かめて直す。植生の専門的な調査のまとめが入る</td><td>各国の国家森林調査（次節）</td></tr>
+</table>
+</div>
+
+<h2>7. 3か国の国家森林調査の状況</h2>
+<p>2026年10月19日に調べた範囲。</p>
+<div class="table-wrap">
+<table>
+<tr><th>国</th><th>公開状況</th><th>注意点</th></tr>
+<tr><td>スペイン</td><td>MITECO が IFN（国家森林調査）のデータを公開している。IFN4 は FAO のマイクロデータ目録にも登録されている</td><td>利用条件として「出典と日付の明記」があるが、これは報告書についての記述。プロットデータのライセンスはダウンロードページで確かめる必要がある</td></tr>
+<tr><td>カナダ</td><td>NFI のプロットは申請制の部分がある。各州のデータを統合した MAGPlot は ZIP で配布されている。SCANFI（30m、樹高・樹種構成・バイオマス、Open Government Licence）もある</td><td>BC州などはプロットの座標を保護している。SCANFI に地位指数の層があるかは確認できなかった</td></tr>
+<tr><td>ブラジル</td><td>SFB が IFN の公開データを、テーマ別（土壌・落葉落枝・土地利用・竹など）に州ごとの CSV で出している。調査単位（conglomerado）の中心座標は WGS84</td><td>樹高・林齢をまとめた形で落とせるかは確かめられなかった。落葉落枝のデータは2025年10月に重複を訂正した版が出ている</td></tr>
+</table>
+</div>
+
+<h2>8. 気をつける点</h2>
+<ul>
+<li><strong>樹高の意味の違い：</strong>全球の樹高マップの樹高は衛星から見た林冠の高さで、地位指数の「上層木の樹高」とは定義がずれる。GLAD は、山地の斜面で高めに出ることと、市街地で建物の高さと混ざることを既知の問題としてあげている。</li>
+<li><strong>人工林：</strong>ブラジルのユーカリのような成長の速い人工林では、全球の林齢マップの精度が落ちやすいと考えられる。植林年の記録など国内のデータで補う必要が出そうである。</li>
+<li><strong>基準林齢：</strong>「40年生時」という日本の基準は、国や樹種ごとに決め直す必要がある。</li>
+<li><strong>地位の読み方：</strong>マニュアルにあるとおり、全国一律の式で求めた地位指数は絶対値ではなく、地域の中での相対的な良し悪しとして読む。新しい地域で作る場合も、補正の精度がそろうまでは同じ扱いになる。</li>
+</ul>
+
+<h2>出典</h2>
+<ul class="sources">
+<li>林野庁「森林ゾーニング支援ツール もりぞん」ZoningKit（G空間情報センター）／地位指数の推定式：光田靖・北原文章（2017）</li>
+<li><a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/temas/inventarios-nacionales/2.MANUAL_PROCESO_DATOS_IFN4.pdf">MITECO IFN4 データ処理マニュアル</a></li>
+<li><a href="https://microdata.fao.org/index.php/catalog/3015/pdf-documentation">FAO Microdata: Spanish NFI4</a></li>
+<li><a href="https://ost.ecosyste.ms/projects/296660">forestables (ecosyste.ms)</a></li>
+<li><a href="https://open.canada.ca/data/en/dataset/35c3556c-e48d-41a7-ac50-652257b0a8e8">Canada's National Forest Inventory Ground Plot Data</a></li>
+<li><a href="https://open.canada.ca/data/dataset/6d6d115f-4cc2-4141-909e-3344b3a72bcf">Forest Inventory Ground Plots - Public Access</a></li>
+<li><a href="https://open.canada.ca/data/dataset/824e684b-4114-4a05-a490-aa56332b57f4">Forest Inventory Ground Plot Data and Interactive Map (BC)</a></li>
+<li><a href="https://open.canada.ca/data/en/dataset/18e6a919-53fd-41ce-b4e2-44a9707c52dc">SCANFI (open.canada.ca)</a></li>
+<li><a href="https://developers.google.com/earth-engine/datasets/catalog/projects_gcpm041u-lemur_assets_scanfi_v12_SCANFI_v1_2">SCANFI v1.2 (Earth Engine)</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/solos_ifn">IFN Brasil – Solos (dados.florestal.gov.br)</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/97ab0c26-c5c7-421c-8fb7-e4dab47d35ea/resource/73b79435-4759-49ca-86b0-2682e5ccb1d1/download/metadados_ifn_serapilheira_disp-set2025_retificado.pdf">IFN Brasil 落葉落枝メタデータ（訂正版）</a></li>
+<li><a href="https://www.lex.com.br/resolucao-sfb-no-23-de-20-de-maio-de-2024/">Resolução SFB nº 23/2024</a></li>
+<li><a href="https://portalamazonia.com/inovacao-e-tecnologia/dados-amazonia-plataforma-digital/">IFN公開プラットフォームの記事（Portal Amazônia）</a></li>
+<li><a href="https://glad.geog.umd.edu/dataset/gedi">UMD GLAD GEDI global canopy height</a></li>
+<li><a href="https://open.fsc.org/entities/publication/9e8b967e-c02a-4469-ba9b-61253d975916">Mapping global forest canopy height through integration of GEDI and Landsat data</a></li>
+<li><a href="https://essd.copernicus.org/articles/13/4881/2021/essd-13-4881-2021-assets.html">Besnard et al. 2021, ESSD</a></li>
+<li><a href="https://b2find.eudat.eu/dataset/0db4be79-c557-597b-a5f4-a441c7750335">GAMI (B2FIND)</a></li>
+<li><a href="https://essd.copernicus.org/articles/18/6225/2026/">ESSD 2026 vol.18 (GAMI)</a></li>
+</ul>
+
+</main>
+</body>
+</html>

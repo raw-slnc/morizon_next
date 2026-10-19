@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search Range</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">Contents &amp; Progress</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a>
+  <a href="02_planning_and_research.html">2 Planning and Research</a>
+  <a href="03_literature_sources.html">3 Where to Get the Papers</a>
+  <a class="current" href="04_search_range.html">4 Search Range</a>
+  <a class="lang" href="../04_search_range.html" lang="ja">日本語</a>
+</nav>
+<main>
+
+<h1>Search Range</h1>
+<p class="meta">What the search range in Mitsuda &amp; Ito (2015) is and how it affects the plan ｜ Research following "Still unknown" #1 on page 3 ｜ 2026-10-19</p>
+
+<p>Reference: Mitsuda, Y., Ito, S. (2015) J. For. Plann. 20: 45–51. Freely available on J-STAGE: <a href="https://www.jstage.jst.go.jp/article/jfp/20/2/20_45/_article/-char/en">J-STAGE</a></p>
+
+<h2>1. Definition</h2>
+<p>From the Introduction (p.46): algorithms that calculate topographic factors from raster DEMs require an arbitrary parameter (radius or window size) to define <strong>how far to search</strong> for the terrain that influences the phenomenon in the subject cell. The range (circle or rectangle) defined by that parameter is called the search range.</p>
+<p>In other words, it is the distance out to which the surrounding terrain is examined when calculating a cell's value. Alongside grid resolution, it is positioned as another axis of "scale" in digital terrain analysis (citing Wilson et al. 2000).</p>
+
+<h2>2. How each element uses it (p.47)</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Element</th><th>What the search range determines</th></tr>
+<tr><td>SRI (= SRAD)</td><td>Whether the sun, seen from the cell, is above the surrounding skyline (shading), judged from elevations within the range</td></tr>
+<tr><td>UCA (upslope contributing area)</td><td>The area within the range from which water flows into the cell (not included in ZoningKit)</td></tr>
+<tr><td>VTEX</td><td>For each of eight directions, find the lowest point within the range and sum the depression angles to it</td></tr>
+</table>
+</div>
+<p>Ranges tested: 100, 250, 500 and 1000 m. DEMs: GSI 50 m (GSI50), GSI 10 m (GSI10), digitized contours (CNT). Resolutions: 10, 12.5, 25 and 50 m. Study site: Tano Forest Science Station, University of Miyazaki, 18 plots (site index from felling and stem analysis).</p>
+
+<h2>3. Results</h2>
+<ul>
+<li><strong>VTEX:</strong> the wider the range, the worse the correlation with site index, for every DEM. The suitable range was "obviously 100 m". VTEX represents "ridgeness", and a wide range picks up valley bottoms beyond ridges, overestimating ridgeness</li>
+<li><strong>SRI and UCA:</strong> correlations quickly saturated as the range widened; the effect of the range was unclear</li>
+</ul>
+<h3>Combinations accepted in the best models (Table 2)</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Model</th><th>SRI</th><th>UCA</th><th>VTEX</th></tr>
+<tr><td>All data</td><td>1000 m (CNT-10)</td><td>100 m (CNT-12.5)</td><td>100 m (GSI50-50)</td></tr>
+<tr><td>GSI DEMs</td><td>1000 m (GSI50-50)</td><td>100 m (GSI10-10)</td><td>100 m (GSI50-50)</td></tr>
+<tr><td>GSI 50 m only (GSI50)</td><td>1000 m (50 m)</td><td>—</td><td>100 m (50 m)</td></tr>
+</table>
+</div>
+<div class="note">The Discussion text says "the search ranges of UCA, SRI and VTEX were 1000 m, 100 or 250 m, and 100 m, respectively", which reverses SRI and UCA relative to the tables. The tables are considered correct.</div>
+<h3>Fit with DEM resolution</h3>
+<ul>
+<li>UCA suits fine resolutions (10–12.5 m) of information-rich DEMs (CNT, GSI10), because groundwater flow is a fine-scale phenomenon</li>
+<li>SRI suits a coarse resolution (50 m) of an information-poor DEM (GSI50). Solar radiation is a broad-scale phenomenon, and fine DEMs are "too detailed" to represent it</li>
+<li>Coarse sources made finer (e.g., GSI50-10) and fine sources made coarser (e.g., CNT-50) were not useful. The resolution must match the quality of the source data</li>
+</ul>
+
+<h2>4. Implications for the plan</h2>
+<ol>
+<li><strong>Clue to ZoningKit's settings:</strong> ZoningKit is 50 m data made from the GSI 50 m DEM, so it may have been made with SRAD 1000 m and VTEX 100 m, as in this paper's "50 m only" best model (a guess). This can be checked by calculating VTEX from a local DEM and comparing with ZoningKit values</li>
+<li><strong>Settings abroad:</strong> the paper says the effect of the range depends on the terrain of the site (the study site is highly undulating). Abroad, the search range should be a configurable plugin setting, with defaults of VTEX 100 m and SRAD 1000 m</li>
+<li><strong>DEM resolution:</strong> even when using a 1 m LiDAR DEM abroad, SRAD may need to be calculated after coarsening. This affects the design</li>
+</ol>
+
+<h2>5. Remaining</h2>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>Item</th><th>Status</th></tr>
+<tr><td>1</td><td>Search range used when making ZoningKit (verifying the guess of SRAD 1000 m and VTEX 100 m)</td><td><span class="status part">Clue found</span></td></tr>
+<tr><td>2</td><td>Which dates/times of solar positions were summed for SRAD</td><td><span class="status todo">Open</span></td></tr>
+<tr><td>3</td><td>Which species' model was used for NPP</td><td><span class="status todo">Open</span></td></tr>
+</table>
+</div>
+
+</main>
+</body>
+</html>

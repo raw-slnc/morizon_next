@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZoningKit Analysis and Overseas Deployment</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<nav class="pages">
+  <a href="index.html">Contents &amp; Progress</a>
+  <a class="current" href="zoningkit_analysis.html">1 ZoningKit Analysis and Overseas Deployment</a>
+  <a href="02_planning_and_research.html">2 Planning and Research</a>
+  <a href="03_literature_sources.html">3 Where to Get the Papers</a>
+  <a href="04_search_range.html">4 Search Range</a>
+  <a class="lang" href="../zoningkit_analysis.html" lang="ja">日本語</a>
+</nav>
+<main>
+
+<h1>ZoningKit Analysis and Overseas Deployment</h1>
+<p class="meta">What is inside the ZoningKit used by MORIZON NEXT (a QGIS plugin), and what is needed to use it outside Japan ｜ 2026-10-19</p>
+
+<h2>1. Purpose</h2>
+<p>To examine the contents of the ZoningKit from the Forestry Agency's "MORIZON" that MORIZON NEXT downloads, and to sort out what is needed to make it usable for forestry, forest management and environmental measures outside Japan, such as in Brazil, Canada and Spain.</p>
+
+<h2>2. Contents of ZoningKit</h2>
+<p>Distributed by the G-Spatial Information Center (CKAN dataset <code>rinya-morizon-dateset</code>). There is one <code>ZoningKit_XX.zip</code> for each of zones I–XIII of the Japan Plane Rectangular Coordinate System (zones XIV–XIX are missing). The zone VIII ZIP (about 423 MB) contains:</p>
+<div class="table-wrap">
+<table>
+<tr><th>Location</th><th>Content</th></tr>
+<tr><td><code>DATA/SiteIndex/NPP/NPP08.tif</code></td><td>Net primary productivity (66 MB)</td></tr>
+<tr><td><code>DATA/SiteIndex/SRAD/SRAD08.tif</code></td><td>Solar radiation index (269 MB)</td></tr>
+<tr><td><code>DATA/SiteIndex/VTEX/VTEX08.tif</code></td><td>Topographic exposure / concavity (130 MB)</td></tr>
+<tr><td>Each <code>.tfw</code> and <code>.tif.aux.xml</code></td><td>Georeferencing information and an attribute table for display colors</td></tr>
+<tr><td><code>DATA/SAGYO-SYSTEM_CSV/集材作業効率の設定220113.xlsx</code></td><td>Yarding efficiency settings. The same file is included in the plugin's <code>templates/</code></td></tr>
+<tr><td><code>DATA/DEM/</code>, <code>ROAD/</code>, <code>TATEMONO/</code>, <code>YOUSO/</code>, <code>ZONING/</code></td><td>Empty folders (for users to fill)</td></tr>
+<tr><td><code>ゾーニングファイル構成.txt</code></td><td>Only a description of the folder structure</td></tr>
+</table>
+</div>
+<p>The only substantive data are the three rasters NPP, SRAD and VTEX used to calculate the site index.</p>
+
+<h3>Properties of the three rasters (zone VIII)</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Item</th><th>Content</th></tr>
+<tr><td>Grid</td><td>Identical for all three. 50 m cells, 4815×8879 cells, the whole of zone VIII</td></tr>
+<tr><td>Type / compression</td><td>Float64, LZW compression, NoData is NaN</td></tr>
+<tr><td>CRS</td><td>EPSG:2450 (JGD2000 / Japan Plane Rectangular CS VIII)</td></tr>
+<tr><td>Cells with values</td><td>About 66% (sea and outside the zone are NaN)</td></tr>
+<tr><td>Created with</td><td>GRASS GIS 7.8.5 (from the file metadata)</td></tr>
+<tr><td>Units</td><td>Not stated in the files</td></tr>
+</table>
+</div>
+<div class="table-wrap">
+<table>
+<tr><th>Data</th><th>Meaning (from the manual)</th><th>1st percentile</th><th>Median</th><th>99th percentile</th><th>Max</th></tr>
+<tr><td>NPP</td><td>Capacity for plant growth from a climatic standpoint</td><td class="num">11.4</td><td class="num">15.6</td><td class="num">17.4</td><td class="num">17.8</td></tr>
+<tr><td>SRAD</td><td>Sunlight depending on slope aspect and terrain</td><td class="num">664</td><td class="num">1413</td><td class="num">1657</td><td class="num">1751</td></tr>
+<tr><td>VTEX</td><td>Valley or ridge (trees tend to grow better in valleys)</td><td class="num">0</td><td class="num">44</td><td class="num">168</td><td class="num">375</td></tr>
+</table>
+</div>
+<p>According to the manual, NPP was made from 1 km gridded climate data, and SRAD and VTEX from a 50 m elevation grid, as uniform nationwide datasets.</p>
+<div class="note">The plugin code (top of <code>zoningkit_fetcher.py</code>) says "JGD2011 Plane Rectangular CS", but the actual CRS of the files is JGD2000.</div>
+
+<h2>3. How the plugin uses them</h2>
+<p>The three rasters feed into the estimation formula for the site index (height of dominant trees at age 40, in m) (<code>processes/raster_writer/siteidx.py</code>).</p>
+<pre>Site index = a + (NPP − b)·c − (SRAD − d)·0.01·e − (VTEX − f)·0.01·g</pre>
+<p>Default coefficients exist for each species (<code>settings_manager.py</code>). Source: Mitsuda, Y. and Kitahara, F. (2017).</p>
+<div class="table-wrap">
+<table>
+<tr><th>Species</th><th>a</th><th>b</th><th>c</th><th>d</th><th>e</th><th>f</th><th>g</th></tr>
+<tr><td>Sugi (Cryptomeria japonica)</td><td class="num">21.280</td><td class="num">15.82</td><td class="num">1.028</td><td class="num">1347.09</td><td class="num">1.001</td><td class="num">58.85</td><td class="num">1.111</td></tr>
+<tr><td>Hinoki (Chamaecyparis obtusa)</td><td class="num">16.830</td><td class="num">11.05</td><td class="num">0.9688</td><td class="num">1396.0</td><td class="num">0.09319</td><td class="num">61.92</td><td class="num">0.8617</td></tr>
+<tr><td>Karamatsu (Larix kaempferi)</td><td class="num">22.510</td><td class="num">11.61</td><td class="num">0.129</td><td class="num">1264.0</td><td class="num">0.2939</td><td class="num">44.3</td><td class="num">1.125</td></tr>
+</table>
+</div>
+
+<h2>4. What is needed to use it in other countries</h2>
+<h3>The ZoningKit part</h3>
+<ol>
+<li><strong>Recreate NPP, SRAD and VTEX with the same definitions.</strong> SRAD and VTEX can likely be made from any country's DEM once the calculation method is known. NPP requires climate data, and the formula used must be confirmed in Mitsuda and Kitahara (2017) or Forestry Agency documents (the method cannot be determined from these files).</li>
+<li><strong>Recreate the coefficients.</strong> The coefficients were fitted to Japanese forest survey data and three Japanese species, so they cannot be used as-is for other species or climates. Either build a local site index model, or directly supply a site index raster made by another method (the manual says a "custom site index" can be specified in the input field).</li>
+<li><strong>Replace the yarding efficiency settings.</strong> They are values for Japanese harvesting systems and must be replaced with local systems.</li>
+</ol>
+<h3>Other Japan-specific parts besides ZoningKit</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Part</th><th>Current implementation</th><th>Example replacement</th></tr>
+<tr><td>CRS detection</td><td>Only Plane Rectangular zones I–XIII. Determined by looking up the prefecture with the GSI reverse geocoder</td><td>UTM, etc.</td></tr>
+<tr><td>Coverage check</td><td>Stops processing as "outside coverage" where site data is missing</td><td>Match the coverage of the new site data</td></tr>
+<tr><td>DEM sources</td><td>GSI (Geospatial Information Authority of Japan), VIRTUAL SHIZUOKA, Nagano Prefecture</td><td>Global DEMs such as Copernicus DEM, local LiDAR</td></tr>
+<tr><td>Buildings / roads</td><td>Fundamental Geospatial Data (login required)</td><td>OpenStreetMap</td></tr>
+</table>
+</div>
+<p>The heaviest part of overseas support is how to derive the site index, i.e., how to replace the three rasters and the Japan-specific coefficients. The rest is swapping data sources and CRS.</p>
+
+<h2>5. Parts that require vegetation surveys</h2>
+<p>NPP, SRAD and VTEX are made from climate and terrain, so they can be made without vegetation surveys. Specialized vegetation surveys are needed for the coefficients and species. The Japanese coefficients were obtained by fitting forest survey measurements (tree height and stand age) to the three data layers for each species.</p>
+<p>What a survey summary needs to provide:</p>
+<ol>
+<li><strong>Target species:</strong> species targeted for planting and management in the region (equivalents of Japan's sugi, hinoki and karamatsu)</li>
+<li><strong>Growth reference:</strong> reference age for each species and the dominant height at that age. "Age 40" is a reference fitted to Japanese silviculture; the reference age changes for fast-growing tropical species or slow-growing boreal species</li>
+<li><strong>Georeferenced survey plots:</strong> data with tree height, stand age, species and coordinates (needed to refit the coefficients)</li>
+<li><strong>Existing materials:</strong> site class maps and yield tables. If available, they can be used by supplying a site index raster directly</li>
+</ol>
+<div class="note">Even if site quality in Japan can be explained by the three factors NPP, solar radiation and concavity, the same three may not explain it elsewhere. In dry regions soil moisture, and in the tropics soil type, may matter more. Vegetation surveys also inform which factors should explain site quality, not just the coefficients.</div>
+
+<h2>6. Building it from open data</h2>
+<p>If it can be built from open data, the tool could be offered for forestry, management and environmental measures outside Japan (Brazil, Canada, Spain, etc.), expanding the countries of use. Since site index is "dominant height at a reference age", a realistic approach is to build it in three layers.</p>
+<div class="table-wrap">
+<table>
+<tr><th>Layer</th><th>Role</th><th>Usable open data</th></tr>
+<tr><td>1. Explanatory factors</td><td>The equivalent of the three ZoningKit rasters. Country-independent</td><td>Terrain: compute solar radiation and concavity equivalents from Copernicus DEM (30 m) etc. Climate: WorldClim or satellite-derived NPP</td></tr>
+<tr><td>2. Height and age</td><td>Training data for fitting coefficients. A provisional formula can be made without national plots</td><td>Height: UMD GLAD global canopy height map (GEDI + Landsat, 30 m, 2019). Age: GAMI v2.0 (100 m, 2010 and 2020, CC BY 4.0). Its predecessor is the 1 km forest age map of Besnard et al. (2021)</td></tr>
+<tr><td>3. National correction</td><td>Verify and correct the result of layer 2 with each country's national forest inventory. Specialized vegetation survey summaries come in here</td><td>National forest inventories (next section)</td></tr>
+</table>
+</div>
+
+<h2>7. Status of national forest inventories in three countries</h2>
+<p>As researched on 19 October 2026.</p>
+<div class="table-wrap">
+<table>
+<tr><th>Country</th><th>Availability</th><th>Notes</th></tr>
+<tr><td>Spain</td><td>MITECO publishes IFN (National Forest Inventory) data. IFN4 is also registered in the FAO microdata catalog</td><td>The terms of use include "cite the source and date", but this refers to reports. The licence of plot data must be checked on the download page</td></tr>
+<tr><td>Canada</td><td>Parts of NFI plots require an application. MAGPlot, which integrates provincial data, is distributed as ZIP. SCANFI (30 m, height, species composition, biomass, Open Government Licence) is also available</td><td>BC and others protect plot coordinates. Could not confirm whether SCANFI has a site index layer</td></tr>
+<tr><td>Brazil</td><td>SFB publishes IFN open data as CSVs by state and theme (soil, litter, land use, bamboo, etc.). Cluster (conglomerado) center coordinates are in WGS84</td><td>Could not confirm whether height and age can be downloaded in a consolidated form. A version of the litter data correcting duplicates was released in October 2025</td></tr>
+</table>
+</div>
+
+<h2>8. Points of caution</h2>
+<ul>
+<li><strong>Different meanings of height:</strong> heights in global canopy height maps are canopy heights seen from satellites and differ in definition from the "dominant tree height" of site index. GLAD lists overestimation on mountain slopes and mixing with building heights in urban areas as known issues.</li>
+<li><strong>Plantations:</strong> for fast-growing plantations such as eucalyptus in Brazil, the accuracy of global forest age maps is likely to drop. It may be necessary to supplement with domestic data such as planting-year records.</li>
+<li><strong>Reference age:</strong> the Japanese reference of "age 40" needs to be redefined for each country and species.</li>
+<li><strong>Reading site quality:</strong> as the manual states, a site index from a uniform nationwide formula should be read not as an absolute value but as relative quality within a region. The same applies when building it for a new region until correction accuracy is established.</li>
+</ul>
+
+<h2>Sources</h2>
+<ul class="sources">
+<li>Forestry Agency, "Forest Zoning Support Tool MORIZON" ZoningKit (G-Spatial Information Center) / Site index estimation formula: Mitsuda, Y. and Kitahara, F. (2017)</li>
+<li><a href="https://www.miteco.gob.es/content/dam/miteco/es/biodiversidad/temas/inventarios-nacionales/2.MANUAL_PROCESO_DATOS_IFN4.pdf">MITECO IFN4 data processing manual</a></li>
+<li><a href="https://microdata.fao.org/index.php/catalog/3015/pdf-documentation">FAO Microdata: Spanish NFI4</a></li>
+<li><a href="https://ost.ecosyste.ms/projects/296660">forestables (ecosyste.ms)</a></li>
+<li><a href="https://open.canada.ca/data/en/dataset/35c3556c-e48d-41a7-ac50-652257b0a8e8">Canada's National Forest Inventory Ground Plot Data</a></li>
+<li><a href="https://open.canada.ca/data/dataset/6d6d115f-4cc2-4141-909e-3344b3a72bcf">Forest Inventory Ground Plots - Public Access</a></li>
+<li><a href="https://open.canada.ca/data/dataset/824e684b-4114-4a05-a490-aa56332b57f4">Forest Inventory Ground Plot Data and Interactive Map (BC)</a></li>
+<li><a href="https://open.canada.ca/data/en/dataset/18e6a919-53fd-41ce-b4e2-44a9707c52dc">SCANFI (open.canada.ca)</a></li>
+<li><a href="https://developers.google.com/earth-engine/datasets/catalog/projects_gcpm041u-lemur_assets_scanfi_v12_SCANFI_v1_2">SCANFI v1.2 (Earth Engine)</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/solos_ifn">IFN Brasil – Solos (dados.florestal.gov.br)</a></li>
+<li><a href="https://dados.florestal.gov.br/dataset/97ab0c26-c5c7-421c-8fb7-e4dab47d35ea/resource/73b79435-4759-49ca-86b0-2682e5ccb1d1/download/metadados_ifn_serapilheira_disp-set2025_retificado.pdf">IFN Brasil litter metadata (corrected version)</a></li>
+<li><a href="https://www.lex.com.br/resolucao-sfb-no-23-de-20-de-maio-de-2024/">Resolução SFB nº 23/2024</a></li>
+<li><a href="https://portalamazonia.com/inovacao-e-tecnologia/dados-amazonia-plataforma-digital/">Article on the IFN publication platform (Portal Amazônia)</a></li>
+<li><a href="https://glad.geog.umd.edu/dataset/gedi">UMD GLAD GEDI global canopy height</a></li>
+<li><a href="https://open.fsc.org/entities/publication/9e8b967e-c02a-4469-ba9b-61253d975916">Mapping global forest canopy height through integration of GEDI and Landsat data</a></li>
+<li><a href="https://essd.copernicus.org/articles/13/4881/2021/essd-13-4881-2021-assets.html">Besnard et al. 2021, ESSD</a></li>
+<li><a href="https://b2find.eudat.eu/dataset/0db4be79-c557-597b-a5f4-a441c7750335">GAMI (B2FIND)</a></li>
+<li><a href="https://essd.copernicus.org/articles/18/6225/2026/">ESSD 2026 vol.18 (GAMI)</a></li>
+</ul>
+
+</main>
+</body>
+</html>

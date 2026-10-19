@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>海外展開の調査</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="pages">
+  <a class="current" href="index.html">目次・進捗</a>
+  <a href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a>
+  <a href="02_planning_and_research.html">2 計画の詰めと調査</a>
+  <a href="03_literature_sources.html">3 論文の入手先</a>
+  <a href="04_search_range.html">4 探す範囲</a>
+  <a class="lang" href="en/index.html" lang="en">English</a>
+</nav>
+<main>
+
+<h1>海外展開の調査</h1>
+<p class="meta">MORIZON NEXT を日本以外の地域で使えるようにするための調査 ｜ 最終更新 2026-10-19</p>
+
+<h2>ページ</h2>
+<div class="table-wrap">
+<table>
+<tr><th>ページ</th><th>日付</th><th>内容</th></tr>
+<tr><td><a href="zoningkit_analysis.html">1 ZoningKit解析と海外展開</a></td><td>2026-10-19</td><td>ZoningKit の中身、プラグインでの使われ方、外国で使うために必要なもの、オープンデータでの組み立て、3か国の国家森林調査</td></tr>
+<tr><td><a href="02_planning_and_research.html">2 計画の詰めと調査</a></td><td>2026-10-19</td><td>プラグインの前提（地位指数の仕組み）。ページ1を受けたやり取り。問題提起、論点の整理、前提の決定、3要素の正体、地位指数の入れ方、国の比較、確認事項</td></tr>
+<tr><td><a href="03_literature_sources.html">3 論文の入手先</a></td><td>2026-10-19</td><td>3要素の出典の入手先。学会要旨（無料）と Mitsuda &amp; Ito 2015（無料）から分かった計算方法、まだ分からないこと</td></tr>
+<tr><td><a href="04_search_range.html">4 探す範囲</a></td><td>2026-10-19</td><td>Mitsuda &amp; Ito 2015 の search range の定義、要素ごとの使われ方、結果、計画への意味（ZoningKit の設定の手がかり、外国での既定値、DEM の細かさ）</td></tr>
+</table>
+</div>
+
+<h2>進捗</h2>
+<div class="table-wrap">
+<table>
+<tr><th>段階</th><th>内容</th><th>状態</th><th>ページ</th></tr>
+<tr><td>0</td><td>ZoningKit の中身とプラグインでの使われ方</td><td><span class="status done">済</span></td><td><a href="zoningkit_analysis.html">1</a></td></tr>
+<tr><td>1</td><td>目的と対象を決める</td><td><span class="status done">済</span></td><td><a href="02_planning_and_research.html#s3">2-3</a></td></tr>
+<tr><td>2</td><td>地位データ3要素の定義を確かめる</td><td><span class="status part">一部</span></td><td><a href="02_planning_and_research.html#s4">2-4</a>・<a href="03_literature_sources.html">3</a>・<a href="04_search_range.html">4</a></td></tr>
+<tr><td>2b</td><td>ユーザーが用意する前提での地位指数の入れ方（設計）</td><td><span class="status part">たたき台</span></td><td><a href="02_planning_and_research.html#s5">2-5</a></td></tr>
+<tr><td>3</td><td>候補国を比べる</td><td><span class="status part">第一段階</span></td><td><a href="02_planning_and_research.html#s6">2-6</a></td></tr>
+<tr><td>4</td><td>候補国ごとのオープンデータの可否</td><td><span class="status part">一部</span></td><td><a href="02_planning_and_research.html#s7">2-7</a></td></tr>
+<tr><td>5</td><td>1地域で試す</td><td><span class="status todo">未着手</span></td><td>—</td></tr>
+<tr><td>並行</td><td>翻訳の仕組みづくり（<code>tr()</code> 化、.ts/.qm）</td><td><span class="status todo">未着手</span></td><td>—</td></tr>
+</table>
+</div>
+
+<h2>考察</h2>
+<h3>地位指数を正しいものとして扱う危険（2026-10-19）</h3>
+<ul>
+<li>光田・北原（2017）の要旨では、地位指数と地形との関係は「スギとカラマツについては明らかであったが、ヒノキについては不明瞭であった」。係数にも表れており、ヒノキの日射係数の効きは 0.093 で、スギ（1.001）の10分の1以下（<a href="02_planning_and_research.html#base">ページ2 0節</a>）</li>
+<li>どのような検証があったにせよ、山林のことなので、全部は単なる指数としてのみ許容できる</li>
+<li>プラグインとして一般ユーザーが使うには「危険」である。出力の名前は「地位指数」で、値も 18、21 のように樹高（m）そのものに見える。手引きにも「値が18なら40年で樹高18mになる」とあり、正しい値として植栽樹種や施業の判断に使われうる</li>
+<li>中身は全国一律の式で、1km の気候と 50m の地形から出した推定にすぎない</li>
+<li>手引きやマニュアルの注意書き（相対値として扱う）だけでは足りない。出力の見せ方そのものが対策になる。方向の例（未決定）：表示名を「地位指数（相対値）」にする、地域内の順位（パーセンタイル）で見せる、根拠の弱い樹種ではそのことを画面に出す</li>
+<li>海外展開では、現地の係数がない状態で日本の式や仮の係数を使うことになり、この問題はさらに重くなる。地位指数をどう見せるかは計画の論点の一つ</li>
+</ul>
+
+<h2>更新履歴</h2>
+<ul>
+<li>2026-10-19 作成。ページ1（元の HTML）、ページ2（その後のやり取り）</li>
+<li>2026-10-19 ページ3（論文の入手先）を追加</li>
+<li>2026-10-19 英語版を追加（<code>en/</code>）</li>
+<li>2026-10-19 ページ4（探す範囲）を追加</li>
+<li>2026-10-19 ページ2に「0. プラグインの前提：地位指数の仕組み」を追記</li>
+<li>2026-10-19 目次に「考察」（地位指数を正しいものとして扱う危険）を追加</li>
+<li>2026-10-19 手引き（r8）の PDF を同梱から外し、ページ2に入手先を記載</li>
+<li>2026-10-19 Mitsuda &amp; Ito 2015 の PDF を同梱から外し、ページ4のリンクを J-STAGE に変更</li>
+</ul>
+
+</main>
+</body>
+</html>
