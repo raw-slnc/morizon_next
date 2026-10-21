@@ -27,6 +27,10 @@ SLOPE_THRESHOLDS = [0, 15, 20, 25, 30, 35, 40]
 SHC_THRESHOLDS = [0, 0.00195, 0.00391, 0.00781, 0.01563, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1]
 VERTICAL_AXIS_NAMES = {"ruggedness": "起伏量", "shc": "地形の複雑さ"}
 DEFAULT_ROW_THRESHOLDS = {"ruggedness": RUGGEDNESS_THRESHOLDS, "shc": SHC_THRESHOLDS}
+# 地形の複雑さの区切りは手引の「設定のイメージ」で、そのまま使うものではない（地域の値に合わせて変える）ため、
+# デフォルトではなく「手引の例」と呼ぶ
+DEFAULT_BUTTON_TEXTS = {"ruggedness": "デフォルトに戻す", "shc": "手引の例を表示"}
+DEFAULT_SOURCE_TEXTS = {"ruggedness": "表示中：デフォルト", "shc": "表示中：手引の例（図5-22）"}
 
 
 def current_axis_kind() -> str:
@@ -209,7 +213,9 @@ class CostCsvEditorWidget(QWidget):
         # 一覧の見出しの行に、いま表示しているパターンの出どころ（デフォルトか、読み込んだファイルか）を
         # 一覧の幅の中で右寄せに並べる
         title_row = QHBoxLayout()
-        title_row.addWidget(QLabel("機材名の一覧（色は右のパネルに対応。名前は編集できます）"))
+        # 軸の説明もこの1行にまとめる（縦軸の名前はモードで変わるため _update_axis_label で書く）
+        self.titleLabel = QLabel()
+        title_row.addWidget(self.titleLabel)
         self.sourceLabel = ElidedLabel()
         self.sourceLabel.setStyleSheet("color:#555;")
         self.sourceLabel.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -273,8 +279,12 @@ class CostCsvEditorWidget(QWidget):
 
         layout.addLayout(columns_row)
 
+        self.modeLabel = QLabel()
+        self.modeLabel.setWordWrap(True)
+        layout.addWidget(self.modeLabel)
+
         button_row = QHBoxLayout()
-        self.loadDefaultButton = QPushButton("デフォルトに戻す")
+        self.loadDefaultButton = QPushButton(DEFAULT_BUTTON_TEXTS[self._axis_kind])
         self.loadDefaultButton.clicked.connect(lambda: self.load_defaults())
         self.exportButton = QPushButton("CSVとして反映する")
         self.exportButton.setToolTip("表示中のパターンをCSVに書き出し、作業システムCSV欄に設定します")
@@ -312,10 +322,10 @@ class CostCsvEditorWidget(QWidget):
 
     def load_defaults(self, persist=True):
         """デフォルトのパターンにする。縦軸の区切りは、設定の「集材作業効率の計算処理」に合わせる
-        （起伏量なら原版のひな形、地形の複雑さなら手引 図5-22 の値）"""
+        （起伏量なら原版のひな形、地形の複雑さなら手引 図5-22 の値＝手引の例）"""
         self._set_pattern(
             DEFAULT_SCORES_ASCENDING, dict(DEFAULT_LEGEND),
-            "表示中：デフォルト", persist,
+            DEFAULT_SOURCE_TEXTS[self._axis_kind], persist,
             row_thresholds=DEFAULT_ROW_THRESHOLDS[self._axis_kind], col_thresholds=SLOPE_THRESHOLDS,
         )
         self._showing_default = True
@@ -344,8 +354,10 @@ class CostCsvEditorWidget(QWidget):
         """設定の「集材作業効率の計算処理」が変わったとき：縦軸の名前を合わせる。
         デフォルトを表示中なら、区切りもその計算処理のデフォルトにする（読み込んだ表の区切りは変えない）"""
         self._axis_kind = kind if kind in VERTICAL_AXIS_NAMES else "ruggedness"
+        self.loadDefaultButton.setText(DEFAULT_BUTTON_TEXTS[self._axis_kind])
         if self._showing_default:
             self._row_thresholds = list(DEFAULT_ROW_THRESHOLDS[self._axis_kind])
+            self.sourceLabel.setText(DEFAULT_SOURCE_TEXTS[self._axis_kind])
             self._redraw_panel()
         self._update_axis_label()
 
@@ -353,13 +365,26 @@ class CostCsvEditorWidget(QWidget):
         """パネルの説明（縦軸の名前）。表の縦軸の値が設定の計算処理と合っていないように見えたら書き添える
         （起伏量は数十〜数百m、地形の複雑さは0〜1程度）"""
         name = VERTICAL_AXIS_NAMES[self._axis_kind]
-        text = f"横軸=傾斜、縦軸={name}。色は右の機材名一覧に対応します。"
+        # モード（集材作業効率の計算処理）は QGIS 全体の設定で、会社などで考え方をそろえて使う前提。
+        # いまどちらのモードかを、ボタンの行のすぐ上に常に見せ、表をその考え方に合わせてもらう
+        self.modeLabel.setText(
+            f"<b>集材作業効率は「傾斜と{name}」で計算するモードです</b>（設定タブで変更できます）。"
+            "作業システムの表は、この考え方に合わせて作ってください。"
+        )
+        self.titleLabel.setText(f"機材名の一覧（右のパネルは横軸=傾斜、縦軸={name}。名前は編集できます）")
+        # 一番上の行は、注意があるときだけ出す
+        text = ""
         looks_like_ruggedness = max(self._row_thresholds) > 10
         if looks_like_ruggedness != (self._axis_kind == "ruggedness"):
             other = VERTICAL_AXIS_NAMES["ruggedness" if looks_like_ruggedness else "shc"]
-            text += (f"<br><span style='color:#c00000;'>表示中の表の縦軸は{other}の値に見えます。"
-                     f"設定の「集材作業効率の計算処理」（{name}）と合っているか確かめてください。</span>")
+            text = (f"<span style='color:#c00000;'>表示中の表の縦軸は{other}の値に見えます。"
+                    f"設定の「集材作業効率の計算処理」（{name}）と合っているか確かめてください。</span>")
+        elif self._showing_default and self._axis_kind == "shc":
+            text = ("<span style='color:#8a5a00;'>縦軸の区切りは手引の例です。そのままでは地形による差がほとんど出ません。"
+                    "地域の地形の複雑さの値（スコアリングタブの統計値表示など）を見て、"
+                    "Excelシートの「CSVで出力」シートで区切りを変えてください。</span>")
         self.axisLabel.setText(text)
+        self.axisLabel.setVisible(bool(text))
 
     def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None,
                      row_thresholds=None, col_thresholds=None):
