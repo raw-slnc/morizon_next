@@ -574,11 +574,6 @@ class ForestZoningMainDialogArchive:
         self.main.apply_workspace_output_dirs()
         aggregate_shp = morizon_restore.find_aggregate_shp(aggregate_dir)
 
-        # スコアリングのしきい値
-        params_path = os.path.join(zoning_dir, _json_name(OUTPUT_PARAMS_JSON))
-        if os.path.isfile(params_path):
-            self.main.scoring.apply_params_file(params_path)
-
         # 出力レイヤー（処理の順に追加し、後の工程ほど上に来るようにする）
         # スタイルの作り直し（統計計算）は大きなラスターで時間がかかるため、ワーカースレッドで作る
         outcome = self._run_thread(processes.data_restore.DataRestoreThread(
@@ -612,6 +607,11 @@ class ForestZoningMainDialogArchive:
 
         # 各タブの選択欄を、作り直したレイヤーに合わせる
         self.main.scoring.set_scoring_layer_combobox()
+        # スコアリングのしきい値は、実行したときの値（params.json）に戻し、その値で塗り直す。
+        # 選択欄にレイヤーを入れるとしきい値が初期値に入れ直されるため、入れ終わってから読む
+        params_path = os.path.join(zoning_dir, _json_name(OUTPUT_PARAMS_JSON))
+        if os.path.isfile(params_path):
+            self.main.scoring.apply_params_file(params_path)
         self.main.zoning.select_restored_layers()
         self.main.aggregate.select_restored_layers()
         self.main.printlayout.update_printlayout_layer_scope()

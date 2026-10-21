@@ -490,12 +490,11 @@
            <layout class="QGridLayout" name="gridLayout_4">
             <item row="3" column="17">
              <widget class="QPushButton" name="scoringDistanceStyleInitPushbutton">
-              <property name="text">
-               <string/>
+              <property name="toolTip">
+               <string>しきい値を初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</string>
               </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionFirst.svg</normaloff>imgs/mActionFirst.svg</iconset>
+              <property name="text">
+               <string>初期値</string>
               </property>
              </widget>
             </item>
@@ -508,23 +507,11 @@
             </item>
             <item row="2" column="17">
              <widget class="QPushButton" name="scoringCostStyleInitPushbutton">
+              <property name="toolTip">
+               <string>しきい値を初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</string>
+              </property>
               <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionFirst.svg</normaloff>imgs/mActionFirst.svg</iconset>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="16">
-             <widget class="QPushButton" name="scoringDistanceStyleUndoPushbutton">
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionArrowLeft.svg</normaloff>imgs/mActionArrowLeft.svg</iconset>
+               <string>初期値</string>
               </property>
              </widget>
             </item>
@@ -541,27 +528,6 @@
               </property>
               <property name="text">
                <string>地利</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="17">
-             <widget class="QLabel" name="label_3">
-              <property name="text">
-               <string>初期値</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="16">
-             <widget class="QPushButton" name="scoringCostStyleUndoPushbutton">
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionArrowLeft.svg</normaloff>imgs/mActionArrowLeft.svg</iconset>
               </property>
              </widget>
             </item>
@@ -638,26 +604,6 @@
               </property>
               <property name="alignment">
                <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="14">
-             <widget class="QPushButton" name="scoringSiteidxStyleReloadPushbutton">
-              <property name="maximumSize">
-               <size>
-                <width>40</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionRefresh.svg</normaloff>imgs/mActionRefresh.svg</iconset>
-              </property>
-              <property name="checkable">
-               <bool>false</bool>
               </property>
              </widget>
             </item>
@@ -747,23 +693,6 @@
               </property>
              </widget>
             </item>
-            <item row="2" column="14">
-             <widget class="QPushButton" name="scoringCostStyleReloadPushbutton">
-              <property name="maximumSize">
-               <size>
-                <width>40</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionRefresh.svg</normaloff>imgs/mActionRefresh.svg</iconset>
-              </property>
-             </widget>
-            </item>
             <item row="2" column="5">
              <widget class="QLabel" name="scoringCostScore1Label">
               <property name="text">
@@ -783,12 +712,11 @@
             </item>
             <item row="1" column="17">
              <widget class="QPushButton" name="scoringSiteidxStyleInitPushbutton">
-              <property name="text">
-               <string/>
+              <property name="toolTip">
+               <string>しきい値を初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</string>
               </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionFirst.svg</normaloff>imgs/mActionFirst.svg</iconset>
+              <property name="text">
+               <string>初期値</string>
               </property>
              </widget>
             </item>
@@ -796,17 +724,6 @@
              <widget class="QLabel" name="label_12">
               <property name="text">
                <string>&lt;=</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="16">
-             <widget class="QPushButton" name="scoringSiteidxStyleUndoPushbutton">
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionArrowLeft.svg</normaloff>imgs/mActionArrowLeft.svg</iconset>
               </property>
              </widget>
             </item>
@@ -1020,43 +937,6 @@
               </property>
              </widget>
             </item>
-            <item row="3" column="14">
-             <widget class="QPushButton" name="scoringDistanceStyleReloadPushbutton">
-              <property name="maximumSize">
-               <size>
-                <width>40</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionRefresh.svg</normaloff>imgs/mActionRefresh.svg</iconset>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="14">
-             <widget class="QLabel" name="label_4">
-              <property name="text">
-               <string>更新</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="16">
-             <widget class="QLabel" name="label_2">
-              <property name="text">
-               <string>戻る</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
            </layout>
           </item>
          </layout>
@@ -1099,23 +979,6 @@
               </property>
               <property name="singleStep">
                <double>0.001000000000000</double>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="13">
-             <widget class="QPushButton" name="scoringSlopeStyleReloadPushbutton">
-              <property name="maximumSize">
-               <size>
-                <width>40</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionRefresh.svg</normaloff>imgs/mActionRefresh.svg</iconset>
               </property>
              </widget>
             </item>
@@ -1426,64 +1289,23 @@
               </property>
              </widget>
             </item>
-            <item row="1" column="13">
-             <widget class="QPushButton" name="scoringShcStyleReloadPushbutton">
-              <property name="maximumSize">
-               <size>
-                <width>40</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionRefresh.svg</normaloff>imgs/mActionRefresh.svg</iconset>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="14">
-             <widget class="QPushButton" name="scoringShcStyleUndoPushbutton">
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionArrowLeft.svg</normaloff>imgs/mActionArrowLeft.svg</iconset>
-              </property>
-             </widget>
-            </item>
             <item row="1" column="15">
              <widget class="QPushButton" name="scoringShcStyleInitPushbutton">
+              <property name="toolTip">
+               <string>しきい値を初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</string>
+              </property>
               <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionFirst.svg</normaloff>imgs/mActionFirst.svg</iconset>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="14">
-             <widget class="QPushButton" name="scoringSlopeStyleUndoPushbutton">
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionArrowLeft.svg</normaloff>imgs/mActionArrowLeft.svg</iconset>
+               <string>初期値</string>
               </property>
              </widget>
             </item>
             <item row="2" column="15">
              <widget class="QPushButton" name="scoringSlopeStyleInitPushbutton">
-              <property name="text">
-               <string/>
+              <property name="toolTip">
+               <string>しきい値を初期値（面積でおおよそ3等分する値、傾斜は 35°・45°）に戻す</string>
               </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>imgs/mActionFirst.svg</normaloff>imgs/mActionFirst.svg</iconset>
+              <property name="text">
+               <string>初期値</string>
               </property>
              </widget>
             </item>
@@ -2664,23 +2486,18 @@
   <tabstop>scoringDistanceLayerCombobox</tabstop>
   <tabstop>scoringSiteidxThreshold1Spinbox</tabstop>
   <tabstop>scoringSiteidxThreshold2Spinbox</tabstop>
-  <tabstop>scoringSiteidxStyleReloadPushbutton</tabstop>
   <tabstop>scoringCostThreshold1Spinbox</tabstop>
   <tabstop>scoringCostThreshold2Spinbox</tabstop>
-  <tabstop>scoringCostStyleReloadPushbutton</tabstop>
   <tabstop>scoringDistanceThreshold1Spinbox</tabstop>
   <tabstop>scoringDistanceThreshold2Spinbox</tabstop>
-  <tabstop>scoringDistanceStyleReloadPushbutton</tabstop>
   <tabstop>scoringDisasterGroupbox</tabstop>
   <tabstop>scoringShcLayerCombobox</tabstop>
   <tabstop>scoringSlopeLayerCombobox</tabstop>
   <tabstop>scoringSaveareaLayerCombobox</tabstop>
   <tabstop>scoringShcThreshold1Spinbox</tabstop>
   <tabstop>scoringShcThreshold2Spinbox</tabstop>
-  <tabstop>scoringShcStyleReloadPushbutton</tabstop>
   <tabstop>scoringSlopeThreshold1Spinbox</tabstop>
   <tabstop>scoringSlopeThreshold2Spinbox</tabstop>
-  <tabstop>scoringSlopeStyleReloadPushbutton</tabstop>
   <tabstop>scoringRunPushButton</tabstop>
   <tabstop>zoningProfitLayerCombobox</tabstop>
   <tabstop>zoningRiskLayerCombobox</tabstop>

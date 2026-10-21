@@ -449,5 +449,6 @@ class ForestZoningMainDialogAggregate:
             utils.get_morizon_output_group().insertLayer(0, rlayer)
         rlayers_dict.clear()
         gc.collect()
-        # ゾーン統計量を見やすくするため、ゾーニング図の表示を OFF にする
-        utils.hide_output_layers(utils.STAGE_ZONING)
+        # ゾーン統計量を見やすくするため、前の工程（ゾーニング図・スコアリング・要素の収益性・災害リスク）を OFF にして閉じる
+        # （ゾーニングタブの操作でスコアリングが ON に戻っていることがあるため、ゾーニング図だけでなく前の工程すべて）
+        utils.hide_output_stages((utils.STAGE_ZONING, utils.STAGE_SCORING, utils.STAGE_ELEMENTS))

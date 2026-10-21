@@ -451,6 +451,11 @@ STAGE_SCORING = "scoring"
 STAGE_ZONING = "zoning"
 STAGE_AGGREGATE = "aggregate"
 STAGE_ROAD_BUILDING = "road_building"  # 要素計算タブの「道路と建物を出力」で出す、入力の道路縁・建築物
+# スコアリングの出力（収益性・災害リスク）を見るとき、表示を外すほかの工程
+# （前の工程の要素の収益性・災害リスクと、やり直しのときに残っている後の工程のゾーニング図・ゾーン統計量）
+SCORING_OTHER_STAGES = (STAGE_ELEMENTS, STAGE_ZONING, STAGE_AGGREGATE)
+# ゾーニング図を見るとき、表示を外すほかの工程（道路と建物は背景の扱いなので外さない）
+ZONING_OTHER_STAGES = (STAGE_ELEMENTS, STAGE_SCORING, STAGE_AGGREGATE)
 
 
 def tag_output_layer(layer, stage: str, key: str = ""):
@@ -507,6 +512,114 @@ def output_layers(stage: str = None, keys=None) -> list:
             continue
         result.append(layer)
     return result
+
+
+def output_top_nodes(stages) -> list:
+    """「Morizon Next」のすぐ下の項目のうち、指定した工程の出力レイヤーを含むもの（工程の印で探す）。
+    「Morizon Next」が無ければ空（作らない）"""
+    root = QgsProject.instance().layerTreeRoot()
+    top_group = next((child for child in root.children()
+                      if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME), None)
+    if top_group is None:
+        return []
+    layer_ids = {layer.id() for stage in stages for layer in output_layers(stage)}
+    nodes = []
+    for child in top_group.children():
+        if isinstance(child, QgsLayerTreeGroup):
+            child_ids = {node.layerId() for node in child.findLayers()}
+        else:
+            child_ids = {child.layerId()}
+        if child_ids & layer_ids:
+            nodes.append(child)
+    return nodes
+
+
+def fold_layer_tree(node):
+    """レイヤーパネルで、項目とその中をすべて閉じる（表示の ON/OFF は変えない）"""
+    for child in node.children():
+        fold_layer_tree(child)
+    if node.isExpanded():
+        node.setExpanded(False)
+
+
+def fold_output_tree():
+    """レイヤーパネルで、「Morizon Next」の中のグループ・レイヤーをすべて閉じる（「Morizon Next」自体は開いておく）。
+    表示の ON/OFF は変えない。「Morizon Next」が無ければ何もしない（作らない）"""
+    root = QgsProject.instance().layerTreeRoot()
+    top_group = next((child for child in root.children()
+                      if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME), None)
+    if top_group is None:
+        return
+    for child in top_group.children():
+        fold_layer_tree(child)
+
+
+def focus_output_stages(stages, open_children=True):
+    """レイヤーパネルで、「Morizon Next」の中の指定した工程の出力を開き、ほかの項目は閉じる。
+    open_children のときは、すぐ下の中身（スコアリングなら収益性・災害リスクの凡例）まで開く。
+    要素計算の出力のように中身が多いものは、軸のグループだけ開いて中の要素は閉じる（open_children=False）。
+    表示の ON/OFF は変えない。工程の出力が無ければ何もしない"""
+    stage_nodes = output_top_nodes(stages)
+    if not stage_nodes:
+        return
+    top_group = stage_nodes[0].parent()
+    top_group.setExpanded(True)
+    for child in top_group.children():
+        if child in stage_nodes:
+            child.setExpanded(True)
+            for grandchild in child.children():
+                if open_children:
+                    grandchild.setExpanded(True)
+                else:
+                    fold_layer_tree(grandchild)
+        else:
+            fold_layer_tree(child)
+
+
+def hide_output_stages(stages):
+    """「Morizon Next」の中の指定した工程の出力を OFF にして、中まで閉じる。
+    外すのはすぐ下の項目のチェックだけで、中のチェックは残す（入れ直せば元の表示に戻る）"""
+    for node in output_top_nodes(stages):
+        if node.itemVisibilityChecked():
+            node.setItemVisibilityChecked(False)
+        fold_layer_tree(node)
+
+
+def show_output_stage(stage: str) -> list:
+    """「Morizon Next」の中の工程 stage の出力の項目（すぐ下）にチェックを入れる（「Morizon Next」が OFF なら ON にする）。
+    中のレイヤーのチェックは変えない。チェックを入れた項目を返す（出力が無ければ空で、何もしない）"""
+    stage_nodes = output_top_nodes((stage,))
+    for node in stage_nodes:
+        if not node.itemVisibilityChecked():
+            node.setItemVisibilityChecked(True)
+    if stage_nodes:
+        top_group = stage_nodes[0].parent()
+        if not top_group.itemVisibilityChecked():
+            top_group.setItemVisibilityChecked(True)
+    return stage_nodes
+
+
+def show_output_stage_exclusively(stage: str, other_stages) -> bool:
+    """工程 stage の出力の項目（すぐ下）にチェックを入れ、ほかの工程の出力の項目はチェックを外して閉じる（排他）。
+    中のレイヤーのチェックは変えない。stage の出力の開閉はしない。出力が無ければ何もせず False"""
+    stage_nodes = output_top_nodes((stage,))
+    if not stage_nodes:
+        return False
+    for node in output_top_nodes(other_stages):
+        if node in stage_nodes:
+            continue
+        if node.itemVisibilityChecked():
+            node.setItemVisibilityChecked(False)
+        fold_layer_tree(node)
+    show_output_stage(stage)
+    return True
+
+
+def activate_output_stage(stage: str, other_stages):
+    """操作の対象が工程 stage の出力に移ったとき：その出力だけを表示し（show_output_stage_exclusively）、
+    レイヤーパネルでその出力を凡例まで開いてほかは閉じる"""
+    if show_output_stage_exclusively(stage, other_stages):
+        focus_output_stages((stage,))
 
 
 def hide_output_layers(stage: str = None, keys=None):

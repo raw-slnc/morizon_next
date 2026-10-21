@@ -120,6 +120,28 @@ class ForestZoningMainDialogZoning:
         self.threshold_panel.risk.visibilityToggled.connect(
             lambda checked: self.set_axis_layer_visible(self.main.zoningRiskLayerCombobox, checked))
         self.refresh_threshold_panel()
+        self.init_tree_focus()
+
+    def init_tree_focus(self):
+        """ゾーニングタブをユーザーが操作したら、操作の対象（スコアリングの収益性・災害リスク）に移る：
+        「スコアリング」グループにチェックを入れて凡例まで開き、ほかの工程（要素の収益性・災害リスク、ゾーニング図、
+        ゾーン統計量）はチェックを外して閉じる。中の収益性・災害リスクの各レイヤーの表示は変えない（表示ボタンで切り替える）。
+        プログラムが値を入れたとき（レイヤーの切り替わりに伴う初期値など）は動かない"""
+        def focus(*_):
+            utils.activate_output_stage(utils.STAGE_SCORING, utils.SCORING_OTHER_STAGES)
+
+        for spinbox in (self.main.zoningProfitSpinbox, self.main.zoningRiskSpinbox):
+            spinbox.valueChanged.connect(lambda _value, box=spinbox: box.hasFocus() and focus())
+        for view in (self.threshold_panel.profit, self.threshold_panel.risk):
+            view.thresholdChanged.connect(focus)  # 図の▲を動かしたとき
+            view.visibilityToggled.connect(focus)  # 図の下の表示ボタン
+        for signal in (
+            self.main.zoningProfitUpdateButton.clicked,  # 「初期値」
+            self.main.zoningRiskUpdateButton.clicked,
+            self.main.zoningProfitLayerCombobox.activated,  # ユーザーが選んだときだけ出る
+            self.main.zoningRiskLayerCombobox.activated,
+        ):
+            signal.connect(focus)
 
     @staticmethod
     def _layer_node(layer):

@@ -22,6 +22,7 @@ from qgis.PyQt.QtWidgets import (
     QLabel,
     QMessageBox,
     QProgressDialog,
+    QWidget,
 )
 from qgis.core import (
     QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
@@ -1316,6 +1317,22 @@ class ForestZoningMainDialogElements:
         tmp_roots = utils.ascii_safe_tmp_roots()
         tmp_checkbox = QCheckBox(f"計算で使った一時ファイルを削除（{'、'.join(tmp_roots)}）")
         self._insert_above_buttons(box, tmp_checkbox)
+
+        # タブで移る順番：キャンセル → OK → 個別データ → 一時ファイル（→ キャンセルに戻る）。
+        # 指定しないと窓に入った順（個別データ → ボタン → 一時ファイル）になる。
+        # ボタンの並びは表示するときに作り直されることがあるため、表示した後にもう一度指定する
+        def set_tab_order():
+            order = [
+                box.button(QMessageBox.StandardButton.Cancel),
+                box.button(QMessageBox.StandardButton.Ok),
+                delete_checkbox,
+                tmp_checkbox,
+            ]
+            for first, second in zip(order, order[1:]):
+                QWidget.setTabOrder(first, second)
+
+        set_tab_order()
+        QTimer.singleShot(0, set_tab_order)
         if box.exec() != QMessageBox.StandardButton.Ok:
             return
         utils.remove_project_layers(layers)
@@ -1490,6 +1507,8 @@ class ForestZoningMainDialogElements:
         outcome = run_with_progress(thread)
         if "result" in outcome:
             self.add_elements_layer_to_project(outcome["result"])
+            # やり直しのときに残っている後の工程（スコアリング・ゾーニング図・ゾーン統計量）は OFF にして閉じる
+            utils.hide_output_stages((utils.STAGE_SCORING, utils.STAGE_ZONING, utils.STAGE_AGGREGATE))
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:

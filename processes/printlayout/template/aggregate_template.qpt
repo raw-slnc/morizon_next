@@ -62,7 +62,7 @@
   </LayoutItem>
   <GuideCollection visible="1"/>
  </PageCollection>
- <LayoutItem templateUuid="{374974ad-5125-4366-9aed-7bdcb6287bc6}" marginY="0" id="" labelText="ゾーン統計量" marginX="0" blendMode="0" itemRotation="0" opacity="1" zValue="5" visibility="1" valign="32" positionLock="false" uuid="{374974ad-5125-4366-9aed-7bdcb6287bc6}" type="65641" groupUuid="" htmlState="0" frameJoinStyle="miter" outlineWidthM="0.3,mm" excludeFromExports="0" position="334,4.84835,mm" frame="false" size="62.4344,10.0033,mm" referencePoint="0" background="false" halign="8" positionOnPage="334,4.84835,mm">
+ <LayoutItem templateUuid="{374974ad-5125-4366-9aed-7bdcb6287bc6}" marginY="0" id="" labelText="ゾーン統計量" marginX="0" blendMode="0" itemRotation="0" opacity="1" zValue="5" visibility="1" valign="32" positionLock="false" uuid="{374974ad-5125-4366-9aed-7bdcb6287bc6}" type="65641" groupUuid="" htmlState="0" frameJoinStyle="miter" outlineWidthM="0.3,mm" excludeFromExports="0" position="324,4.84835,mm" frame="false" size="62.4344,10.0033,mm" referencePoint="0" background="false" halign="8" positionOnPage="324,4.84835,mm">
   <FrameColor green="0" red="0" alpha="255" blue="0"/>
   <BackgroundColor green="255" red="255" alpha="255" blue="255"/>
   <LayoutObject>
@@ -78,7 +78,7 @@
   <LabelFont style="Normal" description="MS UI Gothic,20,-1,5,50,0,0,0,0,0,標準"/>
   <FontColor green="0" red="0" alpha="255" blue="0"/>
  </LayoutItem>
- <LayoutItem templateUuid="{c7b4828e-36ed-4e8d-b31e-3c682d582c08}" id="方位記号" northMode="0" blendMode="0" pictureRotation="0" itemRotation="0" opacity="1" northOffset="0" zValue="5" visibility="1" pictureHeight="19.5108" positionLock="false" svgBorderWidth="0.2" uuid="{c7b4828e-36ed-4e8d-b31e-3c682d582c08}" type="65640" mapUuid="" groupUuid="" anchorPoint="0" svgBorderColor="0,0,0,255" frameJoinStyle="miter" svgFillColor="255,255,255,255" outlineWidthM="0.3,mm" excludeFromExports="0" position="377.626,265.574,mm" mode="0" frame="false" pictureWidth="15.4566" size="22.7482,19.5108,mm" referencePoint="0" background="false" positionOnPage="377.626,265.574,mm" file=":/images/north_arrows/layout_default_north_arrow.svg" resizeMode="0">
+ <LayoutItem templateUuid="{c7b4828e-36ed-4e8d-b31e-3c682d582c08}" id="方位記号" northMode="0" blendMode="0" pictureRotation="0" itemRotation="0" opacity="1" northOffset="0" zValue="5" visibility="1" pictureHeight="19.5108" positionLock="false" svgBorderWidth="0.2" uuid="{c7b4828e-36ed-4e8d-b31e-3c682d582c08}" type="65640" mapUuid="" groupUuid="" anchorPoint="0" svgBorderColor="0,0,0,255" frameJoinStyle="miter" svgFillColor="255,255,255,255" outlineWidthM="0.3,mm" excludeFromExports="0" position="377.626,267.575,mm" mode="0" frame="false" pictureWidth="15.4566" size="22.7482,19.5108,mm" referencePoint="0" background="false" positionOnPage="377.626,267.575,mm" file=":/images/north_arrows/layout_default_north_arrow.svg" resizeMode="0">
   <FrameColor green="0" red="0" alpha="255" blue="0"/>
   <BackgroundColor green="255" red="255" alpha="255" blue="255"/>
   <LayoutObject>

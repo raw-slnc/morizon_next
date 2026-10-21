@@ -27,7 +27,10 @@ from qgis.utils import iface
 import os
 
 
-def generate(target_name, background_layers, target_layer):
+def generate(target_name, background_layers, target_layer, extent_layers=None):
+    """extent_layers：地図の範囲を決めるレイヤー（ゾーニング図とゾーン統計量）。地図の中心は各レイヤーの範囲の中心の
+    真ん中、縮尺はその中心のまま全部のレイヤーが収まる大きさにする。2つのレイアウトで縮尺と中心（＝背景の位置）がそろう。
+    無ければ target_layer の範囲"""
     # レイアウトファイルの読み込み
     project = QgsProject.instance()
     composition = QgsPrintLayout(project)
@@ -61,11 +64,10 @@ def generate(target_name, background_layers, target_layer):
         map.setKeepLayerStyles(True)
     map.setFrameEnabled(True)
 
-    # マップの表示の調整
-    map.attemptMove(QgsLayoutPoint(20, 10, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
+    # マップの表示の調整（ゾーニング図・ゾーン統計量で同じ位置。右の凡例がページに収まるよう、左の余白は上と同じ 10mm）
+    map.attemptMove(QgsLayoutPoint(10, 10, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
     map.attemptResize(QgsLayoutSize(310, 270, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
-    target_layer_extent = get_target_layer_extent(target_layer)
-    map.zoomToExtent(target_layer_extent)
+    map.zoomToExtent(_centered_extent(extent_layers or [target_layer]))
     layout.addLayoutItem(map)
 
     # 方位記号アイテムの方向を地図の回転と同期
@@ -99,7 +101,8 @@ def generate(target_name, background_layers, target_layer):
         QgsProject.instance().layerTreeRoot().findLayer(target_layer.id()).layer()
     )
     layout.addItem(legend)
-    legend.attemptMove(QgsLayoutPoint(334, 14, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
+    # 地図の右端（320mm）から 4mm あける。タイトル（テンプレートのラベル）も同じ左端
+    legend.attemptMove(QgsLayoutPoint(324, 14, QgsUnitTypes.LayoutUnit.LayoutMillimeters))
     layout.addLayoutItem(legend)
 
     # レイアウトを開く
@@ -142,6 +145,19 @@ def _set_layer_opacity(layer, opacity):
         layer.setOpacity(opacity)
         return True
     return False
+
+
+def _centered_extent(layers):
+    """各レイヤーの範囲（プロジェクトの座標系）の中心の真ん中を中心にして、全部の範囲が収まる範囲。
+    片方の範囲が大きくても、中心はその大きい方に寄らない"""
+    extents = [get_target_layer_extent(layer) for layer in layers if layer is not None and layer.isValid()]
+    if not extents:
+        return QgsRectangle()
+    center_x = sum(extent.center().x() for extent in extents) / len(extents)
+    center_y = sum(extent.center().y() for extent in extents) / len(extents)
+    half_width = max(max(abs(extent.xMinimum() - center_x), abs(extent.xMaximum() - center_x)) for extent in extents)
+    half_height = max(max(abs(extent.yMinimum() - center_y), abs(extent.yMaximum() - center_y)) for extent in extents)
+    return QgsRectangle(center_x - half_width, center_y - half_height, center_x + half_width, center_y + half_height)
 
 
 def get_target_layer_extent(target_layer):

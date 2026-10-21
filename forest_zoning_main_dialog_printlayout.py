@@ -414,8 +414,18 @@ class ForestZoningMainDialogPrintlayout:
                 return
             project.layoutManager().removeLayout(manager.layoutByName(printlayout_name))
 
+        # 地図は、選んでいるゾーニング図とゾーン統計量の中心の真ん中を中心に、両方が収まる縮尺にする
+        # （縮尺・中心・背景を2つのレイアウトでそろえる）
+        extent_layers = [
+            layer for layer in (
+                self.main.printlayoutZoningLayerCombobox.currentLayer(),
+                self.main.printlayoutAggregateLayerCombobox.currentLayer(),
+            ) if layer is not None
+        ]
+        if target_layer not in extent_layers:
+            extent_layers.append(target_layer)
         processes.printlayout.create_printlayout.generate(
-            target_name, background_layers, target_layer
+            target_name, background_layers, target_layer, extent_layers
         )
 
     @staticmethod

@@ -368,7 +368,48 @@ class ForestZoningMainDialog(QDialog):
         self._refresh_timer.setInterval(100)
         self._refresh_timer.timeout.connect(self.refresh_all_tabs)
         self.tabWidget.currentChanged.connect(lambda _index: self.schedule_refresh_all_tabs())
+        self.tabWidget.currentChanged.connect(self.focus_tree_for_tab)
         utils.set_outputs_changed_callback(self.schedule_refresh_all_tabs)
+
+    # タブごとに、タブの中で操作する対象（工程の出力）と、その中身まで開くか。
+    # 要素計算の出力は要素が多いので、軸のグループ（収益性・災害リスク）だけ開き、要素は閉じたままにする
+    TAB_TREE_FOCUS = {
+        "tab_4": ((utils.STAGE_ELEMENTS,), False),  # スコアリング（要素のレイヤーのしきい値を決める）
+        "tab_2": ((utils.STAGE_SCORING,), True),  # ゾーニング（スコアリングの収益性・災害リスク）
+    }
+
+    # タブごとに、タブを開いたときに表示する工程の出力と、表示を外すほかの工程（排他。出力があるときだけ。
+    # チェックを入れ外しするのは「Morizon Next」のすぐ下の項目だけで、中のレイヤーのチェックは変えない）
+    TAB_SHOW_STAGE = {
+        "tab_2": (utils.STAGE_SCORING, utils.SCORING_OTHER_STAGES),  # ゾーニング：「スコアリング」グループ
+        "tab_3": (utils.STAGE_ZONING, utils.ZONING_OTHER_STAGES),  # ゾーン統計量：ゾーニング図
+    }
+
+    # タブごとに、タブを開いたときに表示を外すだけの工程（表示を入れるものは無い）
+    TAB_HIDE_STAGES = {
+        # スコアリング：要素の表示は入れない（要素の行を操作したときに1つずつ表示する）。後の工程の表示は外す
+        "tab_4": (utils.STAGE_SCORING, utils.STAGE_ZONING, utils.STAGE_AGGREGATE),
+    }
+
+    def focus_tree_for_tab(self, index):
+        """タブを切り替えたら、レイヤーパネルでタブの中で操作する対象を開き、「Morizon Next」の中のほかの項目は閉じる
+        （要素計算タブでは「Morizon Next」の中をすべて閉じる。印刷・設定タブでは開閉しない。
+        ゾーン統計量タブでは、表示を外した工程を閉じるだけ）。
+        ゾーニングタブでは「スコアリング」グループ、ゾーン統計量タブではゾーニング図を表示し、ほかの工程の表示は外す。
+        スコアリングタブでは、ほかの工程の表示を外すだけで、要素の表示は入れない"""
+        widget = self.tabWidget.widget(index)
+        name = widget.objectName() if widget is not None else ""
+        if name == "tab":  # 要素計算：「Morizon Next」の中をすべて閉じる（表示は変えない）
+            utils.fold_output_tree()
+        focus = self.TAB_TREE_FOCUS.get(name)
+        if focus is not None:
+            utils.focus_output_stages(*focus)
+        show = self.TAB_SHOW_STAGE.get(name)
+        if show is not None:
+            utils.show_output_stage_exclusively(*show)
+        hide = self.TAB_HIDE_STAGES.get(name)
+        if hide is not None:
+            utils.hide_output_stages(hide)
 
     def stop_layer_watch(self):
         """プラグインを外すときに呼ぶ（この画面は破棄されるので、知らせの受け先から外す）"""

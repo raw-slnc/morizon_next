@@ -62,7 +62,7 @@
   </LayoutItem>
   <GuideCollection visible="1"/>
  </PageCollection>
- <LayoutItem templateUuid="{a2f39b42-9148-486c-8bd2-9db5ea0a2818}" marginY="0" id="" labelText="ゾーニング図" marginX="0" blendMode="0" itemRotation="0" opacity="1" zValue="5" visibility="1" valign="32" positionLock="false" uuid="{a2f39b42-9148-486c-8bd2-9db5ea0a2818}" type="65641" groupUuid="" htmlState="0" frameJoinStyle="miter" outlineWidthM="0.3,mm" excludeFromExports="0" position="333.85,5.7369,mm" frame="false" size="60,12.2262,mm" referencePoint="0" background="false" halign="8" positionOnPage="333.85,5.7369,mm">
+ <LayoutItem templateUuid="{a2f39b42-9148-486c-8bd2-9db5ea0a2818}" marginY="0" id="" labelText="ゾーニング図" marginX="0" blendMode="0" itemRotation="0" opacity="1" zValue="5" visibility="1" valign="32" positionLock="false" uuid="{a2f39b42-9148-486c-8bd2-9db5ea0a2818}" type="65641" groupUuid="" htmlState="0" frameJoinStyle="miter" outlineWidthM="0.3,mm" excludeFromExports="0" position="324,5.7369,mm" frame="false" size="60,12.2262,mm" referencePoint="0" background="false" halign="8" positionOnPage="324,5.7369,mm">
   <FrameColor green="0" red="0" alpha="255" blue="0"/>
   <BackgroundColor green="255" red="255" alpha="255" blue="255"/>
   <LayoutObject>

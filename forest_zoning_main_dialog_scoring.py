@@ -7,8 +7,9 @@ import json
 import gc
 
 # QGIS-API
+from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QMessageBox
-from qgis.core import QgsMapLayer, QgsMapLayerProxyModel, QgsProject
+from qgis.core import QgsLayerTreeGroup, QgsMapLayer, QgsMapLayerProxyModel, QgsProject
 from qgis.gui import QgsMapLayerComboBox
 from qgis.utils import iface
 
@@ -24,6 +25,7 @@ from . import processes
 from . import utils
 from .constants import (
     DIR_ZONING,
+    OUTPUT_GROUP_NAME,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
     OUTPUT_SITEIDX_SUGI,
@@ -59,13 +61,8 @@ class ScoringObject:
         self.threshold1_spinbox = threshold1_spinbox
         self.threshold2_spinbox = threshold2_spinbox
         self.layer_name = laye_name
-        self.threshold_history_list = []
-
-    def append_threshold_history(self, threshold: list):
-        self.threshold_history_list.append(threshold)
-
-    def reset_threshold_history(self, init_threshold: list):
-        self.threshold_history_list = [init_threshold]
+        # しきい値の欄を動かしたとき、指が止まってから1回だけ塗り直すためのタイマー（ForestZoningMainDialogScoring が作る）
+        self.style_timer = None
 
     def get_scoring_colors(self):
         if self.layer_name == "siteidx":
@@ -103,7 +100,15 @@ def get_initial_thresholds_of(obj: ScoringObject):
 class ForestZoningMainDialogScoring:
     """
     メイン画面の「スコアリング」タブの処理を実装するクラス
+
+    要素の列（プルダウン・しきい値の欄・統計値・初期値）をユーザーが操作すると、その要素のスコアリングレイヤーを
+    今のしきい値で塗り直し、地図に表示する（親のグループも ON にする）。表示は元に戻さない
+    （プラグインからの切り替えも、レイヤーパネルでの操作も、ユーザーの操作として後から上書きしない）。
+    プログラムが値を入れたとき（レイヤーの切り替わりに伴う初期値、params.json の読み込み、選択の復元）は表示を切り替えない
     """
+
+    # しきい値の欄を動かしてから塗り直すまでの待ち時間（1段ごとに地図を描き直さないため）
+    STYLE_DELAY_MS = 400
 
     def __init__(self, main):
         self.main = main
@@ -191,26 +196,27 @@ class ForestZoningMainDialogScoring:
             obj.combobox.layerChanged.connect(self.refresh_set_layers_button)
         self.main.scoringSaveareaLayerCombobox.layerChanged.connect(self.refresh_set_layers_button)
 
-        # 更新ボタン
-        self.main.scoringSiteidxStyleReloadPushbutton.clicked.connect(
-            lambda: self.scoring_reload_thresholds(
-                self.scoring_objs_dict.get("siteidx")
+        # 列の操作で、その要素のスコアリングレイヤーを塗り直して表示する
+        for obj in self.scoring_objs_dict.values():
+            obj.style_timer = QTimer(self.main)
+            obj.style_timer.setSingleShot(True)
+            obj.style_timer.setInterval(self.STYLE_DELAY_MS)
+            obj.style_timer.timeout.connect(
+                lambda scoring_obj=obj: self.apply_row_operation(scoring_obj)
             )
-        )
-        self.main.scoringCostStyleReloadPushbutton.clicked.connect(
-            lambda: self.scoring_reload_thresholds(self.scoring_objs_dict.get("cost"))
-        )
-        self.main.scoringDistanceStyleReloadPushbutton.clicked.connect(
-            lambda: self.scoring_reload_thresholds(
-                self.scoring_objs_dict.get("distance")
+            for spinbox in (obj.threshold1_spinbox, obj.threshold2_spinbox):
+                spinbox.valueChanged.connect(
+                    lambda _value, scoring_obj=obj, box=spinbox: self.on_threshold_value_changed(
+                        scoring_obj, box
+                    )
+                )
+            # activated はユーザーが選んだときだけ出る（setLayer やレイヤーの追加・削除では出ない）。
+            # 初期値の設定（layerChanged）が済んでから塗り直すため、処理を後回しにする
+            obj.combobox.activated.connect(
+                lambda _index, scoring_obj=obj: QTimer.singleShot(
+                    0, lambda: self.apply_row_operation(scoring_obj)
+                )
             )
-        )
-        self.main.scoringSlopeStyleReloadPushbutton.clicked.connect(
-            lambda: self.scoring_reload_thresholds(self.scoring_objs_dict.get("slope"))
-        )
-        self.main.scoringShcStyleReloadPushbutton.clicked.connect(
-            lambda: self.scoring_reload_thresholds(self.scoring_objs_dict.get("shc"))
-        )
 
         # 統計値表示ボタン
         self.main.scoringSiteidxStatsButton.clicked.connect(
@@ -231,23 +237,6 @@ class ForestZoningMainDialogScoring:
         )
         self.main.scoringShcStatsButton.clicked.connect(
             lambda: self.show_scoring_rlayer_stats(self.scoring_objs_dict.get("shc"))
-        )
-
-        # Undoボタン
-        self.main.scoringSiteidxStyleUndoPushbutton.clicked.connect(
-            lambda: self.scoring_undo_thresholds(self.scoring_objs_dict.get("siteidx"))
-        )
-        self.main.scoringCostStyleUndoPushbutton.clicked.connect(
-            lambda: self.scoring_undo_thresholds(self.scoring_objs_dict.get("cost"))
-        )
-        self.main.scoringDistanceStyleUndoPushbutton.clicked.connect(
-            lambda: self.scoring_undo_thresholds(self.scoring_objs_dict.get("distance"))
-        )
-        self.main.scoringShcStyleUndoPushbutton.clicked.connect(
-            lambda: self.scoring_undo_thresholds(self.scoring_objs_dict.get("shc"))
-        )
-        self.main.scoringSlopeStyleUndoPushbutton.clicked.connect(
-            lambda: self.scoring_undo_thresholds(self.scoring_objs_dict.get("slope"))
         )
 
         # 初期値に戻すボタン
@@ -295,7 +284,8 @@ class ForestZoningMainDialogScoring:
         self.apply_params_file(result[0][0])
 
     def apply_params_file(self, filepath):
-        """params.json（スコアリング実行時に出力先へ書き出すしきい値）を各スピンボックスに反映する"""
+        """params.json（スコアリング実行時に出力先へ書き出すしきい値）を各スピンボックスに反映し、
+        各要素のスコアリングレイヤーをその値で塗り直す（表示の切り替えはしない）"""
         thresholds_dict = {}
         with open(filepath) as f:
             thresholds_dict = json.load(f)
@@ -334,6 +324,9 @@ class ForestZoningMainDialogScoring:
             QMessageBox.information(
                 self.main, "エラー", "本プロクラムで生成したパラメータJSONファイルを選択してください。"
             )
+            return
+        for scoring_obj in self.scoring_objs_dict.values():
+            self.set_scoring_raster_style(scoring_obj)
 
     def set_scoring_layer_combobox(self):
         """
@@ -406,62 +399,42 @@ class ForestZoningMainDialogScoring:
         self.main.scoringRunPushButton.setEnabled(len(error_texts) == 0)
 
         # 各要素ごとのボタンの有効化チェック
-        for combobox, stats_button, reload_button, undo_button, init_button, obj in (
+        for combobox, stats_button, init_button in (
             (
                 self.main.scoringSiteidxLayerCombobox,
                 self.main.scoringSiteidxStatsButton,
-                self.main.scoringSiteidxStyleReloadPushbutton,
-                self.main.scoringSiteidxStyleUndoPushbutton,
                 self.main.scoringSiteidxStyleInitPushbutton,
-                self.scoring_objs_dict["siteidx"],
             ),
             (
                 self.main.scoringCostLayerCombobox,
                 self.main.scoringCostStatsButton,
-                self.main.scoringCostStyleReloadPushbutton,
-                self.main.scoringCostStyleUndoPushbutton,
                 self.main.scoringCostStyleInitPushbutton,
-                self.scoring_objs_dict["cost"],
             ),
             (
                 self.main.scoringDistanceLayerCombobox,
                 self.main.scoringDistanceStatsButton,
-                self.main.scoringDistanceStyleReloadPushbutton,
-                self.main.scoringDistanceStyleUndoPushbutton,
                 self.main.scoringDistanceStyleInitPushbutton,
-                self.scoring_objs_dict["distance"],
             ),
             (
                 self.main.scoringSlopeLayerCombobox,
                 self.main.scoringSlopeStatsButton,
-                self.main.scoringSlopeStyleReloadPushbutton,
-                self.main.scoringSlopeStyleUndoPushbutton,
                 self.main.scoringSlopeStyleInitPushbutton,
-                self.scoring_objs_dict["slope"],
             ),
             (
                 self.main.scoringShcLayerCombobox,
                 self.main.scoringShcStatsButton,
-                self.main.scoringShcStyleReloadPushbutton,
-                self.main.scoringShcStyleUndoPushbutton,
                 self.main.scoringShcStyleInitPushbutton,
-                self.scoring_objs_dict["shc"],
             ),
         ):
             # まずすべてのUIを無効化する
             stats_button.setEnabled(False)
-            reload_button.setEnabled(False)
             init_button.setEnabled(False)
-            undo_button.setEnabled(False)
 
             # 使用可能なボタンのみ有効化する
             if combobox.currentLayer() is not None:
                 is_valid = utils.is_valid_elements_layer(combobox.currentLayer())
                 stats_button.setEnabled(is_valid)
-                reload_button.setEnabled(is_valid)
                 init_button.setEnabled(is_valid)
-            if len(obj.threshold_history_list) > 1:
-                undo_button.setEnabled(True)
 
     def update_scoring_layer_scope(self):
         name_suffix = "[スコアリング]"
@@ -503,6 +476,10 @@ class ForestZoningMainDialogScoring:
             )
 
     def set_scoring_raster_style(self, scoring_obj: ScoringObject):
+        target_layer = scoring_obj.combobox.currentLayer()
+        if not utils.is_usable_raster_layer(target_layer):
+            return False
+
         scores = scoring_obj.get_scores()
         scoring_colors = scoring_obj.get_scoring_colors()
         threshold1 = scoring_obj.threshold1_spinbox.value()
@@ -513,42 +490,65 @@ class ForestZoningMainDialogScoring:
             scoring_colors,
             scores,
         )
-        target_layer = scoring_obj.combobox.currentLayer()
 
+        # 不透明度は今のレイヤーのものを引き継ぐ（塗り直すたびに不透明度が変わらないように）
+        opacity = target_layer.renderer().opacity() if target_layer.renderer() is not None else None
         target_layer.loadNamedStyle(qml_filepath)
+        if opacity is not None and target_layer.renderer() is not None:
+            target_layer.renderer().setOpacity(opacity)
         iface.layerTreeView().refreshLayerSymbology(target_layer.id())  # レイヤー一覧の凡例を更新
         apply_output_blend_mode(target_layer)
         target_layer.triggerRepaint()  # キャンバス上の見た目を更新
+        return True
 
-    def scoring_reload_thresholds(self, scoring_obj: ScoringObject):
-        """「更新」ボタンの動作"""
-        self.set_scoring_raster_style(scoring_obj)
+    def on_threshold_value_changed(self, scoring_obj: ScoringObject, spinbox: QDoubleSpinBox):
+        """しきい値の欄の値が変わったとき。ユーザーが欄を操作しているとき（欄にフォーカスがあるとき）だけ、
+        指が止まってから塗り直す。プログラムが値を入れたときは何もしない（入れた側が必要なら塗り直す）"""
+        if not spinbox.hasFocus():
+            return
+        scoring_obj.style_timer.start()
 
-        # 更新した時点の閾値をScoringObjectに記録する
-        threshold1 = scoring_obj.threshold1_spinbox.value()
-        threshold2 = scoring_obj.threshold2_spinbox.value()
-        scoring_obj.append_threshold_history([threshold1, threshold2])
-        self.refresh_scoring_ui()
+    def apply_row_operation(self, scoring_obj: ScoringObject):
+        """要素の列をユーザーが操作したとき：今のしきい値で塗り直し、そのスコアリングレイヤーを地図に表示する"""
+        scoring_obj.style_timer.stop()
+        if self.set_scoring_raster_style(scoring_obj):
+            self.show_layer_on_map(scoring_obj.combobox.currentLayer())
 
-    def scoring_undo_thresholds(self, scoring_obj: ScoringObject):
-        """
-        「戻すボタン」の動作
-        """
-        if len(scoring_obj.threshold_history_list) < 2:
-            # 履歴がなければ処理を終了
+    @staticmethod
+    def show_layer_on_map(layer):
+        """レイヤーにチェックを入れ、親のグループ（要素・収益性／災害リスク・Morizon Next）も ON にする。
+        最上位のグループ（Morizon Next）の中は、このレイヤーだけを表示する（災害リスクの要素どうしも、操作中は重ねない）。
+        レイヤーパネルでは、このレイヤーまでの道筋とこのレイヤーの凡例だけを開き、ほかは閉じる（操作中の凡例を見るため）。
+        最上位のグループの外は触らない"""
+        node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+        if node is None:
+            return
+        node.setItemVisibilityChecked(True)
+        path = []
+        parent = node.parent()
+        while parent is not None and parent.parent() is not None:
+            parent.setItemVisibilityChecked(True)
+            path.append(parent)
+            parent = parent.parent()
+        if not path:
             return
 
-        # 直前の閾値があればそれをspinboxにセットし、最新の閾値を削除する
-        scoring_obj.threshold1_spinbox.setValue(
-            scoring_obj.threshold_history_list[-2][0]
-        )
-        scoring_obj.threshold2_spinbox.setValue(
-            scoring_obj.threshold_history_list[-2][1]
-        )
-        scoring_obj.threshold_history_list.pop(-1)
+        def focus(group):
+            """道筋の上にないものは、表示を外して閉じる（外すのはその項目のチェックだけで、中のチェックは残す）"""
+            for child in group.children():
+                on_path = child is node or child in path
+                if not on_path and child.itemVisibilityChecked():
+                    child.setItemVisibilityChecked(False)
+                if isinstance(child, QgsLayerTreeGroup) and on_path:
+                    focus(child)
+                if child.isExpanded() != on_path:
+                    child.setExpanded(on_path)
 
-        self.set_scoring_raster_style(scoring_obj)
-        self.refresh_scoring_ui()
+        top_group = path[-1]
+        if top_group.name() != OUTPUT_GROUP_NAME:
+            return  # ユーザーが Morizon Next の外へ動かしたレイヤーなら、ほかの表示と開閉はしない
+        top_group.setExpanded(True)
+        focus(top_group)
 
     def show_scoring_rlayer_stats(self, scoring_obj: ScoringObject):
         self.main.hide()
@@ -566,36 +566,27 @@ class ForestZoningMainDialogScoring:
             threshold1, threshold2 = stats_dialog.get_thresholds()
             scoring_obj.threshold1_spinbox.setValue(threshold1)
             scoring_obj.threshold2_spinbox.setValue(threshold2)
-            self.set_scoring_raster_style(scoring_obj)
-
-            scoring_obj.append_threshold_history([threshold1, threshold2])
-            self.refresh_scoring_ui()
+            self.apply_row_operation(scoring_obj)
 
         self.main.show()
         self.main.raise_()
         self.main.activateWindow()
 
     def init_scoring_rlayer_stats(self, scoring_obj: ScoringObject):
-        """レイヤがリセットされた時の挙動"""
+        """レイヤがリセットされた時の挙動（しきい値を初期値にする。レイヤーは初期値の色分けで作られているので塗り直さない）"""
 
         thresholds = get_initial_thresholds_of(scoring_obj)
 
         scoring_obj.threshold1_spinbox.setValue(thresholds[0])
         scoring_obj.threshold2_spinbox.setValue(thresholds[1])
-        # scoring_objの履歴リストをリセットする
-        scoring_obj.reset_threshold_history(thresholds)
 
     def back_to_initial_state(self, scoring_obj: ScoringObject):
-        """「初期化に戻す」ボタンがクリックした時の挙動"""
+        """「初期値」ボタンがクリックした時の挙動"""
         thresholds = get_initial_thresholds_of(scoring_obj)
 
         scoring_obj.threshold1_spinbox.setValue(thresholds[0])
         scoring_obj.threshold2_spinbox.setValue(thresholds[1])
-        # ラスタスタイルを設定する
-        self.set_scoring_raster_style(scoring_obj)
-        # scoring_objの履歴リストに記録する
-        scoring_obj.append_threshold_history(thresholds)
-        self.refresh_scoring_ui()
+        self.apply_row_operation(scoring_obj)
 
     def set_scoring_score_labels_from_settings(self):
         smanager = SettingsManager()
@@ -843,6 +834,9 @@ class ForestZoningMainDialogScoring:
         outcome = run_with_progress(thread)
         if "result" in outcome:
             self.add_layers_to_project(outcome["result"])
+            # 作った「スコアリング」グループを表示して凡例まで開き、ほかの工程は OFF にして閉じる
+            # （前の工程の要素の収益性・災害リスクと、やり直しのときに残っている後の工程のゾーニング図・ゾーン統計量）
+            utils.activate_output_stage(utils.STAGE_SCORING, utils.SCORING_OTHER_STAGES)
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:
