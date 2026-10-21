@@ -60,7 +60,7 @@ from .constants import (
 from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
-from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget
+from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget, read_costcsv
 
 
 # 公式の手引（G空間情報センターで公開されているPDF）。ダイアログには題名だけを出し、開くのはボタンから。
@@ -461,8 +461,31 @@ class ForestZoningMainDialogElements:
             error_texts.append("計算する要素をひとつ以上選択してください")
         if self.main.elementsOutputDirFileWidget.filePath() == "":
             error_texts.append("QGISプロジェクトを保存してください（出力先はプロジェクトと同じフォルダの morizon_next/<プロジェクトのファイル名> の中に決まります）")
+        costcsv_error = self.get_costcsv_error()
+        if costcsv_error:
+            error_texts.append(costcsv_error)
 
         return error_texts
+
+    def get_costcsv_error(self) -> str:
+        """集材作業効率を計算するとき、作業システムCSVの形が崩れていれば理由を返す（問題なければ空）。
+        形が崩れたCSVは、表に無い範囲が黙って0点（作業不可）になるなどするため、要素計算の前に止める"""
+        path = self.main.elementsCostCsvFileWidget.filePath()
+        if not self.main.elementsCostCheckbox.isChecked() or not path or not os.path.isfile(path):
+            return ""
+        try:
+            read_costcsv(path)
+        except (ValueError, OSError) as e:
+            return f"作業システムCSV（{os.path.basename(path)}）：{e}"
+        return ""
+
+    def _reflect_costcsv_to_editor(self, path):
+        """「…」で選んだ作業システムCSVを、作業システム設定の表示にも反映する（形が崩れていれば反映しない。
+        理由は要素計算タブの注意書きに出る）。プラグインが入力欄に入れたとき（再開など）は呼ばない"""
+        try:
+            self.costcsv_editor.load_from_csv(path)
+        except (ValueError, OSError):
+            pass
 
     def _confirm_siteindex_coverage(self) -> bool:
         """地位指数を計算するとき、DEMの範囲が地位指数データの整備範囲外（離島など）なら、計算を始める前に知らせて止める。
@@ -697,11 +720,15 @@ class ForestZoningMainDialogElements:
                 or not self.main.has_workspace():
             # プラグインが設定したとき・空欄・入力途中・作業フォルダが無い（未保存のプロジェクト）ときはそのまま
             self._input_paths[key] = path
+            if key == "costcsv" and not self.main.is_input_import_suppressed() and path and os.path.isfile(path):
+                self._reflect_costcsv_to_editor(path)
             return
         input_def = morizon_data.INPUT_DEFS[key]
         target_dir = utils.get_workspace_dir(DIR_DATA, *input_def["PATH"])
         if utils.is_under_dir(os.path.abspath(path), target_dir):
             self._input_paths[key] = path
+            if key == "costcsv":
+                self._reflect_costcsv_to_editor(path)
             return
 
         old_files = self._files_of_type(target_dir, input_def["EXT"])
@@ -729,6 +756,8 @@ class ForestZoningMainDialogElements:
         for _, part in tasks:
             os.replace(part, part[:-len(".part")])
         self._set_input_path(key, os.path.join(target_dir, os.path.basename(path)))
+        if key == "costcsv":
+            self._reflect_costcsv_to_editor(self._input_paths[key])
 
     def start_from_dem_browser(self):
         """

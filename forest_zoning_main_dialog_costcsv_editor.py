@@ -14,10 +14,32 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .constants import RAWDATA_COLORS_COST
+from .processes.costcsv_parser import check_costcsv_rows, read_costcsv_rows
+from .settings_manager import SettingsManager
 
-# 起伏量・傾斜のしきい値（原版の「集材作業効率の設定220113.xlsx」と同じ）
+# 起伏量・傾斜のしきい値（原版の「集材作業効率の設定220113.xlsx」と同じ）。
+# パネルのマスの位置と大きさはこの値で決める（マスの数は10x6で固定）。読み込んだ表の区切りが違うときは、
+# 同じマスの境目に、その表の区切りの値を目盛りとして書く
 RUGGEDNESS_THRESHOLDS = [0, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
 SLOPE_THRESHOLDS = [0, 15, 20, 25, 30, 35, 40]
+# 集材作業効率を「傾斜と地形の複雑さ」で計算するとき（設定の集材作業効率の計算処理）の縦軸の区切り。
+# 手引 図5-22（地形の複雑さに合わせた集材作業効率の指定イメージ）と同じ
+SHC_THRESHOLDS = [0, 0.00195, 0.00391, 0.00781, 0.01563, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1]
+VERTICAL_AXIS_NAMES = {"ruggedness": "起伏量", "shc": "地形の複雑さ"}
+DEFAULT_ROW_THRESHOLDS = {"ruggedness": RUGGEDNESS_THRESHOLDS, "shc": SHC_THRESHOLDS}
+
+
+def current_axis_kind() -> str:
+    """設定の「集材作業効率の計算処理」：起伏量（ruggedness）か地形の複雑さ（shc）か"""
+    kind = SettingsManager().get_setting("cost_algorithm")
+    return kind if kind in VERTICAL_AXIS_NAMES else "ruggedness"
+
+
+def format_threshold(value) -> str:
+    """区切りの値を表示・書き出し用の文字にする（整数は小数点なし。0.00195 などはそのまま）"""
+    value = float(value)
+    return str(int(value)) if value == int(value) else f"{value:g}"
+
 
 # デフォルト：同梱の原版Excel（templates/sagyo_system_template_220113.xlsx）の「入力例」シートと同じ内容。
 # 起伏量の昇順(行0=0-100側)で並べたスコア(機材コード0-10)。利用者がデフォルトを変える手段は設けない
@@ -54,22 +76,11 @@ DEFAULT_LEGEND = [
 MARGIN_DEGREES_MAX = 3
 
 
-def read_costcsv(csv_path: str):
+def read_costcsv(csv_path: str) -> dict:
     """作業システムCSV（原版のExcelひな形「CSVで出力」シート、またはこのエディタの書き出し）を読み、
-    (起伏量昇順のスコア10x6, {コード: 機材名}) を返す。
-    このエディタは起伏量・傾斜のしきい値が標準（手引・ひな形と同じ）であることを前提に描くため、
-    しきい値が違うCSVは ValueError にする（解析にはそのまま使える）。"""
-    rows = None
-    for encoding in ("cp932", "utf-8-sig"):
-        try:
-            with open(csv_path, encoding=encoding, newline="") as f:
-                rows = [[cell.strip() for cell in row] for row in csv.reader(f)]
-            break
-        except UnicodeDecodeError:
-            continue
-    if rows is None:
-        raise ValueError("文字コードを判別できません（Shift_JIS か UTF-8 で保存してください）")
-    return parse_costcsv_rows(rows)
+    processes.costcsv_parser.check_costcsv_rows と同じ形（区切り・縦軸昇順のコード10x6・機材名）で返す。
+    要素計算と同じ検査をかけ、形が崩れていれば ValueError。区切りの値は問わない"""
+    return check_costcsv_rows(read_costcsv_rows(csv_path))
 
 
 # 原版のExcelひな形で、CSVと同じ形の表が式で組み上がるシート
@@ -105,41 +116,8 @@ def read_costcsv_xlsx(xlsx_path: str):
     dataset = None
     if not rows or not any(rows[0]):
         raise ValueError(f"「{XLSX_CSV_SHEET}」シートに値がありません（表計算ソフトで保存し直してください）")
-    return parse_costcsv_rows(rows)
-
-
-def parse_costcsv_rows(rows):
-    """作業システムCSVと同じ並びの表（文字列の行の配列）を読み、read_costcsv と同じ形で返す"""
-    def to_number(text):
-        try:
-            return float(text)
-        except ValueError:
-            return None
-
-    n_rows = len(RUGGEDNESS_THRESHOLDS) - 1
-    n_cols = len(SLOPE_THRESHOLDS) - 1
-    if len(rows) < n_rows + 1:
-        raise ValueError("表の行数が足りません")
-    header = [to_number(cell) for cell in rows[0][:n_cols + 2]]
-    labels = [to_number(row[0]) if row else None for row in rows[1:n_rows + 1]]
-    if header != [RUGGEDNESS_THRESHOLDS[-1]] + SLOPE_THRESHOLDS or labels != RUGGEDNESS_THRESHOLDS[-2::-1]:
-        raise ValueError("起伏量・傾斜のしきい値が標準と異なるため、表示には反映できません（解析にはそのまま使えます）")
-
-    scores_descending = []
-    for row in rows[1:n_rows + 1]:
-        values = [to_number(cell) for cell in row[1:n_cols + 1]]
-        if len(values) < n_cols or any(v is None or v != int(v) or not 0 <= v <= 10 for v in values):
-            raise ValueError("表に0〜10以外の値か空欄があります")
-        scores_descending.append([int(v) for v in values])
-
-    # 表の下の「コード, 機材名」（見出し行の有無はどちらでもよい）
-    names = {}
-    for row in rows[n_rows + 1:]:
-        if len(row) >= 2 and to_number(row[0]) is not None and row[1]:
-            code = int(to_number(row[0]))
-            if 0 <= code <= 10:
-                names[code] = row[1]
-    return list(reversed(scores_descending)), names
+    # シートの空の行が保たれるとは限らないため、下の表（コードと機材名）は位置を決めずに探す
+    return check_costcsv_rows(rows, lower_fixed=False)
 
 
 class ElidedLabel(QLabel):
@@ -213,13 +191,18 @@ class CostCsvEditorWidget(QWidget):
         self._margin = 0.0
         # 保有していない機材のコード集合。該当マスは0(該当なし)として扱う
         self._disabled_codes = set()
+        # 表示中の表の区切り（縦軸は昇順11個、傾斜は7個）。パネルの目盛りと書き出しに使う
+        self._axis_kind = current_axis_kind()
+        self._row_thresholds = list(DEFAULT_ROW_THRESHOLDS[self._axis_kind])
+        self._col_thresholds = list(SLOPE_THRESHOLDS)
+        self._showing_default = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        layout.addWidget(QLabel(
-            "横軸=傾斜、縦軸=起伏量。色は右の機材名一覧に対応します。"
-        ))
+        self.axisLabel = QLabel()
+        self.axisLabel.setWordWrap(True)
+        layout.addWidget(self.axisLabel)
         columns_row = QHBoxLayout()
 
         left_col = QVBoxLayout()
@@ -328,32 +311,63 @@ class CostCsvEditorWidget(QWidget):
         self._redraw_panel()
 
     def load_defaults(self, persist=True):
+        """デフォルトのパターンにする。縦軸の区切りは、設定の「集材作業効率の計算処理」に合わせる
+        （起伏量なら原版のひな形、地形の複雑さなら手引 図5-22 の値）"""
         self._set_pattern(
             DEFAULT_SCORES_ASCENDING, dict(DEFAULT_LEGEND),
             "表示中：デフォルト", persist,
+            row_thresholds=DEFAULT_ROW_THRESHOLDS[self._axis_kind], col_thresholds=SLOPE_THRESHOLDS,
         )
+        self._showing_default = True
+        self._update_axis_label()
 
     def load_from_csv(self, csv_path: str, persist=True):
-        """作業システムCSVのパターンと機材名を表示に反映する。読めない場合は ValueError（表示は変えない）。
+        """作業システムCSVのパターン・区切り・機材名を表示に反映する。読めない場合は ValueError（表示は変えない）。
         読み込んだパターンをそのまま基準にするため、保有していない機材の指定とマージンは初期化する"""
-        scores, names = read_costcsv(csv_path)
-        merged_names = dict(DEFAULT_LEGEND)
-        merged_names.update(names)
-        file_name = os.path.basename(csv_path)
-        self._set_pattern(scores, merged_names, f"表示中：{file_name}", persist,
-                          elide_part=file_name, tooltip=csv_path)
+        self._load_table(read_costcsv(csv_path), csv_path, persist)
 
     def load_from_xlsx(self, xlsx_path: str, persist=True):
         """原版のExcelひな形の内容を表示に反映する（load_from_csv と同じ扱い）。読めない場合は ValueError"""
-        scores, names = read_costcsv_xlsx(xlsx_path)
-        merged_names = dict(DEFAULT_LEGEND)
-        merged_names.update(names)
-        file_name = os.path.basename(xlsx_path)
-        self._set_pattern(scores, merged_names, f"表示中：{file_name}", persist,
-                          elide_part=file_name, tooltip=xlsx_path)
+        self._load_table(read_costcsv_xlsx(xlsx_path), xlsx_path, persist)
 
-    def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None):
+    def _load_table(self, table, path, persist):
+        merged_names = dict(DEFAULT_LEGEND)
+        merged_names.update({code: name for code, name in table["names"].items() if name})
+        file_name = os.path.basename(path)
+        self._set_pattern(table["scores_ascending"], merged_names, f"表示中：{file_name}", persist,
+                          elide_part=file_name, tooltip=path,
+                          row_thresholds=table["row_thresholds"], col_thresholds=table["col_thresholds"])
+        self._showing_default = False
+        self._update_axis_label()
+
+    def set_axis_kind(self, kind: str):
+        """設定の「集材作業効率の計算処理」が変わったとき：縦軸の名前を合わせる。
+        デフォルトを表示中なら、区切りもその計算処理のデフォルトにする（読み込んだ表の区切りは変えない）"""
+        self._axis_kind = kind if kind in VERTICAL_AXIS_NAMES else "ruggedness"
+        if self._showing_default:
+            self._row_thresholds = list(DEFAULT_ROW_THRESHOLDS[self._axis_kind])
+            self._redraw_panel()
+        self._update_axis_label()
+
+    def _update_axis_label(self):
+        """パネルの説明（縦軸の名前）。表の縦軸の値が設定の計算処理と合っていないように見えたら書き添える
+        （起伏量は数十〜数百m、地形の複雑さは0〜1程度）"""
+        name = VERTICAL_AXIS_NAMES[self._axis_kind]
+        text = f"横軸=傾斜、縦軸={name}。色は右の機材名一覧に対応します。"
+        looks_like_ruggedness = max(self._row_thresholds) > 10
+        if looks_like_ruggedness != (self._axis_kind == "ruggedness"):
+            other = VERTICAL_AXIS_NAMES["ruggedness" if looks_like_ruggedness else "shc"]
+            text += (f"<br><span style='color:#c00000;'>表示中の表の縦軸は{other}の値に見えます。"
+                     f"設定の「集材作業効率の計算処理」（{name}）と合っているか確かめてください。</span>")
+        self.axisLabel.setText(text)
+
+    def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None,
+                     row_thresholds=None, col_thresholds=None):
         self._base_scores = [row[:] for row in scores_ascending]
+        if row_thresholds is not None:
+            self._row_thresholds = list(row_thresholds)
+        if col_thresholds is not None:
+            self._col_thresholds = list(col_thresholds)
         self._margin = 0
         self._disabled_codes = set()
         self.marginSlider.setValue(0)
@@ -525,19 +539,19 @@ class CostCsvEditorWidget(QWidget):
             y = int(self.PLOT_HEIGHT * (1 - r / r_max))
             painter.drawLine(self.GUTTER_LEFT, y, self.GUTTER_LEFT + self.PLOT_WIDTH, y)
 
-        # 軸の数値
+        # 軸の数値（マスの境目の位置は標準の区切りで決まり、書く値は表示中の表の区切り）
         font = painter.font()
         font.setPointSize(7)
         painter.setFont(font)
         painter.setPen(QPen(QColor("#000000")))
-        for r in RUGGEDNESS_THRESHOLDS:
+        for r, label in zip(RUGGEDNESS_THRESHOLDS, self._row_thresholds):
             y = int(self.PLOT_HEIGHT * (1 - r / r_max))
             painter.drawText(0, max(0, y - 6), self.GUTTER_LEFT - 3, 12,
-                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(r))
-        for s in SLOPE_THRESHOLDS:
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, format_threshold(label))
+        for s, label in zip(SLOPE_THRESHOLDS, self._col_thresholds):
             x = self.GUTTER_LEFT + int(self.PLOT_WIDTH * (s / s_max))
             painter.drawText(x - 12, self.PLOT_HEIGHT + 1, 24, self.GUTTER_BOTTOM,
-                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, str(s))
+                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, format_threshold(label))
         painter.end()
 
         self.panelLabel.setPixmap(pixmap)
@@ -566,11 +580,12 @@ class CostCsvEditorWidget(QWidget):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w", encoding="cp932", newline="") as f:
             writer = csv.writer(f)
-            # 上表: ヘッダー行(先頭=起伏量の最大値) + 傾斜の閾値7個
+            # 上表: ヘッダー行(先頭=縦軸の最大値) + 傾斜の閾値7個。区切りは表示中の表のもの
             # データ行は各ビンの下端の閾値をラベルとして降順に並べる(実データの並びに合わせる)、末尾に空欄1つ
-            writer.writerow([RUGGEDNESS_THRESHOLDS[-1]] + SLOPE_THRESHOLDS)
+            rows_text = [format_threshold(value) for value in self._row_thresholds]
+            writer.writerow([rows_text[-1]] + [format_threshold(value) for value in self._col_thresholds])
             for i in reversed(range(n_rows)):
-                writer.writerow([RUGGEDNESS_THRESHOLDS[i]] + scores[i] + [""])
+                writer.writerow([rows_text[i]] + scores[i] + [""])
             for _ in range(4):
                 writer.writerow([])
             for code, name in legend:

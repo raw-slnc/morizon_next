@@ -243,6 +243,7 @@ class ForestZoningMainDialogSettings:
         self.update_shc_method_button()
         self.set_values_from_stored_settings()
         self.main.scoring.set_scoring_score_labels_from_settings()
+        self.main.elements.costcsv_editor.set_axis_kind(smanager.get_setting("cost_algorithm"))
         QMessageBox.information(self.widget, "完了", "初期設定を復元しました")
 
     def make_settings_dict(self):
@@ -319,6 +320,8 @@ class ForestZoningMainDialogSettings:
         new_settings = self.make_settings_dict()
         smanager.store_settings(new_settings)
         self.main.scoring.set_scoring_score_labels_from_settings()
+        # 作業システム設定の縦軸（起伏量／地形の複雑さ）を、集材作業効率の計算処理に合わせる
+        self.main.elements.costcsv_editor.set_axis_kind(new_settings["cost_algorithm"])
         QMessageBox.information(self.widget, "完了", "設定を保存しました")
 
     def write_settings_to_file(self):
