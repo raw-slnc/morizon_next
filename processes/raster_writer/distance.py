@@ -13,6 +13,7 @@ from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 from .utils import adjust_extent_and_resolution
 from ...utils import get_tiff_info, run_processing
 from ...constants import OUTPUT_DISTANCE
+from ..processing_feedback import set_stage
 
 
 NO_ROAD_DISTANCE_VALUE = 1000000.0
@@ -42,6 +43,7 @@ def generate(basis_dem_filepath: str,
         line_vector_for_rasterize = line_vector_filepath
         if line_vlayer.crs().isValid() and line_vlayer.crs() != basis_dem_info["crs"]:
             line_vector_for_rasterize = os.path.join(temp_dir, "network_reprojected.gpkg")
+            set_stage(feedback, "道路の座標系をDEMに合わせる")
             run_processing("native:reprojectlayer", {
                 "INPUT": line_vector_filepath,
                 "TARGET_CRS": basis_dem_info["crs"],
@@ -77,6 +79,7 @@ def generate(basis_dem_filepath: str,
         distance_filepath = os.path.join(temp_dir, "distance.tif")
         adjusted_dis_filepath = os.path.join(temp_dir, "distance_adjusted.tif")
 
+        set_stage(feedback, "道路をマス目にする")
         run_processing("gdal:rasterize", {
             "INPUT": line_vector_for_rasterize,
             "BURN": 1.0,
@@ -89,11 +92,13 @@ def generate(basis_dem_filepath: str,
         }, feedback=feedback)
         _assert_raster_ready(line_raster_filepath, "道路ラスタ")
 
+        set_stage(feedback, "道路までの距離")
         _generate_distance_raster(
             line_raster_filepath, distance_filepath, feedback=feedback
         )
         _assert_raster_ready(distance_filepath, "道路距離")
 
+        set_stage(feedback, "DEMの範囲に合わせる")
         adjusted_dis_filepath = adjust_extent_and_resolution(
             basis_dem_filepath,
             distance_filepath,

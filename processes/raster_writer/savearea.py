@@ -12,6 +12,7 @@ from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 from ...utils import get_tiff_info, run_processing
 from ...constants import OUTPUT_SAVEAREA
 from .utils import resolve_algorithm_id
+from ..processing_feedback import set_stage
 
 
 def generate(basis_dem_filepath: str,
@@ -36,6 +37,7 @@ def generate(basis_dem_filepath: str,
 
         # すべての流域を焼きこんだラスター
         basin_rasiterized_filepath = os.path.join(temp_dir, "basin_all.tif")
+        set_stage(feedback, "流域をマス目にする")
         run_processing("gdal:rasterize", {
             'INPUT': fixed_basin_vlayer,
             'BURN': 1,
@@ -59,6 +61,7 @@ def generate(basis_dem_filepath: str,
         if no_building:
             return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), True
 
+        set_stage(feedback, "建物と重なる流域を探す")
         fixed_building_vlayer = run_processing("native:fixgeometries", {
             "INPUT": building_filepath,
             "OUTPUT": "TEMPORARY_OUTPUT"
@@ -80,6 +83,7 @@ def generate(basis_dem_filepath: str,
         # （NODATA を指定しないと、現行の QGIS では 0 が「データなし」になり、下の計算で建物を含まない流域が
         # 0 でなく「データなし」になっていた。手引 p.88 の手順どおり、データなしの値は 9999 にする）
         filtered_rasterized_filepath = os.path.join(temp_dir, "basin_with_building.tif")
+        set_stage(feedback, "保全対象を含む流域をマス目にする")
         run_processing("gdal:rasterize", {
             'INPUT': filtered_polygon_vlayer,
             'BURN': 1,
@@ -176,6 +180,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
         temp_dir = tempfile.mkdtemp()
     try:
         basin_filepath = os.path.join(temp_dir, "basin.tif")
+        set_stage(feedback, "流域を求める")
         run_processing(resolve_algorithm_id("grass:r.watershed", "grass7:r.watershed"), {
             'elevation': basis_dem_filepath,
             '-4': False,
@@ -208,6 +213,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
         _assert_raster_ready(basin_filepath, "流域")
 
         vectorized_basin_filepath = os.path.join(temp_dir, "basin.gpkg")
+        set_stage(feedback, "流域を形（ポリゴン）にする")
         run_processing("gdal:polygonize", {
             "INPUT": basin_filepath,
             "BAND": 1,

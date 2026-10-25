@@ -12,7 +12,7 @@ from qgis.core import QgsRasterLayer
 
 from . import raster_writer
 from . import raster_styler
-from .processing_feedback import LogForwardingFeedback
+from .processing_feedback import LogForwardingFeedback, set_stage
 from ..utils import (
     get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias, remove_files,
     move_output_layers_to_main_thread,
@@ -33,6 +33,7 @@ class ProcessingThread(QThread):
     processStarted = pyqtSignal(int)
     addProgress = pyqtSignal(int)
     postMessage = pyqtSignal(str)
+    postDetail = pyqtSignal(str)
     postLog = pyqtSignal(str)
     processFinished = pyqtSignal(dict)
     setAbortable = pyqtSignal(bool)
@@ -60,6 +61,7 @@ class ProcessingThread(QThread):
 
     def _clip_final_output(self, filepath: str) -> str:
         """最終成果物を仕上げる：元のDEMのNoData（海・水面など）を戻し、表示・解析範囲で切り出す"""
+        set_stage(self.feedback, "結果の仕上げ")
         if filepath and self._dem_with_nodata is not None:
             raster_writer.restore_dem_nodata(filepath, self._dem_with_nodata, feedback=self.feedback)
         if filepath and self.final_extent_wgs84 is not None:
@@ -90,7 +92,9 @@ class ProcessingThread(QThread):
         intermediate_dir = tempfile.mkdtemp()
         # Processing の外部コマンド出力を、OS共通の経路で進捗ダイアログへ渡す。
         # 各 raster_writer まで同じ feedback を引き回すことが重要。
-        self.feedback = LogForwardingFeedback(self.postLog.emit)
+        self.feedback = LogForwardingFeedback(self.postLog.emit, self.postDetail.emit)
+        # 次の工程に移ったら、前の工程の段階名を消す
+        self.postMessage.connect(lambda _message: set_stage(self.feedback, None))
 
         input_aliases = []
         self.input_files_dict = {
@@ -119,6 +123,7 @@ class ProcessingThread(QThread):
                 progress_counter += 1
                 self.postMessage.emit('DEMをリサンプリング中')
                 resampled_dem_filepath = os.path.join(intermediate_dir, "dem_resampled_10m.tif")
+                set_stage(self.feedback, "10m のマス目にまとめ直す")
                 dem_for_processes = raster_writer.resampling(
                     dem_for_processes, 10,
                     output_filepath=resampled_dem_filepath, feedback=self.feedback)

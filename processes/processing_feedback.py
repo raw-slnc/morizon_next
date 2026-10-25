@@ -20,11 +20,35 @@ class LogForwardingFeedback(QgsProcessingFeedback):
     QGIS 3 系から仮想メソッドである push*() をオーバーライドしている。
     """
 
-    def __init__(self, log_callback):
+    def __init__(self, log_callback, detail_callback=None):
         # True は従来どおり QGIS の「ログメッセージ」パネルにも記録を残す指定。
         super().__init__(True)
         self._log_callback = log_callback
         self._last_line = None
+        # 工程の中の段階名と、処理ツール（GRASS など）が送る進み具合（%）を、進捗の窓の詳細行へ出す。
+        # 処理の速さは変えず、止まって見えないようにするための表示
+        self._detail_callback = detail_callback
+        self._stage = None
+        self._percent = None
+        if detail_callback is not None:
+            self.progressChanged.connect(self._on_progress)
+
+    def set_stage(self, name):
+        """段階名を出す。None で消す（次の工程に移るとき）"""
+        if self._detail_callback is None:
+            return
+        self._stage = name
+        self._percent = None
+        self._detail_callback(name or "")
+
+    def _on_progress(self, percent):
+        if self._stage is None:
+            return
+        percent = int(percent)
+        if percent == self._percent:
+            return
+        self._percent = percent
+        self._detail_callback(f"{self._stage} … {percent}%")
 
     def _forward(self, text):
         # 外部コマンドは CR だけで進捗行を書き換えることがあるため、CR/LF の双方で分ける。
@@ -72,3 +96,9 @@ class LogForwardingFeedback(QgsProcessingFeedback):
     def setProgressText(self, text):
         super().setProgressText(text)
         self._forward(text)
+
+
+def set_stage(feedback, name):
+    """feedback が段階名を受け取れるときだけ渡す（ゾーン統計量など、他の工程から同じ関数を呼んでも何もしない）"""
+    if isinstance(feedback, LogForwardingFeedback):
+        feedback.set_stage(name)

@@ -15,6 +15,7 @@ from ...constants import OUTPUT_COST
 from . import shc
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 from ...utils import run_processing
+from ..processing_feedback import set_stage
 
 
 def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback=None) -> str:
@@ -42,6 +43,7 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback
             os.makedirs(shc_dir, exist_ok=True)
             element_filepath = shc.generate(dem_filepath, shc_dir, feedback=feedback)
 
+        set_stage(feedback, "傾斜")
         slope_filepath = os.path.join(temp_dir, "slope.tif")
         run_processing(
             "qgis:slope", {"INPUT": dem_filepath, "OUTPUT": slope_filepath},
@@ -62,6 +64,7 @@ def generate(dem_filepath: str, costcsv_filepath: str, output_dir: str, feedback
         slp_entry.raster = slp_rlayer
         slp_entry.bandNumber = 1
 
+        set_stage(feedback, "作業システムの判定")
         # CSVをもとにExpression文字列を生成
         csv_parser = CostcsvParser(costcsv_filepath)
         expression = csv_parser.generate_expression_for_raster_calculator(
@@ -110,6 +113,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str, feedback=None)
     min_filepath = os.path.join(temp_dir, "ruggedness_min.tif")
     max_filepath = os.path.join(temp_dir, "ruggedness_max.tif")
 
+    set_stage(feedback, "起伏量（最小値）")
     run_processing(
         resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {
@@ -132,6 +136,7 @@ def _generate_ruggedness(dem_filepath: str, output_filepath: str, feedback=None)
     )
     _assert_raster_ready(min_filepath, "起伏量最小値")
 
+    set_stage(feedback, "起伏量（最大値）")
     run_processing(
         resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"),
         {

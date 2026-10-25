@@ -15,6 +15,7 @@ from ...utils import get_raster_stats, run_processing
 from ...constants import OUTPUT_SHC
 from .utils import replace_with_adjusted_extent_and_resolution, resolve_algorithm_id
 from . import terrain_numpy
+from ..processing_feedback import set_stage
 
 
 def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
@@ -23,6 +24,7 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
     """
     temp_dir = tempfile.mkdtemp()
     try:
+        set_stage(feedback, "平滑化と平面曲率")
         if ShcMethodManager().load_use_saga():
             curvature_filepath = _plan_curvature_by_saga(
                 dem_filepath, temp_dir, feedback=feedback
@@ -50,6 +52,7 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
         NODATA_VALUE = "-3.40282347e+38"
         OUTLIER_THRESHOLD = "3"
         normalized_curvature_filepath = os.path.join(temp_dir, "normalized_curvature.tif")
+        set_stage(feedback, "平面曲率の外れ値の処理")
         if feedback is not None:
             feedback.pushInfo("平面曲率の外れ値を処理しています")
         calc = QgsRasterCalculator(f'{NODATA_VALUE} * ("{curvature_entry.ref}"'
@@ -75,6 +78,7 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
         # SAGA/GRASS には OS に関係なく半角の内部パスだけを渡す。最終成果物は
         # Unicode パスを扱える Python 版 GDAL で、利用者が指定した場所へ生成する。
         grass_output_filepath = os.path.join(temp_dir, "shc_neighbors.tif")
+        set_stage(feedback, "曲率のばらつき（円形の範囲）")
         run_processing(resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"), {
             'input': normalized_curvature_filepath,
             'output': grass_output_filepath,

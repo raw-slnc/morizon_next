@@ -147,6 +147,8 @@ class ProgressDialog(QDialog):
     def set_messsage(self, message: str):
         self.label.setText(message + "...")
         self.append_log(message)
+        if getattr(self, "_keep_detail_line", False):
+            return  # 窓の高さを変えない（keep_detail_line）
         self.adjustSize()
 
     # ── ログのステータス表示 ──────────────────────────────────────────────
@@ -168,8 +170,18 @@ class ProgressDialog(QDialog):
     def append_log(self, text: str):
         self.logLine.setText(f"{datetime.now().strftime('%H:%M:%S')}  {text}")
 
+    def keep_detail_line(self):
+        """詳細行を空のときも1行分の高さで出したままにする。
+        段階名や%が出たり消えたりするたびに窓の高さが変わって、ちらつかないようにするため"""
+        self._keep_detail_line = True
+        self.detailLabel.setMinimumHeight(self.detailLabel.fontMetrics().lineSpacing())
+        self.detailLabel.setVisible(True)
+        self.adjustSize()
+
     def set_detail(self, detail: str):
         self.detailLabel.setText(detail)
+        if getattr(self, "_keep_detail_line", False):
+            return
         self.detailLabel.setVisible(bool(detail))
         self.adjustSize()
 
@@ -177,7 +189,8 @@ class ProgressDialog(QDialog):
         self.abortButton.setEnabled(abortable)
 
 
-def run_with_progress(thread, show_detail=False, show_set_progress=False, abortable=True) -> dict:
+def run_with_progress(thread, show_detail=False, show_set_progress=False, abortable=True,
+                      keep_detail_line=False) -> dict:
     """処理スレッドを進捗ダイアログ付きで実行し、終わったら {"result": 結果} か {"error": メッセージ} を返す。
     結果の反映（レイヤーの追加）や知らせは、呼び出し側がこの関数から戻った後に行うこと。
     進捗の窓が開いている間に行うと、閉じた窓の絵が描き直されずに残像として残るため、
@@ -186,6 +199,8 @@ def run_with_progress(thread, show_detail=False, show_set_progress=False, aborta
     progress_dialog = ProgressDialog(thread.set_abort_flag)
     if not abortable:
         progress_dialog.set_abortable(False)
+    if keep_detail_line:
+        progress_dialog.keep_detail_line()
     thread.processStarted.connect(progress_dialog.set_sum_of_processes)
     thread.addProgress.connect(progress_dialog.add_progress)
     if show_set_progress:

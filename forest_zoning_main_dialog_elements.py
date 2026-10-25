@@ -1811,7 +1811,8 @@ class ForestZoningMainDialogElements:
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
-        outcome = run_with_progress(thread)
+        # 詳細行には、工程の中の段階名と進み具合（%）を出す。行は出したままにして、窓の高さを変えない
+        outcome = run_with_progress(thread, show_detail=True, keep_detail_line=True)
         if "result" in outcome:
             self.add_elements_layer_to_project(outcome["result"])
             # やり直しのときに残っている後の工程（スコアリング・ゾーニング図・ゾーン統計量）は OFF にして閉じる
