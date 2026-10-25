@@ -445,16 +445,48 @@ def clip_siteindex_to_extent(zone_cache: dict, output_dir: str,
         os.makedirs(dst_dir, exist_ok=True)
         dst_path = os.path.join(dst_dir, f"{kind.lower()}_clipped.tif")
 
+        # 元データのグリッド(セル境界・解像度)に揃えた範囲で切り出す。
+        # 緯度経度の範囲だけを渡すと、GDALが解像度を決め直して再サンプリングになり、
+        # セルが正方形でなくなる・グリッドがずれる・元のセルが抜けることがある
+        bounds, res_x, res_y = _snap_bounds_to_grid(src_path, lon_min, lat_min, lon_max, lat_max)
         gdal.Warp(
             dst_path, src_path,
-            outputBounds=(lon_min, lat_min, lon_max, lat_max),
-            outputBoundsSRS="EPSG:4326",
+            outputBounds=bounds,
+            xRes=res_x, yRes=res_y,
             dstSRS=None,  # 元のCRS(ゾーンの平面直角座標系)のまま保持
+            resampleAlg="near",
             format="GTiff",
         )
         result[kind] = dst_path
 
     return result
+
+
+def _snap_bounds_to_grid(src_path: str, lon_min: float, lat_min: float,
+                         lon_max: float, lat_max: float):
+    """
+    WGS84の範囲を元データのCRSへ変換し、元データのセル境界まで外側へ広げた
+    (xmin, ymin, xmax, ymax)と、元データの解像度(x, y)を返す。
+    """
+    from osgeo import gdal, osr
+
+    ds = gdal.Open(src_path)
+    gt = ds.GetGeoTransform()
+    src_srs = osr.SpatialReference(wkt=ds.GetProjection())
+    ds = None
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    transform = osr.CoordinateTransformation(wgs84, src_srs)
+    xmin, ymin, xmax, ymax = transform.TransformBounds(lon_min, lat_min, lon_max, lat_max, 21)
+
+    res_x, res_y = gt[1], abs(gt[5])
+    xmin = gt[0] + math.floor((xmin - gt[0]) / res_x) * res_x
+    xmax = gt[0] + math.ceil((xmax - gt[0]) / res_x) * res_x
+    ymax = gt[3] - math.floor((gt[3] - ymax) / res_y) * res_y
+    ymin = gt[3] - math.ceil((gt[3] - ymin) / res_y) * res_y
+    return (xmin, ymin, xmax, ymax), res_x, res_y
 
 
 def siteindex_has_data(dem_path: str, siteindex_paths) -> bool:
