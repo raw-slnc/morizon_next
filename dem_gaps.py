@@ -42,7 +42,7 @@ MASK_FILLED_10B = 2     # 陸の欠けをDEM10Bで埋めた
 MASK_INTERPOLATED = 3   # 周囲の値から補間した
 MASK_SEA = 10           # 海（DEMはNoData）
 MASK_WATER = 11         # 湖・川などの水面（DEMはNoData）
-MASK_NODATA = 255       # 座標変換で生じた範囲外
+MASK_NODATA = 255       # 範囲外（座標変換で生じた範囲外と、DEMブラウザで円を選んだときの外側）
 
 # 水域に接しない欠けのうち、この画素数以下は周囲から補間する
 SMALL_HOLE_MAX_PX = 100
@@ -482,6 +482,81 @@ def _exclude_water(dem_path, cancel_cb, progress):
         result["mask_path"] = mask_path
     except Exception:
         # 前回のマスクをQGISで開いているなど（Windowsでは上書きできない）。DEMの水面は対象外にできている
+        result["mask_write_failed"] = True
+    return result
+
+
+def exclude_outside_shape(dem_path, ring_wgs84):
+    """保存したDEMのうち、経緯度の多角形 ring_wgs84（[(経度, 緯度), ...]、DEMブラウザで選んだ円。表示範囲により楕円）の外側を
+    NoData にし、マスク（mask_path_for）でも範囲外（MASK_NODATA）にする。マスクが無ければ作る。
+    戻り値は {"outside_px": 対象外にした値のある画素数, "total_px": 値のある画素数,
+    "mask_path": マスクのパス（書けなければ None）, "mask_write_failed": マスクを書けなかったか}"""
+    ds = gdal.Open(dem_path, gdal.GA_Update)
+    gt = ds.GetGeoTransform()
+    cols, rows = ds.RasterXSize, ds.RasterYSize
+    wkt = ds.GetProjection()
+
+    # 多角形をDEMの座標系へ変換し、DEMと同じグリッドに焼き込む（画素の中心が内側なら内側）
+    local = osr.SpatialReference()
+    local.ImportFromWkt(wkt)
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    for srs in (local, wgs84):
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for lon, lat in list(ring_wgs84) + [ring_wgs84[0]]:
+        ring.AddPoint_2D(lon, lat)
+    polygon = ogr.Geometry(ogr.wkbPolygon)
+    polygon.AddGeometry(ring)
+    polygon.AssignSpatialReference(wgs84)
+    polygon.TransformTo(local)
+    vds = _memory_vector_datasource()
+    layer = vds.CreateLayer("shape", srs=local, geom_type=ogr.wkbPolygon)
+    feature = ogr.Feature(layer.GetLayerDefn())
+    feature.SetGeometry(polygon)
+    layer.CreateFeature(feature)
+    shape_ds = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Byte)
+    shape_ds.SetGeoTransform(gt)
+    shape_ds.SetProjection(wkt)
+    gdal.RasterizeLayer(shape_ds, [1], layer, burn_values=[1])
+    inside = shape_ds.GetRasterBand(1).ReadAsArray() == 1
+    shape_ds = None
+    vds = None
+
+    band = ds.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    if nodata is None:
+        nodata = -9999.0
+        band.SetNoDataValue(nodata)
+    data = band.ReadAsArray()
+    valid = np.isfinite(data) & (data != nodata)
+    outside = valid & ~inside
+    result = {"outside_px": int(outside.sum()), "total_px": int(valid.sum()),
+              "mask_path": None, "mask_write_failed": False}
+    if result["outside_px"]:
+        data[outside] = nodata
+        band.WriteArray(data)
+        band.FlushCache()
+    ds = None
+    del data
+
+    mask_path = mask_path_for(dem_path)
+    try:
+        if os.path.exists(mask_path):
+            mask_ds = gdal.Open(mask_path, gdal.GA_Update)
+            mask_band = mask_ds.GetRasterBand(1)
+            mask = mask_band.ReadAsArray()
+            mask[~inside] = MASK_NODATA
+            mask_band.WriteArray(mask)
+            mask_band.FlushCache()
+            mask_ds = None
+        else:
+            mask = np.full((rows, cols), MASK_VALID, dtype=np.uint8)
+            mask[~valid | ~inside] = MASK_NODATA
+            save_mask_geotiff(mask, gt, wkt, mask_path)
+        result["mask_path"] = mask_path
+    except Exception:
+        # 前回のマスクをQGISで開いているなど（Windowsでは上書きできない）。DEMの外側は対象外にできている
         result["mask_write_failed"] = True
     return result
 

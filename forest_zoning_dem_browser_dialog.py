@@ -2,11 +2,13 @@
 # Copyright (C) 2026 Hideharu Masai
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
+import math
+
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDialogButtonBox
 )
-from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY, QgsProject
 from qgis.utils import iface
 
 from . import dem_sources
@@ -48,8 +50,8 @@ class _ComboOkCancelFocusMixin:
             if current == cancel_button:
                 cancel_button.click()
                 return
-            if current == self._focus_combo and not self._focus_combo.view().isVisible():
-                self._focus_combo.showPopup()
+            if isinstance(current, QComboBox) and current in self._focus_order and not current.view().isVisible():
+                current.showPopup()
                 return
         super().keyPressEvent(event)
 
@@ -91,6 +93,7 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         self.setMinimumWidth(520)
 
         # モーダル表示中はキャンバスを動かせないため、範囲は開いた時点で確定させる
+        self._canvas_extent = iface.mapCanvas().extent()
         self._extent = self._canvas_extent_wgs84()
         extent_tuple = (
             self._extent.xMinimum(), self._extent.yMinimum(),
@@ -134,6 +137,19 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         self.extentLabel = QLabel()
         self.extentLabel.setWordWrap(True)
         layout.addWidget(self.extentLabel)
+
+        # オプション：範囲の形。取得は表示範囲の四角で行い、円のときは外側を解析の対象外にする。
+        # 円は地図の表示範囲の中心（十字）を基準に、表示範囲に内接させる（横長・縦長なら楕円になる。形は取得範囲に任せる）。
+        # 既定はいつも方形（前回の選択は残さない）
+        shape_row = QHBoxLayout()
+        shape_row.addWidget(QLabel("範囲の形（オプション）:"))
+        self.shapeCombobox = QComboBox()
+        self.shapeCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        for _, label in self.SHAPES:
+            self.shapeCombobox.addItem(label)
+        self.shapeCombobox.currentIndexChanged.connect(self._update_extent_label)
+        shape_row.addWidget(self.shapeCombobox, 1)
+        layout.addLayout(shape_row)
         self._update_extent_label()
 
         # 先頭（国土地理院）は常に選べるが、念のため選べる最初の項目に合わせる
@@ -157,7 +173,15 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
             button.setDefault(False)
             button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._focus_combo = self.sourceCombobox
-        self._focus_order = [self.sourceCombobox, ok_button, cancel_button]
+        self._focus_order = [self.sourceCombobox, self.shapeCombobox, ok_button, cancel_button]
+
+    # 範囲の形の選択肢 (キー, 表示)
+    SHAPES = (
+        ("rect", "既定 ※表示範囲"),
+        ("round", "円（表示範囲に内接。横長・縦長なら楕円）"),
+    )
+    SHAPE_NAMES = {"round": "円"}
+    SHAPE_POINTS = 180  # 円を多角形にするときの頂点の数
 
     def _update_info_label(self):
         source = self.get_selected_source()
@@ -198,7 +222,17 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         ]
         if any(problem is not None for problem in self._problems):
             lines.append("※ 表示範囲がデータの対象地域に収まらない取得元は選べません。")
+        shape_key = self.SHAPES[self.shapeCombobox.currentIndex()][0] if hasattr(self, "shapeCombobox") else "rect"
+        if shape_key != "rect":
+            name = self.SHAPE_NAMES[shape_key]
+            lines.append(
+                f"※ DEMは表示範囲の方形で取得し、地図の中心を基準に表示範囲に内接する{name}"
+                f"（表示範囲が横長・縦長なら楕円）の外側を、解析の対象外（NoData）にします。"
+                f"{name}の縁の近くは、流域が{name}の外にかかる斜面などがゾーニングの結果から外れます。"
+            )
         self.extentLabel.setText("\n".join(lines))
+        if hasattr(self, "button_box"):
+            self._fit_height()
 
     @staticmethod
     def _canvas_extent_wgs84():
@@ -215,6 +249,29 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
     def get_selected_source(self):
         """選択された取得元（dem_sources.base.DemSource）"""
         return self._sources[self.sourceCombobox.currentIndex()]
+
+    def get_shape(self):
+        """選んだ範囲の形。方形なら None、円なら {"label": 形の名前, "ring": [(経度, 緯度), ...]}。
+        円は開いた時点の地図の表示範囲（キャンバスの座標系）に内接させて作り（縦横の比で円にも楕円にもなる）、
+        経緯度に変換する"""
+        shape_key = self.SHAPES[self.shapeCombobox.currentIndex()][0]
+        if shape_key == "rect":
+            return None
+        canvas = iface.mapCanvas()
+        transform = QgsCoordinateTransform(
+            canvas.mapSettings().destinationCrs(), QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance()
+        )
+        center = self._canvas_extent.center()
+        radius_x = self._canvas_extent.width() / 2
+        radius_y = self._canvas_extent.height() / 2
+        ring = []
+        for i in range(self.SHAPE_POINTS):
+            angle = 2 * math.pi * i / self.SHAPE_POINTS
+            point = transform.transform(QgsPointXY(
+                center.x() + radius_x * math.cos(angle), center.y() + radius_y * math.sin(angle)
+            ))
+            ring.append((point.x(), point.y()))
+        return {"label": self.SHAPE_NAMES[shape_key], "ring": ring}
 
 
 class DemResolutionDialog(_ComboOkCancelFocusMixin, QDialog):

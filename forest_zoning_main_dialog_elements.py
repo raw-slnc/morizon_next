@@ -831,6 +831,7 @@ class ForestZoningMainDialogElements:
             return
         extent_wgs84 = dlg.get_extent_wgs84()
         source = dlg.get_selected_source()
+        shape = dlg.get_shape()
         if source.key == "gsi":
             # 国土地理院は解像度の混在を避けるため、範囲全体をカバーできる解像度に先に絞る
             tile_sources = self._resolve_gsi_tile_sources(extent_wgs84)
@@ -862,6 +863,7 @@ class ForestZoningMainDialogElements:
             (extent_wgs84.xMinimum(), extent_wgs84.yMinimum(),
              extent_wgs84.xMaximum(), extent_wgs84.yMaximum()),
             output_path,
+            shape=shape,
         )
         result = self._run_fetch(thread, "DEMの取得に失敗しました。", show_set_progress=False)
         if result is not None:

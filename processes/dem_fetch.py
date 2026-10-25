@@ -51,12 +51,15 @@ class DemFetchThread(QThread):
     setAbortable = pyqtSignal(bool)
     processFailed = pyqtSignal(str)
 
-    def __init__(self, source, extent, output_path: str):
-        """extent: WGS84経緯度の (lon_min, lat_min, lon_max, lat_max)"""
+    def __init__(self, source, extent, output_path: str, shape=None):
+        """extent: WGS84経緯度の (lon_min, lat_min, lon_max, lat_max)
+        shape: DEMブラウザで円（表示範囲により楕円）を選んだとき {"label": 形の名前, "ring": [(経度, 緯度), ...]}。
+        取得は extent の四角で行い、保存後に形の外側を解析対象外（NoData）にする。四角なら None"""
         super().__init__()
         self.source = source
         self.extent = extent
         self.output_path = output_path
+        self.shape = shape
 
         self.abort_flag = False
 
@@ -81,6 +84,8 @@ class DemFetchThread(QThread):
                 reporter=reporter,
             )
             self._exclude_water(result, reporter)
+            if self.shape is not None:
+                self._exclude_outside_shape(result, reporter)
             remaining = LAST_STEP_MIN_SECONDS - (time.monotonic() - reporter.last_message_time)
             if remaining > 0:
                 time.sleep(remaining)
@@ -137,6 +142,26 @@ class DemFetchThread(QThread):
             warnings.append(f"どこを補ったか・対象外にしたかは次のファイルで確認できます：\n{water['mask_path']}")
         if water["mask_path"]:
             result["mask_path"] = water["mask_path"]
+        result["warning"] = "\n".join(warnings)
+
+    def _exclude_outside_shape(self, result, reporter):
+        """DEMブラウザで選んだ円（表示範囲により楕円）の外側を解析対象外にし、結果の知らせに書き足す"""
+        label = self.shape["label"]
+        reporter.start(1)
+        reporter.message(f"{label}の外側を解析の対象外にしています")
+        outside = dem_gaps.exclude_outside_shape(result["path"], self.shape["ring"])
+        reporter.step()
+        ratio = outside["outside_px"] / max(outside["total_px"], 1)
+        result["info"] += f"  |  {label}の外を対象外 {ratio * 100:.1f}%"
+        warnings = [result["warning"]] if result.get("warning") else []
+        warnings.append(f"範囲の形を「{label}」にしたため、{label}の外側は解析の対象外（NoData）にしました。")
+        if outside["mask_write_failed"]:
+            warnings.append(
+                "どこを対象外にしたかを示すファイル（dem_fetched_mask.tif）を書き込めませんでした。"
+                "QGISで開いている場合は、レイヤーを削除してから取得し直してください。"
+            )
+        elif outside["mask_path"]:
+            result["mask_path"] = outside["mask_path"]
         result["warning"] = "\n".join(warnings)
 
 
