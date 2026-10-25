@@ -32,6 +32,14 @@ from .forest_zoning_main_dialog_costcsv_editor import ElidedLabel
 # 先に読み込むと processes の読み込みが途中で失敗する）
 from . import morizon_data, utils
 from .constants import DIR_AGGREGATE, DIR_DATA, DIR_SHARED, DIR_YOUSO, DIR_ZONING, OUTPUT_AGGREGATE
+from .tree_order_layer_combo import TreeOrderLayerComboBox, replace_with_tree_order_combo
+
+# 利用者のレイヤー（プラグインの出力ではないもの）を選ぶ選択欄。レイヤーパネルの並びで候補を出す
+TREE_ORDER_COMBOS = (
+    "aggregatePolygonLayerCommbobox",
+    "printlayoutBackgroundLayerCombobox",
+    "printlayoutBackgroundSubLayerCombobox",
+)
 
 
 class ForestZoningMainDialog(QDialog):
@@ -55,6 +63,10 @@ class ForestZoningMainDialog(QDialog):
             os.path.join(os.path.dirname(__file__), "forest_zoning_settings_dialog.ui")
         )
         self.settingsTabLayout.addWidget(self.settings_widget)
+        # 利用者のレイヤーを選ぶ選択欄は、候補をレイヤーパネルの並びで出す部品に差し替える
+        # （QgsMapLayerComboBox は名前の順で、並べ方を変えられないため）
+        for name in TREE_ORDER_COMBOS:
+            replace_with_tree_order_combo(self, name)
         self._init_tab_shortcuts()
         self._init_research_link()
 
@@ -305,7 +317,7 @@ class ForestZoningMainDialog(QDialog):
         project = QgsProject.instance()
         return {
             "layers": [(combo, combo.currentLayer().id() if combo.currentLayer() else None)
-                       for combo in self.findChildren(QgsMapLayerComboBox)],
+                       for combo in self.findChildren(QgsMapLayerComboBox) + self.findChildren(TreeOrderLayerComboBox)],
             "values": [(box, box.value()) for box in self.findChildren(QSpinBox) + self.findChildren(QDoubleSpinBox)],
             "_project": project,
         }
@@ -427,8 +439,13 @@ class ForestZoningMainDialog(QDialog):
         self.scoring.update_scoring_layer_scope()
         self.zoning.update_zoning_layer_scope()
         self.aggregate.update_aggregate_layer_scope()
+        # 利用者のレイヤーを選ぶ選択欄の候補を、今のレイヤーパネルの並びで作り直す（消えたレイヤーも外れる）
+        for name in TREE_ORDER_COMBOS:
+            getattr(self, name).refresh_layers()
         # 前に使ったポリゴンレイヤー（プラグインの設定に保存）がまだ選ばれていなければ選び直す
         self.aggregate.restore_conifer_settings()
+        # 針葉樹の設定が、いま選んでいるポリゴンレイヤーのものかを確かめる（選択欄が合図なしに切り替わった場合の食い違い）
+        self.aggregate.sync_conifer_layer()
         self.printlayout.update_printlayout_layer_scope()
         self.elements.refresh_elements_ui()
         self.scoring.refresh_scoring_ui()
@@ -537,6 +554,8 @@ class ForestZoningMainDialog(QDialog):
         self.apply_workspace_output_dirs()
         self.update_workspace_status()
         self.update_input_availability()
+        # ゾーン統計量の「災害リスク高」の欄：結果があればそれを作ったときの値、無ければ事業者の基準
+        self.aggregate.apply_initial_risk_threshold()
         # 候補が変わるので、選択欄の候補とボタンや注意書きの状態をまとめて合わせ直す
         # （プロジェクトの合図からも呼ばれるため、その場では選択欄に触れない）
         self.schedule_refresh_all_tabs()

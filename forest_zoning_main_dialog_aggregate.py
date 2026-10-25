@@ -5,14 +5,15 @@
 import os
 import glob
 import gc
+import re
 
 # QGIS-API
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
 )
-from qgis.core import QgsMapLayerProxyModel, QgsProject
+from qgis.core import QgsFields, QgsMapLayerProxyModel, QgsProject
 from qgis.gui import QgsFieldComboBox
 
 from . import processes
@@ -21,7 +22,7 @@ from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
 from .progress_dialog import run_with_progress
-from .settings_manager import AggregateConiferManager, AggregateStyleManager
+from .settings_manager import AggregateConiferManager, AggregateStyleManager, SettingsManager
 
 
 class ForestZoningMainDialogAggregate:
@@ -87,17 +88,49 @@ class ForestZoningMainDialogAggregate:
         # 一方のラジオボタンの変更が発火するともう一方も発火するので一方だけconnect
         self.main.radioButtonPolygon.toggled.connect(self.refresh_aggregate_ui)
 
-        self.main.aggregateStyleThresholdspinBox.setValue(30)
+        # 災害リスク高の割合（%）のしきい値。原版は範囲を指定しておらず Qt の既定（0〜99）のままで、
+        # 「ポリゴン全体が災害リスク高（100%）」を選べなかった（細かいメッシュで集計すると、多くが 0% か 100% になる）。
+        # 0% はすべてのポリゴンが当てはまり意味が無いので、1〜100 にする
+        self.main.aggregateStyleThresholdspinBox.setRange(1, 100)
+        self.apply_initial_risk_threshold()
 
         self.init_conifer_ui()
         self.refresh_aggregate_ui()
 
     # ── 針葉樹のフィーチャーだけで収益性を判定する（任意。ポリゴンに針葉樹を区別する列があるとき） ──
+    def result_risk_threshold(self):
+        """作業フォルダにゾーン統計量の結果があれば、それを作ったときの「災害リスク高」の割合（%）を、
+        結果のスタイル（qml）の凡例（「災害リスク高≧30%」）から読む。結果が無い・読めなければ None"""
+        shp_path = self.main.aggregateOutputDirFileWidget.filePath()
+        qml_path = os.path.splitext(shp_path)[0] + ".qml" if shp_path else ""
+        if not (shp_path and os.path.isfile(shp_path) and os.path.isfile(qml_path)):
+            return None
+        try:
+            with open(qml_path, encoding="utf-8") as f:
+                match = re.search(r"災害リスク高≧(\d+)%", f.read())
+        except (OSError, UnicodeDecodeError):
+            return None
+        value = int(match.group(1)) if match else None
+        return value if value is not None and 1 <= value <= 100 else None
+
+    def apply_initial_risk_threshold(self):
+        """「災害リスク高」の欄に値を入れる：結果があればそれを作ったときの値、無ければ事業者の基準（設定タブ）。
+        画面を作ったとき・作業フォルダやプロジェクトが変わったとき・再開したとき・基準を保存したときに呼ぶ
+        （手で入れた値を、タブの切り替えなどのたびに上書きしないよう、それ以外では呼ばない）"""
+        value = self.result_risk_threshold()
+        if value is None:
+            try:
+                value = int(float(SettingsManager().get_setting("aggregate_risk_threshold")))
+            except (TypeError, ValueError):
+                value = 30
+        self.main.aggregateStyleThresholdspinBox.setValue(value)
+
     def init_conifer_ui(self):
         """ポリゴンレイヤーの欄の下（ジオメトリの注意書きと同じ行）に、チェック・列の選択・設定ボタンを足す。
         チェックを外していれば、集計は原版と同じ"""
         self.conifer_values = set()  # 針葉樹とみなす値（文字列）
         self._conifer_restoring = False  # 保存した設定を戻している間は、選択の変更で値を解かない
+        self._conifer_watched_layer = None  # 選んでいるポリゴンレイヤー（消されたら設定を作り直すため見張る）
         self.conifer_check = QCheckBox("針葉樹のフィーチャーだけで収益性を判定する")
         self.conifer_check.setToolTip(
             "収益性（林業経営適地・要収益性向上）は針葉樹の人工林を前提にした指標のため、\n"
@@ -154,7 +187,8 @@ class ForestZoningMainDialogAggregate:
         box.addWidget(self.conifer_values_label)
         grid.addLayout(box, 4, 1, 1, 2)
 
-        self.conifer_field_combo.setLayer(self.main.aggregatePolygonLayerCommbobox.currentLayer())
+        self._set_conifer_fields(self.main.aggregatePolygonLayerCommbobox.currentLayer())
+        self._watch_conifer_layer(self.main.aggregatePolygonLayerCommbobox.currentLayer())
         self.main.aggregatePolygonLayerCommbobox.layerChanged.connect(self.on_conifer_layer_changed)
         self.conifer_field_combo.fieldChanged.connect(self.on_conifer_field_changed)
         self.conifer_check.toggled.connect(self.on_conifer_check_toggled)
@@ -183,14 +217,60 @@ class ForestZoningMainDialogAggregate:
             self.conifer_values,
         )
 
+    def _watch_conifer_layer(self, layer):
+        """選んでいるポリゴンレイヤー1つだけを見張る（プロジェクト全体のレイヤーの増減は見張らない方針）。
+        選択欄は、選んでいたレイヤーが消されると、ほかにポリゴンレイヤーがあれば「選択が変わった」の合図を
+        出さずに別のレイヤーへ切り替わる。そのままでは針葉樹の値が前のレイヤーのまま残るため、
+        消される合図を受けたら、削除が終わってから（処理が一巡した後に）選択欄に合わせて作り直す"""
+        previous = self._conifer_watched_layer
+        if previous is layer:
+            return
+        if previous is not None:
+            try:
+                previous.willBeDeleted.disconnect(self._on_conifer_layer_will_be_deleted)
+            except (TypeError, RuntimeError):
+                pass
+        self._conifer_watched_layer = layer
+        if layer is not None:
+            layer.willBeDeleted.connect(self._on_conifer_layer_will_be_deleted)
+
+    def _on_conifer_layer_will_be_deleted(self):
+        # 削除の途中で選択欄に触れると QGIS ごと落ちることがあるため、ここでは何もせず後回しにする
+        self._conifer_watched_layer = None
+        QTimer.singleShot(0, self.sync_conifer_layer)
+
+    def sync_conifer_layer(self):
+        """針葉樹の列の欄が、ポリゴンの選択欄と同じレイヤーを指しているかを確かめ、違えば作り直す。
+        選択欄が合図を出さずに切り替わった場合（選んでいたレイヤーが消された等）の食い違いを直す"""
+        combo = self.main.aggregatePolygonLayerCommbobox
+        if hasattr(combo, "refresh_layers"):
+            # レイヤーパネルの並びの選択欄：消えたレイヤーを候補から外す（選んでいたなら未選択に戻り、合図が出る）
+            combo.refresh_layers()
+        current = combo.currentLayer()
+        if self._conifer_watched_layer is not current:
+            self.on_conifer_layer_changed(current)
+
+    def _set_conifer_fields(self, layer):
+        """針葉樹を照合する列の候補を、レイヤーの列から fid（GeoPackage の行番号など、地物の番号）を除いて入れる。
+        列の選択欄にはレイヤーを渡さず、列の一覧だけを渡す（特定の列を除く設定が選択欄に無いため）"""
+        fields = QgsFields()
+        if layer is not None:
+            key_indexes = set(layer.primaryKeyAttributes()) if hasattr(layer, "primaryKeyAttributes") else set()
+            for index, field in enumerate(layer.fields()):
+                if field.name().lower() == "fid" or index in key_indexes:
+                    continue
+                fields.append(field)
+        self.conifer_field_combo.setFields(fields)
+
     def on_conifer_layer_changed(self, layer):
+        self._watch_conifer_layer(layer)
         saved = AggregateConiferManager().load()
         self._conifer_restoring = True
         try:
-            self.conifer_field_combo.setLayer(layer)
+            self._set_conifer_fields(layer)
             if layer is not None and layer.source() == saved['layer_source']:
-                # 前に使ったレイヤーなら、列・値・チェックを戻す（列が無くなっていれば戻さない）
-                if saved['field'] and layer.fields().indexOf(saved['field']) >= 0:
+                # 前に使ったレイヤーなら、列・値・チェックを戻す（列が無くなった・候補から外した fid なら戻さない）
+                if saved['field'] and self.conifer_field_combo.fields().indexOf(saved['field']) >= 0:
                     self.conifer_field_combo.setField(saved['field'])
                     self.conifer_values = set(saved['values'])
                     self.conifer_check.setChecked(saved['enabled'])
@@ -298,6 +378,11 @@ class ForestZoningMainDialogAggregate:
         self.main.aggregateDemFileWidget.setFilePath(dem_path)
 
     def run_aggregate(self):
+        # 針葉樹の設定が、いま選んでいるポリゴンレイヤーのものかを確かめる（食い違っていれば作り直してから判断する）
+        self.sync_conifer_layer()
+        if self.get_aggregate_error():
+            self.refresh_aggregate_ui()
+            return
         output_path = self.main.aggregateOutputDirFileWidget.filePath()
         zoning_rlayer = self.main.aggregateZoningLayerCombobox.currentLayer()
 

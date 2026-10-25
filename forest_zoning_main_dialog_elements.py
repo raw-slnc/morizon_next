@@ -19,14 +19,17 @@ from qgis.PyQt.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QGridLayout,
     QLabel,
     QMessageBox,
     QProgressDialog,
+    QPushButton,
     QWidget,
 )
+from qgis.utils import iface
 from qgis.core import (
-    QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
-    QgsVectorLayer,
+    QgsDefaultValue, QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol, QgsProject, QgsRectangle,
+    QgsRuleBasedRenderer, QgsSingleSymbolRenderer, QgsVectorLayer,
 )
 
 from .progress_dialog import run_with_progress
@@ -76,10 +79,18 @@ MORIZON_GUIDE_ROAD_PAGES = "p.42〜43/p.71〜72"
 MORIZON_GUIDE_BUILDING_PAGES = "p.23〜24/p.75"
 
 # 「道路と建物を出力」で出すレイヤーのグループと表示。建築物は国土地理院のタイル（地理院地図）に似せた表示
-# （オレンジの塗り・外周線なし）、道路縁は細い黒線（ラスターの上でも見分けやすいように。
-# 基盤地図情報の道路縁と同じ濃い緑にするなら "0,96,42,255"）
+# （オレンジの塗り・外周線なし）。道路は2つに描き分ける：
+# ・道路縁（基盤地図情報から取得した真幅道路）：細い黒線。背景の地形の情報として目立たせない
+#   （基盤地図情報の道路縁と同じ濃い緑にするなら "0,96,42,255"）
+# ・路網（利用者が描き足した線。種類が真幅道路でないもの）：えんじの太めの1本線。林業の図面で林道・作業道に使う赤系で、
+#   建物のオレンジやゾーン統計量の赤い斜線とも見分けられる色
 ROAD_BUILDING_GROUP_NAME = "道路・建物"
 ROAD_LINE_COLOR = "0,0,0,255"
+ROAD_LINE_WIDTH_MM = "0.1"
+ROAD_NETWORK_COLOR = "150,40,30,255"
+ROAD_NETWORK_WIDTH_MM = "0.4"
+ROAD_EDGE_TYPE = "真幅道路"   # 取得した道路縁の種類（type）。取得のときにこれだけに絞っている
+ROAD_NETWORK_TYPE = "路網"    # 描き足した線の種類（種類の欄があれば、新しく描いた線に自動で入れる）
 BUILDING_FILL_COLOR = "244,139,41,255"
 
 
@@ -112,6 +123,10 @@ class ForestZoningMainDialogElements:
     def __init__(self, main):
         self.main = main
         self._calc_checkbox_was_ready = {}
+        # 道路・建物の編集の状態 {種類: {"editing", "committed", "prev_checked", "tooltip"}}
+        self._rb_edit = {}
+        # 「編集」ボタンで一時的に「道路・建物」を表示したか（編集モードを終えたら片付ける）
+        self._rb_temporary = False
         self.init_elements_ui()
 
     def init_elements_ui(self):
@@ -168,6 +183,7 @@ class ForestZoningMainDialogElements:
             on_import=self.import_costcsv,
         )
         self.main.costCsvGroupBoxLayout.addWidget(self.costcsv_editor)
+        self._init_road_building_edit_ui()
 
         self.refresh_elements_ui()
 
@@ -330,6 +346,7 @@ class ForestZoningMainDialogElements:
         self.update_elements_calculate_checkboxes()
         self.set_elements_filewidgets_enabled()
         self.update_elements_status_labels()
+        self._refresh_rb_edit_buttons()
         other_errors = self.get_elements_error_texts()
         self.main.elementsErrorLabel.setText("\n".join(other_errors))
         missing_inputs = self.get_missing_mandatory_inputs()
@@ -380,6 +397,12 @@ class ForestZoningMainDialogElements:
             else:
                 label.setText("設定済")
                 label.setStyleSheet("color:#188038;")
+        # 道路・建物を編集している間は、その行に「編集中」と出す（要素のチェックが選べない理由が行でも分かるように）
+        for kind, label in ((layer_db.KIND_BUILDING, status_labels["building"]),
+                            (layer_db.KIND_ROAD, status_labels["network"])):
+            if self._rb_is_editing(kind):
+                label.setText("編集中")
+                label.setStyleSheet("color:#c05000; font-weight:bold;")
 
     def update_elements_calculate_checkboxes(self):
         """
@@ -395,8 +418,13 @@ class ForestZoningMainDialogElements:
                 dem_set and w["npp"].filePath() != "" and w["srad"].filePath() != ""
                 and w["vtex"].filePath() != ""
             ),
-            self.main.elementsSaveareaCheckbox: dem_set and w["building"].filePath() != "",
-            self.main.elementsDistanceCheckbox: dem_set and w["network"].filePath() != "",
+            # 道路・建物を編集している間は、その要素を計算しない（編集を終えて shp を更新するまで古いデータのため）
+            self.main.elementsSaveareaCheckbox: (
+                dem_set and w["building"].filePath() != "" and not self._rb_is_editing(layer_db.KIND_BUILDING)
+            ),
+            self.main.elementsDistanceCheckbox: (
+                dem_set and w["network"].filePath() != "" and not self._rb_is_editing(layer_db.KIND_ROAD)
+            ),
             self.main.elementsCostCheckbox: dem_set and w["costcsv"].filePath() != "",
             self.main.elementsShcCheckbox: dem_set,
             self.main.elementsSlopeCheckbox: dem_set,
@@ -1264,11 +1292,20 @@ class ForestZoningMainDialogElements:
         「道路・建物」グループに表示する。前に出したものは外してから出し直す。
         表示の前に、要素計算タブに設定されている道路・建物の shp と DB を照らし合わせ、shp が編集されていれば
         （計画路網を描き足したなど）DB に取り込んでから表示し、要素計算をもう一度実行するよう案内する"""
+        if self._rb_any_editing():
+            QMessageBox.information(
+                self.main, "道路と建物を出力",
+                "道路・建物を編集中です。編集モードを終えてから、もう一度押してください。",
+            )
+            return
+        # 前に保存した編集が shp にまだ書き出されていなければ、先に書き出す（照合で編集が失われないように）
+        self._flush_pending_rb()
+        self._rb_temporary = False  # ボタンで表示したものは、利用者が見るためのもの（片付けない）
         db_dir = utils.get_morizon_layer_db_dir()
         targets = [
             (layer_db.KIND_ROAD, "道路縁", "地利", self.main.elementsNetworkFileWidget.filePath(),
              lambda: QgsLineSymbol.createSimple({
-                 "line_color": ROAD_LINE_COLOR, "line_width": "0.1", "line_width_unit": "MM",
+                 "line_color": ROAD_LINE_COLOR, "line_width": ROAD_LINE_WIDTH_MM, "line_width_unit": "MM",
                  "capstyle": "square", "joinstyle": "bevel",
              })),
             (layer_db.KIND_BUILDING, "建築物", "保全対象を含む流域", self.main.elementsBuildingFileWidget.filePath(),
@@ -1283,7 +1320,10 @@ class ForestZoningMainDialogElements:
             if not shp_path or not os.path.isfile(shp_path):
                 continue  # 入力が設定されていなければ、DB はそのまま
             try:
-                if layer_db.import_saved(layer_db.db_file(db_dir, kind), kind, shp_path) == "shp":
+                db_path = layer_db.db_file(db_dir, kind)
+                # DB がまだ無いとき（自分で用意した shp を初めて表示するときなど）の取り込みは、編集ではない
+                had_db = layer_db.has_layer(db_path, kind)
+                if layer_db.import_saved(db_path, kind, shp_path) == "shp" and had_db:
                     edited.append((name, element))
             except Exception as e:
                 QMessageBox.warning(self.main, "道路と建物を出力", f"{name}のデータを取り込めませんでした。\n\n{e}")
@@ -1307,10 +1347,15 @@ class ForestZoningMainDialogElements:
             layer = QgsVectorLayer(layer_db.layer_uri(layer_db.db_file(db_dir, kind), kind), name, "ogr")
             if not layer.isValid():
                 continue
-            layer.setRenderer(QgsSingleSymbolRenderer(make_symbol()))
+            if kind == layer_db.KIND_ROAD:
+                self._style_road_layer(layer, make_symbol)
+            else:
+                layer.setRenderer(QgsSingleSymbolRenderer(make_symbol()))
             utils.tag_output_layer(layer, utils.STAGE_ROAD_BUILDING, kind)
             QgsProject.instance().addMapLayer(layer, False)
             group.addLayer(layer).setExpanded(False)
+            # このレイヤーを編集して保存したら、計算に使う shp へ反映する（鉛筆ボタンからでも「編集」ボタンからでも）
+            self._watch_rb_layer(layer, kind)
         if edited:
             QMessageBox.information(
                 self.main, "道路と建物を出力",
@@ -1320,6 +1365,235 @@ class ForestZoningMainDialogElements:
                 + "、".join(f"{name}は「{element}」" for name, element in edited)
                 + "に使われます）。",
             )
+
+    # ── 道路・建物の編集（「道路・建物」グループのレイヤーを編集して、計算に使う shp へ反映する） ──────────
+    # 編集するのは表示用の DB（layer_db）のレイヤー。保存して編集モードを終えたら、DB から作業フォルダの shp を
+    # 書き出し直す（要素計算は shp を読む）。「編集」ボタンは、QGIS の鉛筆ボタンに慣れていない人への入口で、
+    # 表示していなければ一時的に表示して編集モードにし、編集モードを終えたら片付ける。
+    # 見張るのは表示している道路・建物のレイヤー（各1つ）だけ（プロジェクト全体のレイヤーの増減は見張らない）
+    # {種類: (表示名, 行の名前, 使う要素, 入力欄の属性名, 要素のチェックの属性名, グリッドの行)}
+    RB_EDIT_TARGETS = {
+        layer_db.KIND_BUILDING: ("建築物", "建物", "保全対象を含む流域", "elementsBuildingFileWidget",
+                                 "elementsSaveareaCheckbox", 5),
+        layer_db.KIND_ROAD: ("道路縁", "既設路網", "地利", "elementsNetworkFileWidget",
+                             "elementsDistanceCheckbox", 6),
+    }
+
+    def _init_road_building_edit_ui(self):
+        """建物ポリゴン・既設路網ラインの行の一番右（「設定済」などの表示の右）に、小さな「編集」ボタンを置く。
+        入力のグリッドに列を1つ足して置き、ほかの行のその列は空白のままにする"""
+        self._rb_edit_buttons = {}
+        file_widget = self.main.elementsBuildingFileWidget
+        grid = next((layout for layout in file_widget.parentWidget().findChildren(QGridLayout)
+                     if layout.indexOf(file_widget) >= 0), None)
+        if grid is None:
+            return
+        column = grid.columnCount()
+        for kind, (_, row_name, element, _, _, row) in self.RB_EDIT_TARGETS.items():
+            button = QPushButton("編集")  # 文字とツールチップは _refresh_rb_edit_buttons で状態に合わせる
+            # 文字の幅に合わせた小さなボタンにする（編集中は「終了」に変わるので、長い方に合わせる）
+            metrics = button.fontMetrics()
+            button.setFixedWidth(max(metrics.horizontalAdvance("編集"), metrics.horizontalAdvance("終了")) + 14)
+            button.clicked.connect(lambda _checked=False, k=kind: self.toggle_road_building_edit(k))
+            grid.addWidget(button, row, column)
+            self._rb_edit_buttons[kind] = button
+
+    def _refresh_rb_edit_buttons(self):
+        if not hasattr(self, "_rb_edit_buttons"):
+            return
+        for kind, button in self._rb_edit_buttons.items():
+            _, row_name, element, widget_name, _, _ = self.RB_EDIT_TARGETS[kind]
+            if self._rb_is_editing(kind):
+                # 編集中は「終了」：鉛筆ボタンで編集を終えるのと同じ（保存・破棄・キャンセルを QGIS が聞く）
+                button.setText("終了")
+                button.setToolTip(f"{row_name}の編集を終えます（保存するか破棄するかを聞かれます）。"
+                                  f"保存すると、計算に使うファイルに反映されます")
+                button.setEnabled(True)
+                continue
+            button.setText("編集")
+            button.setToolTip(
+                f"{row_name}を地図の上で編集します（「道路・建物」グループのレイヤーを編集モードにします）。"
+                f"編集を保存して編集モードを終えると、計算に使うファイルに反映されます。そのあと「{element}」を計算し直してください"
+            )
+            path = getattr(self.main, widget_name).filePath()
+            button.setEnabled(bool(path) and os.path.isfile(path) and self.main.has_workspace())
+
+    def toggle_road_building_edit(self, kind):
+        """「編集」／「終了」ボタン：編集中なら終える（QGIS の編集の終え方と同じ確認が出る）、そうでなければ始める"""
+        layer = self._rb_layer(kind)
+        if self._rb_is_editing(kind) and layer is not None and layer.isEditable():
+            iface.setActiveLayer(layer)
+            iface.vectorLayerTools().stopEditing(layer, True)
+            return
+        self.start_road_building_edit(kind)
+
+    def _rb_is_editing(self, kind) -> bool:
+        return bool(self._rb_edit.get(kind, {}).get("editing"))
+
+    def _rb_any_editing(self) -> bool:
+        return any(layer.isEditable() for layer in utils.output_layers(utils.STAGE_ROAD_BUILDING)
+                   if isinstance(layer, QgsVectorLayer))
+
+    @staticmethod
+    def _rb_pending_marker(kind) -> str:
+        """編集を保存したが、まだ shp に書き出していないことを示す印のファイル（描画用の DB の隣）。
+        編集中に QGIS やプロジェクトを閉じて保存だけされた場合に、次の機会に書き出すため"""
+        db_dir = utils.get_morizon_layer_db_dir()
+        return os.path.join(db_dir, f"{kind}.shp_pending") if db_dir else ""
+
+    def _rb_layer(self, kind):
+        layers = utils.output_layers(utils.STAGE_ROAD_BUILDING, keys=[kind])
+        return layers[0] if layers else None
+
+    def _watch_rb_layer(self, layer, kind):
+        layer.editingStarted.connect(lambda k=kind: self._on_rb_editing_started(k))
+        layer.afterCommitChanges.connect(lambda k=kind: self._on_rb_committed(k))
+        # 編集モードを終えた合図の中ではレイヤーに触れず、処理が一巡してから書き出し・片付けを行う
+        layer.editingStopped.connect(lambda k=kind: QTimer.singleShot(0, lambda: self._on_rb_editing_stopped(k)))
+
+    def _on_rb_editing_started(self, kind):
+        checkbox = getattr(self.main, self.RB_EDIT_TARGETS[kind][4])
+        state = self._rb_edit.setdefault(kind, {})
+        if state.get("editing"):
+            return
+        state.update(editing=True, committed=False, prev_checked=checkbox.isChecked(), tooltip=checkbox.toolTip())
+        self.refresh_elements_ui()  # 編集中の要素はチェックを外してグレーアウトする
+        checkbox.setToolTip(f"{self.RB_EDIT_TARGETS[kind][1]}を編集中です（編集モードを終えると計算できます）")
+
+    def _on_rb_committed(self, kind):
+        self._rb_edit.setdefault(kind, {})["committed"] = True
+        marker = self._rb_pending_marker(kind)
+        if marker:
+            try:
+                with open(marker, "w", encoding="utf-8"):
+                    pass
+            except OSError:
+                pass
+
+    def _on_rb_editing_stopped(self, kind):
+        state = self._rb_edit.get(kind)
+        if not state or not state.get("editing"):
+            return
+        state["editing"] = False
+        name, row_name, element, widget_name, checkbox_name, _ = self.RB_EDIT_TARGETS[kind]
+        exported = self._export_rb_shp(kind) if state.get("committed") else False
+        checkbox = getattr(self.main, checkbox_name)
+        self.refresh_elements_ui()
+        checkbox.setToolTip(state.get("tooltip", ""))
+        # 保存したなら計算し直すのでチェックを入れる。破棄したなら元の状態に戻す
+        if checkbox.isEnabled():
+            checkbox.setChecked(True if exported else state.get("prev_checked", False))
+        if self._rb_temporary and not self._rb_any_editing():
+            self._rb_temporary = False
+            utils.remove_output_layers(utils.STAGE_ROAD_BUILDING)
+        if exported:
+            shp_name = os.path.basename(getattr(self.main, widget_name).filePath())
+            text = (f"編集した内容を {shp_name} に反映しました。計算結果に反映するには、要素計算で「{element}」を"
+                    f"もう一度計算してください（チェックを入れてあります）。")
+            if self.main.isVisible():
+                QMessageBox.information(self.main, f"{row_name}の編集", text.replace("。計算", "。\n\n計算", 1))
+            else:
+                # プラグインの画面を閉じて編集していた・QGIS を閉じる途中などは、窓を出さずにメッセージバーで知らせる
+                iface.messageBar().pushSuccess("Morizon Next", text)
+
+    def _export_rb_shp(self, kind) -> bool:
+        """描画用の DB から、作業フォルダの shp（要素計算が読む）を書き出し直す。書き出せたら True"""
+        name, row_name, _, widget_name, _, _ = self.RB_EDIT_TARGETS[kind]
+        shp_path = getattr(self.main, widget_name).filePath()
+        db_path = layer_db.db_file(utils.get_morizon_layer_db_dir(), kind)
+        if not shp_path or not db_path or not layer_db.has_layer(db_path, kind):
+            return False
+        try:
+            layer_db.export_shp(db_path, kind, shp_path)
+        except Exception as e:
+            QMessageBox.warning(
+                self.main, f"{row_name}の編集",
+                f"編集した内容を {os.path.basename(shp_path)} に書き出せませんでした。\n"
+                f"（ファイルを別のソフトや QGIS で開いている場合は、閉じてから「道路と建物を出力」を押すと書き出し直します）\n\n{e}",
+            )
+            return False
+        marker = self._rb_pending_marker(kind)
+        if marker and os.path.exists(marker):
+            try:
+                os.remove(marker)
+            except OSError:
+                pass
+        return True
+
+    def _flush_pending_rb(self):
+        """保存した編集で、まだ shp に書き出していないもの（編集中に閉じた場合など）を書き出す"""
+        for kind in self.RB_EDIT_TARGETS:
+            marker = self._rb_pending_marker(kind)
+            if marker and os.path.exists(marker) and not self._rb_is_editing(kind):
+                self._export_rb_shp(kind)
+
+    def start_road_building_edit(self, kind):
+        """「編集」ボタン：「道路・建物」グループの、その種類のレイヤーを編集モードにする。
+        表示していなければ一時的に表示し、編集モードを終えたら片付ける"""
+        _, row_name, element, widget_name, _, _ = self.RB_EDIT_TARGETS[kind]
+        shp_path = getattr(self.main, widget_name).filePath()
+        if not shp_path or not os.path.isfile(shp_path) or not self.main.has_workspace():
+            QMessageBox.information(self.main, f"{row_name}の編集", f"先に{row_name}のデータを設定してください。")
+            return
+        layer = self._rb_layer(kind)
+        if layer is not None and layer.isEditable():
+            iface.setActiveLayer(layer)
+            return
+        self._flush_pending_rb()
+        db_path = layer_db.db_file(utils.get_morizon_layer_db_dir(), kind)
+        # 表示が無い、または表示のあとに shp が外で編集された（DB と食い違う）ときは、表示を作り直す
+        stale = layer is not None and layer_db.get_fingerprint(db_path, kind) != layer_db.shp_fingerprint(shp_path)
+        if layer is None or stale:
+            if self._rb_any_editing():
+                QMessageBox.information(
+                    self.main, f"{row_name}の編集",
+                    "ほかの道路・建物を編集中です。その編集モードを終えてから、もう一度押してください。",
+                )
+                return
+            temporary = layer is None
+            if temporary:
+                QMessageBox.information(
+                    self.main, f"{row_name}の編集",
+                    "一時的に既設路網と建物を「道路・建物」グループに表示して、編集モードにします。\n"
+                    "編集を保存して編集モードを終えると、計算に使うファイルに反映し、表示は片付けます。",
+                )
+            self.show_road_building_layers()
+            self._rb_temporary = temporary
+            layer = self._rb_layer(kind)
+            if layer is None:
+                return
+        node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+        if node is not None:
+            node.setItemVisibilityChecked(True)
+            parent = node.parent()
+            while parent is not None and parent.parent() is not None:
+                parent.setItemVisibilityChecked(True)
+                parent = parent.parent()
+        iface.setActiveLayer(layer)
+        layer.startEditing()
+        # 鉛筆ボタンに慣れていない人向けに、地物を追加する道具も選んでおく
+        iface.actionAddFeature().trigger()
+
+    @staticmethod
+    def _style_road_layer(layer, make_edge_symbol):
+        """道路のレイヤーを、取得した道路縁（種類が真幅道路）と、描き足した路網（それ以外）に描き分ける。
+        種類の欄があれば、新しく描いた線に「路網」が入るようにする（欄が無いデータは、すべて路網として描く）"""
+        type_index = layer.fields().indexOf("type")
+        network_symbol = QgsLineSymbol.createSimple({
+            "line_color": ROAD_NETWORK_COLOR, "line_width": ROAD_NETWORK_WIDTH_MM, "line_width_unit": "MM",
+            "capstyle": "round", "joinstyle": "round",
+        })
+        root = QgsRuleBasedRenderer.Rule(None)
+        if type_index >= 0:
+            root.appendChild(QgsRuleBasedRenderer.Rule(
+                make_edge_symbol(), 0, 0, f"\"type\" = '{ROAD_EDGE_TYPE}'", "道路縁（基盤地図情報）"))
+            network_rule = QgsRuleBasedRenderer.Rule(network_symbol, 0, 0, "", "路網（描き足した線）")
+            network_rule.setIsElse(True)
+            root.appendChild(network_rule)
+            layer.setDefaultValueDefinition(type_index, QgsDefaultValue(f"'{ROAD_NETWORK_TYPE}'"))
+        else:
+            root.appendChild(QgsRuleBasedRenderer.Rule(network_symbol, 0, 0, "", "路網"))
+        layer.setRenderer(QgsRuleBasedRenderer(root))
 
     def clear_elements_settings(self):
         """
@@ -1477,6 +1751,8 @@ class ForestZoningMainDialogElements:
         return names
 
     def run_elements(self):
+        # 道路・建物の保存した編集で、まだ shp に書き出していないものがあれば、計算の前に書き出す
+        self._flush_pending_rb()
         if not self._confirm_siteindex_coverage():
             return
         if not self._confirm_shc_method():

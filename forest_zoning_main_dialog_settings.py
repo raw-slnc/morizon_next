@@ -6,7 +6,7 @@
 import json
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QApplication, QCheckBox, QFileDialog, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication, QCheckBox, QFileDialog, QGridLayout, QLabel, QMessageBox, QSpinBox
 
 from . import saga_check
 from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
@@ -22,7 +22,27 @@ class ForestZoningMainDialogSettings:
         self.main = main
         self.init_ui()
 
+    def _init_aggregate_risk_threshold_ui(self):
+        """スコア設定の表の下に「災害リスク高の基準」を足す。事業者が合意の出発点にする基準で、
+        結果が無いときにゾーン統計量タブの欄に入る（合意の中で変えた値は、その解析の結果に残る）"""
+        grid = self.widget.findChild(QGridLayout, "gridLayout_3")
+        label = QLabel("災害リスク高の基準")
+        self.widget.settingsAggregateRiskThresholdSpinbox = QSpinBox()
+        spinbox = self.widget.settingsAggregateRiskThresholdSpinbox
+        spinbox.setRange(1, 100)
+        spinbox.setSuffix(" %以上")
+        tooltip = ("ゾーン統計量で、災害リスクが高い（第1・第4象限の）セルがこの割合以上あるポリゴンを、"
+                   "「災害リスクが高いポリゴン」として斜線で示す基準です。結果が無いときに、ゾーン統計量タブの欄に入ります")
+        label.setToolTip(tooltip)
+        spinbox.setToolTip(tooltip)
+        if grid is None:
+            return
+        row = grid.rowCount()
+        grid.addWidget(label, row, 0)
+        grid.addWidget(spinbox, row, 1, 1, 3)
+
     def init_ui(self):
+        self._init_aggregate_risk_threshold_ui()
         self.widget.storeSettingsPushButton.clicked.connect(self.store_settings)
         self.widget.abortSettingsPushButton.clicked.connect(
             self.set_values_from_stored_settings)
@@ -220,6 +240,8 @@ class ForestZoningMainDialogSettings:
             self.widget.costAlgoRuggednessRadio.setChecked(True)  # 起伏量
         else:
             self.widget.costAlgoShcRadio.setChecked(True)  # SHC
+        self.widget.settingsAggregateRiskThresholdSpinbox.setValue(
+            int(float(settings["aggregate_risk_threshold"])))
 
     def set_values_from_stored_settings(self):
         smanager = SettingsManager()
@@ -244,6 +266,8 @@ class ForestZoningMainDialogSettings:
         self.set_values_from_stored_settings()
         self.main.scoring.set_scoring_score_labels_from_settings()
         self.main.elements.costcsv_editor.set_axis_kind(smanager.get_setting("cost_algorithm"))
+        # 結果が無ければ、ゾーン統計量タブの「災害リスク高」の欄を新しい基準にする
+        self.main.aggregate.apply_initial_risk_threshold()
         QMessageBox.information(self.widget, "完了", "初期設定を復元しました")
 
     def make_settings_dict(self):
@@ -312,7 +336,8 @@ class ForestZoningMainDialogSettings:
                 round(self.widget.settingsSiteidxKaramatsuVtex2Spinbox.value(), digits)],
             "ruggedness_param": self.widget.settingsRuggednessSpinbox.value(),
             "shc_param": self.widget.settingsShcSpinbox.value(),
-            "cost_algorithm": "ruggedness" if self.widget.costAlgoRuggednessRadio.isChecked() else "shc"
+            "cost_algorithm": "ruggedness" if self.widget.costAlgoRuggednessRadio.isChecked() else "shc",
+            "aggregate_risk_threshold": str(self.widget.settingsAggregateRiskThresholdSpinbox.value()),
         }
 
     def store_settings(self):
@@ -322,6 +347,8 @@ class ForestZoningMainDialogSettings:
         self.main.scoring.set_scoring_score_labels_from_settings()
         # 作業システム設定の縦軸（起伏量／地形の複雑さ）を、集材作業効率の計算処理に合わせる
         self.main.elements.costcsv_editor.set_axis_kind(new_settings["cost_algorithm"])
+        # 結果が無ければ、ゾーン統計量タブの「災害リスク高」の欄を新しい基準にする
+        self.main.aggregate.apply_initial_risk_threshold()
         QMessageBox.information(self.widget, "完了", "設定を保存しました")
 
     def write_settings_to_file(self):

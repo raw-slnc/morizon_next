@@ -572,6 +572,8 @@ class ForestZoningMainDialogArchive:
 
         # 出力先（作業フォルダの中に決まる）
         self.main.apply_workspace_output_dirs()
+        # 結果のスタイル（qml）が保存データに無いときは欄の値で作り直すので、その前に欄を結果または基準の値にする
+        self.main.aggregate.apply_initial_risk_threshold()
         aggregate_shp = morizon_restore.find_aggregate_shp(aggregate_dir)
 
         # 出力レイヤー（処理の順に追加し、後の工程ほど上に来るようにする）
@@ -614,6 +616,8 @@ class ForestZoningMainDialogArchive:
             self.main.scoring.apply_params_file(params_path)
         self.main.zoning.select_restored_layers()
         self.main.aggregate.select_restored_layers()
+        # 「災害リスク高」の欄は、戻した結果を作ったときの値にする（地図の見え方とそろえる）
+        self.main.aggregate.apply_initial_risk_threshold()
         self.main.printlayout.update_printlayout_layer_scope()
 
         input_lines = "\n".join(

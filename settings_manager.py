@@ -21,7 +21,10 @@ def DEFAULT_SETTINGS():
         'siteidx_karamatsu_params': ['22.510', '11.61', '0.129', '1264.0', '0.2939', '44.3', '1.125'],
         'ruggedness_param': '49',
         'shc_param': '49',
-        'cost_algorithm': 'ruggedness'  # ruggedness or shc
+        'cost_algorithm': 'ruggedness',  # ruggedness or shc
+        # ゾーン統計量で「災害リスク高」とするポリゴンの割合（%、1〜100）の、事業者の基準。
+        # 結果が無いときにゾーン統計量タブの欄に入る（結果があれば、その結果を作ったときの値が入る）
+        'aggregate_risk_threshold': '30',
     }
 
 
@@ -70,6 +73,14 @@ class SettingsManager:
         if key in ["ruggedness_param", "shc_param"]:
             if int(value) % 2 == 0:
                 return "値は奇数でなければなりません"
+
+        if key == "aggregate_risk_threshold":
+            try:
+                number = int(float(value))
+            except (TypeError, ValueError):
+                return "値は整数でなければなりません"
+            if not 1 <= number <= 100:
+                return "値は1〜100でなければなりません"
 
         return None
 
