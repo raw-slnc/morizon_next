@@ -49,6 +49,7 @@ class ProcessingThread(QThread):
         self.final_extent_wgs84 = final_extent_wgs84
         self.no_road_distance_created = False
         self.no_building_savearea_created = False
+        self.no_overlap_savearea_created = False
 
         self.abort_flag = False
         self.feedback = None
@@ -338,13 +339,14 @@ class ProcessingThread(QThread):
                 self.addProgress.emit(1)
                 progress_counter += 1
 
-                savearea_filepath, no_building_savearea_created = raster_writer.savearea.generate(
+                savearea_filepath, savearea_zero_reason = raster_writer.savearea.generate(
                     dem_for_processes,
                     self.input_files_dict["building"],
                     self.output_dir,
                     feedback=self.feedback,
                 )
-                if no_building_savearea_created:
+                self.no_overlap_savearea_created = savearea_zero_reason == "no_overlap"
+                if savearea_zero_reason == "no_building":
                     self.no_building_savearea_created = True
                     self.postMessage.emit(
                         f'{OUTPUT_SAVEAREA["DISPLAY_NAME"]}: 建物が無いため全域を保全対象なしとして作成しました')

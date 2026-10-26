@@ -28,8 +28,8 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.utils import iface
 from qgis.core import (
-    QgsDefaultValue, QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol, QgsProject, QgsRectangle,
-    QgsRuleBasedRenderer, QgsSingleSymbolRenderer, QgsVectorLayer,
+    QgsCoordinateTransform, QgsCsException, QgsDefaultValue, QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol,
+    QgsProject, QgsRasterLayer, QgsRectangle, QgsRuleBasedRenderer, QgsSingleSymbolRenderer, QgsVectorLayer,
 )
 
 from .progress_dialog import run_with_progress
@@ -467,16 +467,21 @@ class ForestZoningMainDialogElements:
         }
 
     def set_elements_filewidgets_enabled(self):
-        mondatory_files_dict = self.get_elements_mandatory_files_dict()
-        self.main.elementsDemFileWidget.setEnabled(mondatory_files_dict["dem"])
-        self.main.elementsNppFileWidget.setEnabled(mondatory_files_dict["npp"])
-        self.main.elementsSradFileWidget.setEnabled(mondatory_files_dict["srad"])
-        self.main.elementsVtexFileWidget.setEnabled(mondatory_files_dict["vtex"])
-        self.main.elementsBuildingFileWidget.setEnabled(
-            mondatory_files_dict["building"]
-        )
-        self.main.elementsNetworkFileWidget.setEnabled(mondatory_files_dict["network"])
-        self.main.elementsCostCsvFileWidget.setEnabled(mondatory_files_dict["costcsv"])
+        """入力欄（「…」）は、要素のチェックに関係なくいつでも選べるようにする。
+        要素のチェックは入力がそろうまで押せない（update_elements_calculate_checkboxes）ので、
+        原版のように「…」をチェックに合わせて止めると、空の欄を自分のファイルで埋める道がなくなる。
+        ファイルを選べば入力がそろい、チェックが押せるようになって自動で入る。
+        道路・建物を編集している間だけは、その欄を替えられないようにする（編集中のデータと食い違うため）"""
+        for widget in (
+            self.main.elementsDemFileWidget,
+            self.main.elementsNppFileWidget,
+            self.main.elementsSradFileWidget,
+            self.main.elementsVtexFileWidget,
+            self.main.elementsCostCsvFileWidget,
+        ):
+            widget.setEnabled(True)
+        self.main.elementsBuildingFileWidget.setEnabled(not self._rb_is_editing(layer_db.KIND_BUILDING))
+        self.main.elementsNetworkFileWidget.setEnabled(not self._rb_is_editing(layer_db.KIND_ROAD))
 
     def get_elements_error_texts(self) -> list:
         """
@@ -518,6 +523,57 @@ class ForestZoningMainDialogElements:
             self.costcsv_editor.load_from_csv(path)
         except (ValueError, OSError):
             pass
+
+    def _confirm_vector_inputs(self) -> bool:
+        """建物・道路の座標系と範囲を、計算の前に確かめる。座標系が分からないまま（.prj が無いなど）だと、
+        保全対象を含む流域は黙って全域0になり、地利は途中で止まるため。
+        座標系が分からなくても、座標の値が DEM の範囲にかかっていれば DEM と同じ座標系とみなして進める
+        （Morizon Next が書き出す shp は DEM と同じ座標系なので、.prj が無くても正しく計算できる）"""
+        dem_path = self.main.elementsDemFileWidget.filePath()
+        dem = QgsRasterLayer(dem_path, "dem") if dem_path and os.path.isfile(dem_path) else None
+        if dem is None or not dem.isValid():
+            return True
+        targets = []
+        if self.main.elementsSaveareaCheckbox.isChecked():
+            targets.append((self.main.elementsBuildingFileWidget.filePath(), "建物ポリゴン", True))
+        if self.main.elementsDistanceCheckbox.isChecked():
+            targets.append((self.main.elementsNetworkFileWidget.filePath(), "既設路網ライン", False))
+        for path, label, must_overlap in targets:
+            if not path or not os.path.isfile(path):
+                continue
+            layer = QgsVectorLayer(path, label, "ogr")
+            if not layer.isValid() or layer.featureCount() == 0:
+                continue  # 0件のときは、計算のあとの知らせ（全域0・全域1点相当）で伝える
+            extent = layer.extent()
+            if layer.crs().isValid():
+                try:
+                    if layer.crs() != dem.crs():
+                        extent = QgsCoordinateTransform(
+                            layer.crs(), dem.crs(), QgsProject.instance()).transformBoundingBox(extent)
+                    overlaps = extent.intersects(dem.extent())
+                except QgsCsException:
+                    overlaps = False
+                if not overlaps and must_overlap:
+                    answer = QMessageBox.question(
+                        self.main, "建物の範囲の確認",
+                        f"{label}（{os.path.basename(path)}）が、DEM の範囲に1つもかかっていません。\n"
+                        "このまま計算すると、保全対象を含む流域は全域0になります。\n\n"
+                        "座標系が正しいか（緯度経度のデータに別の座標系が付いていないかなど）確かめてください。"
+                        "このまま続けますか？",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if answer != QMessageBox.StandardButton.Yes:
+                        return False
+            elif not extent.intersects(dem.extent()):
+                QMessageBox.warning(
+                    self.main, "座標系の確認",
+                    f"{label}（{os.path.basename(path)}）の座標系が分かりません（.prj が無いなど）。\n"
+                    "座標の値も DEM の範囲と重ならないため、このままでは正しく計算できません。\n\n"
+                    "DEM と同じ座標系（平面直角座標系）を付けるか、変換してから指定してください。",
+                )
+                return False
+        return True
 
     def _confirm_siteindex_coverage(self) -> bool:
         """地位指数を計算するとき、DEMの範囲が地位指数データの整備範囲外（離島など）なら、計算を始める前に知らせて止める。
@@ -1835,6 +1891,8 @@ class ForestZoningMainDialogElements:
         self._flush_pending_rb()
         if not self._confirm_siteindex_coverage():
             return
+        if not self._confirm_vector_inputs():
+            return
         if not self._confirm_shc_method():
             return
         self.main.hide()
@@ -1915,6 +1973,15 @@ class ForestZoningMainDialogElements:
                     "設定された建物データには、建物がありませんでした。\n"
                     "保全対象を含む流域は、どの流域にも保全対象が無い条件（全域0）として作成しました。\n\n"
                     "地域の保全対象を反映する場合は、独自の建物データの作成をおすすめします。",
+                    MORIZON_GUIDE_BUILDING_PAGES,
+                )
+            if getattr(thread, "no_overlap_savearea_created", False):
+                self._show_guide_warning(
+                    "保全対象を含む流域が全域0になりました",
+                    "建物データはありますが、解析範囲の流域に重なる建物がありませんでした。\n"
+                    "保全対象を含む流域は、全域0（どの流域にも保全対象が無い）になっています。\n\n"
+                    "保全対象は解析範囲の下流（範囲の外）にあることが多いので、範囲を下流の集落まで広げるか、"
+                    "地域の保全対象を描き足してください（マニュアル 1.9）。",
                     MORIZON_GUIDE_BUILDING_PAGES,
                 )
             QMessageBox.information(self.main, "終了", "処理が終了しました。")

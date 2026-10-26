@@ -20,7 +20,8 @@ def generate(basis_dem_filepath: str,
              output_dir: str,
              feedback=None):
     """
-    保全対象を含む流域ラスターを生成し、(出力のパス, 建物が無かったか) を返す。
+    保全対象を含む流域ラスターを生成し、(出力のパス, 全域0になった理由) を返す。理由は、
+    建物が無い "no_building"、建物はあるがどの流域とも重ならない "no_overlap"、どちらでもなければ空文字。
     building_filepathにフィーチャが1件も無い場合（対象範囲に建物が存在しない等）は、
     道路が無い場合の地利と同じく飛ばさずに、どの流域にも保全対象が無い（流域のある所は全域0）として作る。
     """
@@ -59,7 +60,7 @@ def generate(basis_dem_filepath: str,
         output_filepath = os.path.join(
             output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
         if no_building:
-            return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), True
+            return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), "no_building"
 
         set_stage(feedback, "建物と重なる流域を探す")
         fixed_building_vlayer = run_processing("native:fixgeometries", {
@@ -78,6 +79,9 @@ def generate(basis_dem_filepath: str,
             "EXPRESSION": f'\"{fixed_building_vlayer.name()}_area\" > 0',
             "OUTPUT": "TEMPORARY_OUTPUT"
         }, feedback=feedback)["OUTPUT"]
+
+        # 建物はあるのに、どの流域とも重ならない（範囲の中に建物が無い、座標系が違うなど）。結果は全域0になる
+        no_overlap = filtered_polygon_vlayer.featureCount() == 0
 
         # 建物ポリゴンを含む流域だけを焼きこんだラスター。焼きこまないセルは「データなし」でなく 0 にする
         # （NODATA を指定しないと、現行の QGIS では 0 が「データなし」になり、下の計算で建物を含まない流域が
@@ -141,7 +145,7 @@ def generate(basis_dem_filepath: str,
             raise RuntimeError(f"保全対象ラスターの計算に失敗しました: {result}")
         _assert_raster_ready(output_filepath, OUTPUT_SAVEAREA["DISPLAY_NAME"])
 
-        return output_filepath, False
+        return output_filepath, ("no_overlap" if no_overlap else "")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

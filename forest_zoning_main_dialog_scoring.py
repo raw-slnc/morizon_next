@@ -288,8 +288,16 @@ class ForestZoningMainDialogScoring:
         """params.json（スコアリング実行時に出力先へ書き出すしきい値）を各スピンボックスに反映し、
         各要素のスコアリングレイヤーをその値で塗り直す（表示の切り替えはしない）"""
         thresholds_dict = {}
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             thresholds_dict = json.load(f)
+        # 実行したときの地位のレイヤー（スギ・ヒノキ・カラマツ・独自）に先に戻す。
+        # 選択欄にレイヤーを入れるとしきい値が初期値に入れ直されるので、しきい値より前に行う
+        # （記録の無い params.json（以前の版）では、今の選択のままにする）
+        siteidx_name = thresholds_dict.get("siteidx_layer")
+        if siteidx_name:
+            layer = utils.find_morizon_layer_by_name(siteidx_name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                self.main.scoringSiteidxLayerCombobox.setLayer(layer)
         try:
             self.main.scoringSiteidxThreshold1Spinbox.setValue(
                 thresholds_dict.get("siteidx")[0]
@@ -818,8 +826,15 @@ class ForestZoningMainDialogScoring:
         params_filepath = os.path.join(
             self.main.scoringOutputDirFileWidget.filePath(), "params.json"
         )
-        with open(params_filepath, "wt") as file:
-            json.dump(input_thresholds_dict, file, ensure_ascii=False, indent=2)
+        # 地位はスギ・ヒノキ・カラマツ・独自から選ぶので、どれを使ったかも残す（再開のとき、しきい値と同じ地位に戻すため）
+        siteidx_layer = self.main.scoringSiteidxLayerCombobox.currentLayer()
+        params = dict(input_thresholds_dict)
+        if siteidx_layer is not None:
+            params["siteidx_layer"] = siteidx_layer.name()
+        # レイヤー名（日本語）は \u の形で書き、ファイルは ASCII だけにする。原版や他の派生版が、
+        # 文字コードを指定せずに読んでも（Windows では cp932）読めるようにするため
+        with open(params_filepath, "wt", encoding="utf-8") as file:
+            json.dump(params, file, ensure_ascii=True, indent=2)
 
         target_score_dict = {
             "profit": self.main.scoringSiteidxLayerCombobox.parent().isChecked(),
