@@ -28,6 +28,7 @@ from .constants import (
     INPUT_BUILDING,
     INPUT_NETWORK,
     INPUT_COSTCSV,
+    INPUT_SITEIDX_MAP,
     OUTPUT_COST,
     OUTPUT_DISTANCE,
     OUTPUT_PARAMS_JSON,
@@ -37,6 +38,7 @@ from .constants import (
     OUTPUT_SHC,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
+    OUTPUT_SITEIDX_DOKUJI,
     OUTPUT_SITEIDX_SUGI,
     OUTPUT_SLOPE,
     OUTPUT_ZONING,
@@ -58,7 +60,7 @@ COMPANION_EXTENSIONS = {
 OUTPUT_RASTER_EXTENSIONS = {".tif", ".tiff", ".tfw", ".qml"}
 
 ELEMENT_OUTPUTS = (
-    OUTPUT_SITEIDX_SUGI, OUTPUT_SITEIDX_HINOKI, OUTPUT_SITEIDX_KARAMATSU, OUTPUT_COST,
+    OUTPUT_SITEIDX_SUGI, OUTPUT_SITEIDX_HINOKI, OUTPUT_SITEIDX_KARAMATSU, OUTPUT_SITEIDX_DOKUJI, OUTPUT_COST,
     OUTPUT_DISTANCE, OUTPUT_SHC, OUTPUT_SLOPE, OUTPUT_SAVEAREA,
 )
 
@@ -146,6 +148,10 @@ class ForestZoningMainDialogArchive:
             path = filewidget.filePath()
             if path:
                 entries.append((input_def, path))
+        # 取り込んだ地位指数マップ（入力欄は持たないので、作業フォルダの DATA から探す）
+        map_path = morizon_data.find_siteidx_map(utils.get_workspace_dir(DIR_DATA))
+        if map_path:
+            entries.append((INPUT_SITEIDX_MAP, map_path))
         return entries
 
     @staticmethod

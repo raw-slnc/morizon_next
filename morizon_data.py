@@ -35,6 +35,7 @@ from .constants import (
     INPUT_NPP,
     INPUT_SRAD,
     INPUT_VTEX,
+    INPUT_SITEIDX_MAP,
 )
 
 # 入力データ（キーは要素計算の入力辞書と同じ）
@@ -69,6 +70,14 @@ def find_input_files(data_dir: str, input_def: dict) -> list:
         for name in sorted(os.listdir(directory))
         if os.path.splitext(name)[1].lower() == ext and os.path.isfile(os.path.join(directory, name))
     ]
+
+
+def find_siteidx_map(data_dir: str) -> str:
+    """取り込んだ地位指数マップ（DATA/SiteIndex/MAP の最初の .tif）。無ければ空文字"""
+    if not data_dir:
+        return ""
+    files = find_input_files(data_dir, INPUT_SITEIDX_MAP)
+    return files[0] if files else ""
 
 
 def find_inputs(data_dir: str) -> dict:

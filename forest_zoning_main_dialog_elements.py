@@ -51,8 +51,10 @@ from .constants import (
     DIR_YOUSO,
     INPUT_DEM,
     INPUT_COSTCSV,
+    INPUT_SITEIDX_MAP,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
+    OUTPUT_SITEIDX_DOKUJI,
     OUTPUT_SITEIDX_SUGI,
     OUTPUT_COST,
     OUTPUT_DISTANCE,
@@ -64,6 +66,7 @@ from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
 from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget, read_costcsv
+from .siteidx_map_dialog import SiteIdxMapDialog
 
 
 # 公式の手引（G空間情報センターで公開されているPDF）。ダイアログには題名だけを出し、開くのはボタンから。
@@ -347,6 +350,7 @@ class ForestZoningMainDialogElements:
         self.set_elements_filewidgets_enabled()
         self.update_elements_status_labels()
         self._refresh_rb_edit_buttons()
+        self._refresh_siteidx_map_button()
         other_errors = self.get_elements_error_texts()
         self.main.elementsErrorLabel.setText("\n".join(other_errors))
         missing_inputs = self.get_missing_mandatory_inputs()
@@ -1393,12 +1397,85 @@ class ForestZoningMainDialogElements:
         column = grid.columnCount()
         for kind, (_, row_name, element, _, _, row) in self.RB_EDIT_TARGETS.items():
             button = QPushButton("編集")  # 文字とツールチップは _refresh_rb_edit_buttons で状態に合わせる
-            # 文字の幅に合わせた小さなボタンにする（編集中は「終了」に変わるので、長い方に合わせる）
-            metrics = button.fontMetrics()
-            button.setFixedWidth(max(metrics.horizontalAdvance("編集"), metrics.horizontalAdvance("終了")) + 14)
+            # 文字の幅に合わせた小さなボタンにする。同じ列の「取込」とそろえる
+            button.setFixedWidth(self._right_column_button_width(button))
             button.clicked.connect(lambda _checked=False, k=kind: self.toggle_road_building_edit(k))
             grid.addWidget(button, row, column)
             self._rb_edit_buttons[kind] = button
+        self._init_siteidx_map_ui(grid, column)
+
+    # ── 地位指数マップの「取込」（地位1〜3の行の右端、「編集」と同じ列） ──
+    # この列は「自分のデータで補う」入口：建物・道路は地図で描く（編集）、地位は手引 4.2 の地位指数マップを取り込む
+    SITEIDX_MAP_ROWS = (2, 3)  # 地位1(NPP)の行から3行分
+
+    def _init_siteidx_map_ui(self, grid, column):
+        button = QPushButton("取込")
+        button.setFixedWidth(self._right_column_button_width(button))
+        button.clicked.connect(self.open_siteidx_map_dialog)
+        first_row, row_span = self.SITEIDX_MAP_ROWS
+        grid.addWidget(button, first_row, column, row_span, 1, Qt.AlignmentFlag.AlignVCenter)
+        self._siteidx_map_button = button
+
+    @staticmethod
+    def _right_column_button_width(button) -> int:
+        """一番右の列のボタン（編集・取込）の幅。出る文字のうち一番長いものに合わせ、全部同じ幅にする"""
+        metrics = button.fontMetrics()
+        return max(metrics.horizontalAdvance(text) for text in ("編集", "終了", "取込", "取込済")) + 14
+
+    def siteidx_map_path(self) -> str:
+        """取り込んだ地位指数マップ（作業フォルダの DATA/SiteIndex/MAP）。無ければ空文字"""
+        if not self.main.has_workspace():
+            return ""
+        return morizon_data.find_siteidx_map(utils.get_workspace_dir(DIR_DATA))
+
+    def _refresh_siteidx_map_button(self):
+        button = getattr(self, "_siteidx_map_button", None)
+        if button is None:
+            return
+        if not self.main.has_workspace():
+            button.setText("取込")
+            button.setEnabled(False)
+            button.setToolTip("地位指数マップを取り込むには、作業フォルダが必要です（「表示範囲から開始する」などで始めてください）")
+            return
+        path = self.siteidx_map_path()
+        button.setEnabled(True)
+        button.setText("取込済" if path else "取込")
+        button.setToolTip(
+            f"取り込んだ地位指数マップ：{os.path.basename(path)}\n押すと、差し替え・外すができます" if path else
+            "航空レーザから作った地位指数マップを取り込み、「地位（独自）」として計算します（手引 4.2）"
+        )
+
+    def open_siteidx_map_dialog(self):
+        current = self.siteidx_map_path()
+        dialog = SiteIdxMapDialog(self.main, current_path=current,
+                                  dem_path=self.main.elementsDemFileWidget.filePath())
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.action is None:
+            return
+        target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_SITEIDX_MAP["PATH"])
+        try:
+            # 前のマップ（と付属のファイル）を外してから置く。マップは1枚だけ
+            if os.path.isdir(target_dir):
+                for name in os.listdir(target_dir):
+                    path = os.path.join(target_dir, name)
+                    if os.path.isfile(path):
+                        os.remove(path)
+            if dialog.action == "import":
+                os.makedirs(target_dir, exist_ok=True)
+                sources = ForestZoningMainDialogArchive.get_companion_files(dialog.path, INPUT_SITEIDX_MAP["EXT"]) \
+                    or [dialog.path]
+                for source in sources:
+                    shutil.copy2(source, os.path.join(target_dir, os.path.basename(source)))
+        except OSError as e:
+            verb = "取り込め" if dialog.action == "import" else "外せ"
+            QMessageBox.warning(self.main, "地位指数マップ", f"地位指数マップを{verb}ませんでした。\n\n{e}")
+            self.refresh_elements_ui()
+            return
+        self.refresh_elements_ui()
+        if dialog.action == "import":
+            message = "地位指数マップを取り込みました。\n要素計算で「地位」を計算すると、「地位（独自）」ができます。"
+        else:
+            message = "地位指数マップを外しました。\n要素計算で「地位」を計算し直すと、「地位（独自）」も消えます。"
+        QMessageBox.information(self.main, "地位指数マップ", message)
 
     def _refresh_rb_edit_buttons(self):
         if not hasattr(self, "_rb_edit_buttons"):
@@ -1722,6 +1799,7 @@ class ForestZoningMainDialogElements:
             append_filename_if_exist(OUTPUT_SITEIDX_SUGI["FILE_NAME"])
             append_filename_if_exist(OUTPUT_SITEIDX_HINOKI["FILE_NAME"])
             append_filename_if_exist(OUTPUT_SITEIDX_KARAMATSU["FILE_NAME"])
+            append_filename_if_exist(OUTPUT_SITEIDX_DOKUJI["FILE_NAME"])
         if self.main.elementsCostCheckbox.isChecked():
             append_filename_if_exist(OUTPUT_COST["FILE_NAME"])
         if self.main.elementsDistanceCheckbox.isChecked():
@@ -1740,7 +1818,7 @@ class ForestZoningMainDialogElements:
         names = set()
         if self.main.elementsSiteIdxCheckbox.isChecked():
             names |= {OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"], OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"],
-                      OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"]}
+                      OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"], OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"]}
         for checkbox, output_def in (
             (self.main.elementsCostCheckbox, OUTPUT_COST),
             (self.main.elementsDistanceCheckbox, OUTPUT_DISTANCE),
@@ -1791,6 +1869,7 @@ class ForestZoningMainDialogElements:
             "building": self.main.elementsBuildingFileWidget.filePath(),
             "network": self.main.elementsNetworkFileWidget.filePath(),
             "costcsv": self.main.elementsCostCsvFileWidget.filePath(),
+            "siteidx_map": self.siteidx_map_path(),
         }
 
         target_elements_dict = {

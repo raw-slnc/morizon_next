@@ -10,7 +10,8 @@ from ...constants import (
     SCORING_COLORS_SITEIDX,
     RAWDATA_COLORS_SITEIDX_SUGI,
     RAWDATA_COLORS_SITEIDX_HINOKI,
-    RAWDATA_COLORS_SITEIDX_KARAMATSU
+    RAWDATA_COLORS_SITEIDX_KARAMATSU,
+    RAWDATA_COLORS_SITEIDX_DOKUJI,
 )
 
 from .utils import (
@@ -29,7 +30,7 @@ def write_rawdata_qml(siteidx_filepath: str, wood_type="sugi") -> str:
 
     Args:
         siteidx_filepath (str)
-        wood_type (str, optional): "sugi" or "hinoki" or "karamatsu". Defaults to "sugi".
+        wood_type (str, optional): "sugi" or "hinoki" or "karamatsu"、取り込んだ地位指数マップは "dokuji"。Defaults to "sugi".
 
     Raises:
         ValueError: when wood_type is not "sugi" or "hinoki" or "karamatsu"
@@ -40,7 +41,8 @@ def write_rawdata_qml(siteidx_filepath: str, wood_type="sugi") -> str:
     colors_dict = {
         "sugi": RAWDATA_COLORS_SITEIDX_SUGI,
         "hinoki": RAWDATA_COLORS_SITEIDX_HINOKI,
-        "karamatsu": RAWDATA_COLORS_SITEIDX_KARAMATSU
+        "karamatsu": RAWDATA_COLORS_SITEIDX_KARAMATSU,
+        "dokuji": RAWDATA_COLORS_SITEIDX_DOKUJI,
     }
     if colors_dict.get(wood_type) is None:
         raise ValueError

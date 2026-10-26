@@ -177,7 +177,7 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
 
     # 範囲の形の選択肢 (キー, 表示)
     SHAPES = (
-        ("rect", "既定 ※表示範囲"),
+        ("rect", "表示範囲"),
         ("round", "円（表示範囲に内接。横長・縦長なら楕円）"),
     )
     SHAPE_NAMES = {"round": "円"}

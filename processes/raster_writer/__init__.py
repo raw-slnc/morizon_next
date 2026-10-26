@@ -16,7 +16,8 @@ from . import (
 )
 
 from .utils import (
-    dem_has_nodata, replace_with_clipped_wgs84_extent, resampling, restore_dem_nodata,
+    dem_has_nodata, replace_with_adjusted_extent_and_resolution, replace_with_clipped_wgs84_extent, resampling,
+    restore_dem_nodata,
 )
 
 # 外から raster_writer.<名前> で使う部品（読み込むこと自体が目的）
@@ -32,6 +33,7 @@ __all__ = [
     "zoning",
     "aggregate",
     "dem_has_nodata",
+    "replace_with_adjusted_extent_and_resolution",
     "replace_with_clipped_wgs84_extent",
     "resampling",
     "restore_dem_nodata",

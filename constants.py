@@ -58,6 +58,13 @@ INPUT_COSTCSV = {
     "EXT": "csv",
     "PATH": ["SAGYO-SYSTEM_CSV"]
 }
+# 利用者が取り込む地位指数マップ（手引 4.2 p.80。任意、1枚）。入力欄は持たず、要素計算タブの「取込」で DATA に置く。
+# 原版の NPP・SRAD・VTEX のフォルダとは分け、原版や他の派生版が読み違えないようにする
+INPUT_SITEIDX_MAP = {
+    "DISPLAY_NAME": "地位指数マップ",
+    "EXT": "tif",
+    "PATH": ["SiteIndex", "MAP"]
+}
 
 # 出力ファイル定義
 OUTPUT_SLOPE = {
@@ -79,6 +86,11 @@ OUTPUT_SITEIDX_HINOKI = {
 OUTPUT_SITEIDX_KARAMATSU = {
     "DISPLAY_NAME": "収益性/地位（カラマツ）",
     "FILE_NAME": "Y_01_chii_karamatsu",
+}
+# 取り込んだ地位指数マップを DEM のマス目にそろえたもの（3樹種の地位に加えて作る）
+OUTPUT_SITEIDX_DOKUJI = {
+    "DISPLAY_NAME": "収益性/地位（独自）",
+    "FILE_NAME": "Y_01_chii_dokuji",
 }
 OUTPUT_SAVEAREA = {
     "DISPLAY_NAME": "災害リスク/保全対象を含む流域",
@@ -127,6 +139,8 @@ RAWDATA_COLORS_SITEIDX_HINOKI = (
     "#cdf1c5", "#a3d5a6", "#7ab987", "#509c68", "#268049")
 RAWDATA_COLORS_SITEIDX_KARAMATSU = (
     "#cdf1c5", "#a3d5a6", "#7ab987", "#509c68", "#268049")
+RAWDATA_COLORS_SITEIDX_DOKUJI = (
+    "#f3ead2", "#dcc79a", "#c4a465", "#a67f3a", "#7f5a1c")
 RAWDATA_COLORS_DISTANCE = (
     "#e8eff6", "#c6d8ee", "#a4c0e6", "#81a8de", "#5f91d6", "#3d79cd")
 RAWDATA_COLORS_COST = ("#e7e7ff", "#bed7f8", "#95c6f0", "#6cb5e8", "#43a4e0",

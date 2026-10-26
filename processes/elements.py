@@ -23,6 +23,7 @@ from ..constants import (
     OUTPUT_SAVEAREA,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
+    OUTPUT_SITEIDX_DOKUJI,
     OUTPUT_SITEIDX_SUGI,
     OUTPUT_SHC,
     OUTPUT_SLOPE
@@ -69,6 +70,25 @@ class ProcessingThread(QThread):
                 filepath, self.final_extent_wgs84, feedback=self.feedback
             )
         return filepath
+
+    def _generate_siteidx_dokuji(self, dem_filepath):
+        """取り込んだ地位指数マップを、値を変えないよう最近傍法で DEM のマス目にそろえて出力する。
+        マップが無ければ、前に作った「地位（独自）」の出力を消して None を返す（外したマップの結果を残さない）"""
+        output_filepath = os.path.join(self.output_dir, OUTPUT_SITEIDX_DOKUJI["FILE_NAME"] + ".tif")
+        map_filepath = self.input_files_dict.get("siteidx_map") or ""
+        if not map_filepath or not os.path.isfile(map_filepath):
+            prefix = OUTPUT_SITEIDX_DOKUJI["FILE_NAME"]
+            if os.path.isdir(self.output_dir):
+                for name in os.listdir(self.output_dir):
+                    stem = os.path.splitext(name)[0]
+                    if stem == prefix or stem.startswith(prefix + "_") or name.startswith(prefix + ".tif."):
+                        os.remove(os.path.join(self.output_dir, name))
+            return None
+        set_stage(self.feedback, "地位指数マップをDEMのマス目にそろえる")
+        shutil.copyfile(map_filepath, output_filepath)
+        raster_writer.replace_with_adjusted_extent_and_resolution(
+            dem_filepath, output_filepath, resampling_alg_name="nearest", feedback=self.feedback)
+        return self._clip_final_output(output_filepath)
 
     def run(self):
         """
@@ -171,6 +191,19 @@ class ProcessingThread(QThread):
                         siteidx_scoring_qml_filepath)
                     output_rlayers_dict[display_names[idx]] = [
                         siteidx_rawdata_rlayer, siteidx_scoring_rlayer]
+
+                # 取り込んだ地位指数マップ（手引 4.2）があれば、DEM のマス目にそろえて「地位（独自）」を作る
+                dokuji_filepath = self._generate_siteidx_dokuji(dem_for_processes)
+                if dokuji_filepath:
+                    dokuji_rawdata_rlayer = QgsRasterLayer(dokuji_filepath, OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"])
+                    dokuji_scoring_rlayer = QgsRasterLayer(
+                        dokuji_filepath, OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"] + "[スコアリング]")
+                    dokuji_rawdata_rlayer.loadNamedStyle(
+                        raster_styler.siteidx.write_rawdata_qml(dokuji_filepath, wood_type="dokuji"))
+                    dokuji_scoring_rlayer.loadNamedStyle(
+                        raster_styler.siteidx.write_scoring_qml(dokuji_filepath))
+                    output_rlayers_dict[OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"]] = [
+                        dokuji_rawdata_rlayer, dokuji_scoring_rlayer]
 
                 if self.abort_flag:
                     self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))

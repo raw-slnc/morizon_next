@@ -28,6 +28,7 @@ from .constants import (
     OUTPUT_GROUP_NAME,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
+    OUTPUT_SITEIDX_DOKUJI,
     OUTPUT_SITEIDX_SUGI,
     OUTPUT_COST,
     OUTPUT_DISTANCE,
@@ -445,6 +446,7 @@ class ForestZoningMainDialogScoring:
                     OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
                     OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
                     OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"] + name_suffix,
                 },
             ),
             (
@@ -656,6 +658,7 @@ class ForestZoningMainDialogScoring:
                     OUTPUT_SITEIDX_SUGI["DISPLAY_NAME"] + name_suffix,
                     OUTPUT_SITEIDX_HINOKI["DISPLAY_NAME"] + name_suffix,
                     OUTPUT_SITEIDX_KARAMATSU["DISPLAY_NAME"] + name_suffix,
+                    OUTPUT_SITEIDX_DOKUJI["DISPLAY_NAME"] + name_suffix,
                 },
             ),
             (
