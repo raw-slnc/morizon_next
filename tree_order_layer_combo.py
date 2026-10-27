@@ -12,7 +12,7 @@ QGIS の QgsMapLayerComboBox は候補を名前の順に並べ、並べ方を変
 currentLayer・setLayer・layerChanged）をそのまま持つ。
 """
 
-from qgis.PyQt.QtCore import pyqtSignal
+from qgis.PyQt.QtCore import QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QComboBox
 from qgis.core import Qgis, QgsMapLayerProxyModel, QgsProject, QgsRasterLayer, QgsVectorLayer
 
@@ -22,8 +22,12 @@ except ImportError:  # 古い QGIS では、アイコンなしで並べる
     QgsIconUtils = None
 
 
+EXTRA_ITEM = "__extra__"
+
+
 class TreeOrderLayerComboBox(QComboBox):
     layerChanged = pyqtSignal(object)  # 選んだレイヤー（未選択なら None）
+    extraChosen = pyqtSignal()  # setExtraItem の項目が選ばれた（選択は前のレイヤーに戻す）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,9 +36,13 @@ class TreeOrderLayerComboBox(QComboBox):
         self._empty_text = ""
         self._excepted_ids = set()
         self._current_id = None
+        self._extra_text = ""
+        self._extra_shown = None
+        self._extra_activated = False
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(12)
         self.currentIndexChanged.connect(self._on_index_changed)
+        self.activated.connect(self._on_activated)
 
     # ── QgsMapLayerComboBox と同じ使い方 ──
     def setFilters(self, layer_filter):
@@ -46,13 +54,22 @@ class TreeOrderLayerComboBox(QComboBox):
         self._empty_text = text
         self.refresh_layers()
 
+    def setExtraItem(self, text, shown=None):
+        """「未選択」の次に、レイヤーではない項目（例：現在地の樹種メッシュを取得する）を置く。
+        利用者が選んだときだけ extraChosen を出し、選択は前のレイヤーに戻す（呼び出し側がレイヤーを作って setLayer する）。
+        レイヤーが消えたときなど、プログラムから選択が移っただけでは出さない（手動のときだけ作るため）。
+        shown：項目を出すかを返す関数（候補を作り直すたびに呼ぶ。例：作ったレイヤーが無いときだけ出す）"""
+        self._extra_text = text
+        self._extra_shown = shown
+        self.refresh_layers()
+
     def setExceptedLayerList(self, layers):
         self._excepted_ids = {layer.id() for layer in layers if layer is not None}
         self.refresh_layers()
 
     def currentLayer(self):
         layer_id = self.currentData()
-        return QgsProject.instance().mapLayer(layer_id) if layer_id else None
+        return QgsProject.instance().mapLayer(layer_id) if layer_id and layer_id != EXTRA_ITEM else None
 
     def setLayer(self, layer):
         if layer is not None and self.findData(layer.id()) < 0:
@@ -80,6 +97,8 @@ class TreeOrderLayerComboBox(QComboBox):
             self.clear()
             if self._allow_empty:
                 self.addItem(self._empty_text, None)
+            if self._extra_text and (self._extra_shown is None or self._extra_shown()):
+                self.addItem(self._extra_text, EXTRA_ITEM)
             for layer in self._layers_in_tree_order():
                 if QgsIconUtils is not None:
                     self.addItem(QgsIconUtils.iconForLayer(layer), layer.name(), layer.id())
@@ -87,7 +106,8 @@ class TreeOrderLayerComboBox(QComboBox):
                     self.addItem(layer.name(), layer.id())
             index = self.findData(previous_id) if previous_id else -1
             if index < 0:
-                index = 0 if self.count() else -1
+                # 前のレイヤーが無くなったら未選択（未選択が無ければ最初のレイヤー）。setExtraItem の項目には移さない
+                index = next((i for i in range(self.count()) if self.itemData(i) != EXTRA_ITEM), -1)
             self.setCurrentIndex(index)
         finally:
             self.blockSignals(False)
@@ -115,11 +135,31 @@ class TreeOrderLayerComboBox(QComboBox):
         return True
 
     def _on_index_changed(self, *_):
+        if self.currentData() == EXTRA_ITEM:
+            # 選択を前のレイヤーに戻すのは、処理が一巡した後にする。この合図の後に出る「利用者が選んだ」の合図
+            # （activated）は、その時点の選択の番号を渡すので、ここで戻すと選ばれたことがわからなくなる
+            QTimer.singleShot(0, self._revert_extra)
+            return
         layer = self.currentLayer()
         layer_id = layer.id() if layer is not None else None
         if layer_id != self._current_id:
             self._current_id = layer_id
             self.layerChanged.emit(layer)
+
+    def _on_activated(self, index):
+        if self.itemData(index) == EXTRA_ITEM:
+            self._extra_activated = True
+
+    def _revert_extra(self):
+        """setExtraItem の項目から、選択を前のレイヤーに戻す。利用者が選んでいたときだけ extraChosen を出す"""
+        if self.currentData() == EXTRA_ITEM:
+            index = self.findData(self._current_id) if self._current_id else -1
+            self.blockSignals(True)
+            self.setCurrentIndex(index if index >= 0 else (0 if self._allow_empty else -1))
+            self.blockSignals(False)
+        if self._extra_activated:
+            self._extra_activated = False
+            self.extraChosen.emit()
 
 
 def replace_with_tree_order_combo(dialog, name):

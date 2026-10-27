@@ -4,6 +4,7 @@
 
 import os
 import gc
+import json
 
 # QGIS-API
 from qgis.PyQt.QtWidgets import QMessageBox, QVBoxLayout
@@ -318,6 +319,27 @@ class ForestZoningMainDialogZoning:
                             combobox.currentLayer(), classes_count=2
                         )[0]
                         spinbox.setValue(int(threshold))
+        finally:
+            self._suspend_style = False
+        self.set_zoning_raster_style("profit")
+        self.set_zoning_raster_style("risk")
+
+    def apply_thresholds_file(self, filepath):
+        """thresholds.json（ゾーニング実行時に出力先へ書き出すしきい値）を欄に入れ、その値で塗り直す。
+        読めない・値の無いときは、今の値（初期値）のまま"""
+        try:
+            with open(filepath, encoding="utf-8") as file:
+                thresholds = json.load(file)
+        except (OSError, ValueError):
+            return
+        if not isinstance(thresholds, dict):
+            return
+        self._suspend_style = True
+        try:
+            for name, spinbox in (("profit", self.main.zoningProfitSpinbox), ("risk", self.main.zoningRiskSpinbox)):
+                value = thresholds.get(name)
+                if isinstance(value, (int, float)):
+                    spinbox.setValue(int(value))
         finally:
             self._suspend_style = False
         self.set_zoning_raster_style("profit")

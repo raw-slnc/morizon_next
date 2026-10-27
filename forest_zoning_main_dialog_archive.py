@@ -621,6 +621,12 @@ class ForestZoningMainDialogArchive:
         if os.path.isfile(params_path):
             self.main.scoring.apply_params_file(params_path)
         self.main.zoning.select_restored_layers()
+        # ゾーニングのしきい値も、戻したゾーニング図を作ったときの値（thresholds.json）に戻す（成果物に合わせる）。
+        # ゾーニング図が戻らなかったときは、選択欄に入れたときの初期値のまま。
+        # 戻ったかは件数で見る（レイヤーの一覧は、プロジェクトに加えるときに空にされる）
+        thresholds_path = os.path.join(zoning_dir, _json_name(OUTPUT_ZONING_THRESHOLDS_JSON))
+        if counts[2] and os.path.isfile(thresholds_path):
+            self.main.zoning.apply_thresholds_file(thresholds_path)
         self.main.aggregate.select_restored_layers()
         # 「災害リスク高」の欄は、戻した結果を作ったときの値にする（地図の見え方とそろえる）
         self.main.aggregate.apply_initial_risk_threshold()

@@ -534,6 +534,12 @@ def output_top_nodes(stages) -> list:
     return nodes
 
 
+def is_road_building_node(node) -> bool:
+    """「Morizon Next」のすぐ下の、道路と建物の項目か。タブの移動や操作でほかの出力の表示・開閉を切り替えるとき、
+    これは触らない（背景として、表示したまま見たいことが多いため）"""
+    return node in output_top_nodes((STAGE_ROAD_BUILDING,))
+
+
 def fold_layer_tree(node):
     """レイヤーパネルで、項目とその中をすべて閉じる（表示の ON/OFF は変えない）"""
     for child in node.children():
@@ -544,27 +550,32 @@ def fold_layer_tree(node):
 
 def fold_output_tree():
     """レイヤーパネルで、「Morizon Next」の中のグループ・レイヤーをすべて閉じる（「Morizon Next」自体は開いておく）。
-    表示の ON/OFF は変えない。「Morizon Next」が無ければ何もしない（作らない）"""
+    表示の ON/OFF は変えない。道路と建物は閉じない。「Morizon Next」が無ければ何もしない（作らない）"""
     root = QgsProject.instance().layerTreeRoot()
     top_group = next((child for child in root.children()
                       if isinstance(child, QgsLayerTreeGroup) and child.name() == OUTPUT_GROUP_NAME), None)
     if top_group is None:
         return
+    road_building = output_top_nodes((STAGE_ROAD_BUILDING,))
     for child in top_group.children():
-        fold_layer_tree(child)
+        if child not in road_building:
+            fold_layer_tree(child)
 
 
 def focus_output_stages(stages, open_children=True):
     """レイヤーパネルで、「Morizon Next」の中の指定した工程の出力を開き、ほかの項目は閉じる。
     open_children のときは、すぐ下の中身（スコアリングなら収益性・災害リスクの凡例）まで開く。
     要素計算の出力のように中身が多いものは、軸のグループだけ開いて中の要素は閉じる（open_children=False）。
-    表示の ON/OFF は変えない。工程の出力が無ければ何もしない"""
+    表示の ON/OFF は変えない。道路と建物は開閉しない。工程の出力が無ければ何もしない"""
     stage_nodes = output_top_nodes(stages)
     if not stage_nodes:
         return
+    road_building = output_top_nodes((STAGE_ROAD_BUILDING,))
     top_group = stage_nodes[0].parent()
     top_group.setExpanded(True)
     for child in top_group.children():
+        if child in road_building and child not in stage_nodes:
+            continue
         if child in stage_nodes:
             child.setExpanded(True)
             for grandchild in child.children():

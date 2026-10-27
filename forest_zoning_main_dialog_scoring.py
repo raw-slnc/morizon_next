@@ -529,7 +529,7 @@ class ForestZoningMainDialogScoring:
         """レイヤーにチェックを入れ、親のグループ（要素・収益性／災害リスク・Morizon Next）も ON にする。
         最上位のグループ（Morizon Next）の中は、このレイヤーだけを表示する（災害リスクの要素どうしも、操作中は重ねない）。
         レイヤーパネルでは、このレイヤーまでの道筋とこのレイヤーの凡例だけを開き、ほかは閉じる（操作中の凡例を見るため）。
-        最上位のグループの外は触らない"""
+        最上位のグループの外と、道路と建物（背景として表示したまま見るため）は触らない"""
         node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
         if node is None:
             return
@@ -546,6 +546,8 @@ class ForestZoningMainDialogScoring:
         def focus(group):
             """道筋の上にないものは、表示を外して閉じる（外すのはその項目のチェックだけで、中のチェックは残す）"""
             for child in group.children():
+                if group is top_group and utils.is_road_building_node(child):
+                    continue
                 on_path = child is node or child in path
                 if not on_path and child.itemVisibilityChecked():
                     child.setItemVisibilityChecked(False)

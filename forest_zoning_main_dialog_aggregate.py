@@ -8,12 +8,13 @@ import gc
 import re
 
 # QGIS-API
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
 )
-from qgis.core import QgsFields, QgsMapLayerProxyModel, QgsProject
+from qgis.core import QgsFields, QgsFillSymbol, QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
 from qgis.gui import QgsFieldComboBox
 
 from . import processes
@@ -21,8 +22,12 @@ from . import layer_db
 from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
+from .processes.species_mesh import OUTPUT_KEY as SPECIES_MESH_KEY
 from .progress_dialog import run_with_progress
 from .settings_manager import AggregateConiferManager, AggregateStyleManager, SettingsManager
+
+
+SPECIES_MESH_ITEM = "現在地の樹種メッシュ（全国森林資源メッシュを取得）"
 
 
 class ForestZoningMainDialogAggregate:
@@ -46,6 +51,12 @@ class ForestZoningMainDialogAggregate:
             QgsMapLayerProxyModel.Filter.PolygonLayer
         )
         self.main.aggregatePolygonLayerCommbobox.setAllowEmptyLayer(True, "未選択")
+        # ゾーニングは原版の手順（ZoningKit の地位）のまま進め、最後に全国の樹種メッシュで集計して樹種を絞って見るための選択肢
+        # 一度作ったら、そのレイヤーを選べば足りるので、項目はレイヤーが無いときだけ出す
+        # （集計の後・ゾーニングのやり直し・初期化で外れたら、また出る）
+        self.main.aggregatePolygonLayerCommbobox.setExtraItem(
+            SPECIES_MESH_ITEM, shown=lambda: not utils.output_layers(utils.STAGE_ZONING, keys=[SPECIES_MESH_KEY]))
+        self.main.aggregatePolygonLayerCommbobox.extraChosen.connect(self.load_species_mesh)
         self.main.aggregatePolygonLayerCommbobox.setCurrentIndex(0)
         self.main.aggregateRunButton.clicked.connect(self.run_aggregate)
         self.main.aggregateOutputDirFileWidget.setFilter("*.shp")
@@ -195,6 +206,82 @@ class ForestZoningMainDialogAggregate:
         self.conifer_values_button.clicked.connect(self.choose_conifer_values)
         self.restore_conifer_settings()
 
+    # ── 現在地の樹種メッシュ（全国森林資源メッシュ） ──
+    def load_species_mesh(self):
+        """ゾーニング図の範囲の全国森林資源メッシュを取得して、ポリゴンレイヤーとして選び、針葉樹フィルターを樹種で設定する"""
+        from .processes.species_mesh import CONIFER_VALUES, LAYER_NAME, OUTPUT_KEY, SPECIES_FIELD, SpeciesMeshThread
+        zoning = self.main.aggregateZoningLayerCombobox.currentLayer()
+        if zoning is None:
+            QMessageBox.information(self.main, "樹種メッシュ", "先にゾーニング図を選んでください（範囲はゾーニング図で決めます）。")
+            return
+        if not self.main.has_workspace():
+            QMessageBox.information(self.main, "樹種メッシュ", "作業フォルダが必要です（「表示範囲から開始する」などで始めてください）。")
+            return
+        output = utils.get_workspace_dir(DIR_AGGREGATE, "species_mesh.gpkg")
+        # 前に作ったメッシュを読み込んでいれば、ファイルを書き直す前にプロジェクトから外す
+        self.remove_species_mesh(delete_file=False)
+        thread = SpeciesMeshThread(zoning.source(), utils.get_morizon_shared_dir(), output)
+        outcome = run_with_progress(thread, show_detail=True)
+        if "error" in outcome:
+            QMessageBox.information(self.main, "樹種メッシュ", f"樹種メッシュを用意できませんでした。\n\n{outcome['error']}")
+            return
+        result = outcome.get("result") or {}
+        if thread.abort_flag or not result:
+            return
+        layer = QgsVectorLayer(f"{result['path']}|layername={LAYER_NAME}", "全国森林資源メッシュ（林野庁）", "ogr")
+        if not layer.isValid():
+            QMessageBox.information(self.main, "樹種メッシュ", "樹種メッシュを読み込めませんでした。")
+            return
+        # 塗りは透明のまま（下の地図を隠さない）。外周線は fcloud_shizuoka のメッシュと同じ（地図上 0.13m の濃い灰色）
+        layer.renderer().setSymbol(QgsFillSymbol.createSimple({
+            "color": "0,0,0,0", "outline_color": "35,35,35,255", "outline_style": "solid",
+            "outline_width": "0.13", "outline_width_unit": "RenderMetersInMapUnits", "joinstyle": "bevel",
+        }))
+        # 「Morizon Next」の中の、ゾーニング図の直下に置く（ゾーニング図が無ければ「Morizon Next」の一番上）
+        utils.tag_output_layer(layer, utils.STAGE_ZONING, OUTPUT_KEY)
+        QgsProject.instance().addMapLayer(layer, False)
+        zoning_node = QgsProject.instance().layerTreeRoot().findLayer(zoning.id())
+        if zoning_node is not None and zoning_node.parent() is not None:
+            parent = zoning_node.parent()
+            parent.insertLayer(parent.children().index(zoning_node) + 1, layer)
+        else:
+            utils.get_morizon_output_group().insertLayer(0, layer)
+        self.main.aggregatePolygonLayerCommbobox.setLayer(layer)
+        # 針葉樹フィルター：樹種の列で、針葉樹の値を入れてオンにする（値は「設定」で選び直せる）
+        values = {str(v) for v in layer.uniqueValues(layer.fields().indexOf(SPECIES_FIELD)) if v}
+        self._conifer_restoring = True
+        try:
+            self.conifer_field_combo.setField(SPECIES_FIELD)
+            self.conifer_values = values & set(CONIFER_VALUES)
+            self.conifer_check.setChecked(bool(self.conifer_values))
+        finally:
+            self._conifer_restoring = False
+        self.main.radioButtonPolygon.setChecked(True)  # 樹種メッシュは「任意のポリゴン」で集計する
+        self.store_conifer_settings()
+        self.refresh_aggregate_ui()
+        missing = result["total"] - result["with_species"]
+        message = f"樹種メッシュを用意しました（{result['total']:,} マス）。針葉樹フィルターを樹種で設定しました。"
+        if missing > result["total"] * 0.5:
+            message += (f"\n\n樹種の入っていないマスが {missing:,} あります（森林簿の情報が無い地域など）。"
+                        "樹種の無いマスは、針葉樹でないものとして扱われます。")
+        QMessageBox.information(self.main, "樹種メッシュ", message)
+
+    def remove_species_mesh(self, delete_file=True):
+        """樹種メッシュのレイヤーをプロジェクトから外す（delete_file ならファイルも消す。
+        取得した図郭は共有データに残るので、次に作るときは取得し直さない）"""
+        from .processes.species_mesh import OUTPUT_KEY
+        utils.remove_output_layers(utils.STAGE_ZONING, keys=[OUTPUT_KEY])
+        output = utils.get_workspace_dir(DIR_AGGREGATE, "species_mesh.gpkg") if self.main.has_workspace() else ""
+        for layer in list(QgsProject.instance().mapLayers().values()):
+            if output and layer.source().split("|")[0] == output:
+                QgsProject.instance().removeMapLayer(layer)
+        if delete_file and output and os.path.exists(output):
+            gc.collect()
+            try:
+                os.remove(output)
+            except OSError:
+                pass  # 掴まれていて消せなければ残す（次に作るときに書き直す）
+
     # 選んだポリゴンレイヤーとチェック項目は、プラグインの設定に保存して次に開いたときに戻す
     def restore_conifer_settings(self):
         """保存したポリゴンレイヤーがプロジェクトにあれば選び直す（列・値・チェックは選び直しの中で戻す）"""
@@ -234,6 +321,11 @@ class ForestZoningMainDialogAggregate:
         if layer is not None:
             layer.willBeDeleted.connect(self._on_conifer_layer_will_be_deleted)
 
+    def stop_conifer_watch(self):
+        """プラグインを外すときに呼ぶ。見張っているレイヤーは画面より長く残るので、合図の受け先から外す
+        （外さないと、破棄した画面の選択欄に触れてエラーになる）"""
+        self._watch_conifer_layer(None)
+
     def _on_conifer_layer_will_be_deleted(self):
         # 削除の途中で選択欄に触れると QGIS ごと落ちることがあるため、ここでは何もせず後回しにする
         self._conifer_watched_layer = None
@@ -243,6 +335,8 @@ class ForestZoningMainDialogAggregate:
         """針葉樹の列の欄が、ポリゴンの選択欄と同じレイヤーを指しているかを確かめ、違えば作り直す。
         選択欄が合図を出さずに切り替わった場合（選んでいたレイヤーが消された等）の食い違いを直す"""
         combo = self.main.aggregatePolygonLayerCommbobox
+        if sip.isdeleted(combo):
+            return  # 後回しにしている間に画面が破棄された
         if hasattr(combo, "refresh_layers"):
             # レイヤーパネルの並びの選択欄：消えたレイヤーを候補から外す（選んでいたなら未選択に戻り、合図が出る）
             combo.refresh_layers()
@@ -442,6 +536,8 @@ class ForestZoningMainDialogAggregate:
         outcome = run_with_progress(thread, show_detail=True)
         if "result" in outcome:
             self.add_layers_to_project(outcome["result"])
+            # 樹種メッシュは集計に使うためだけのものなので、集計を終えたら外す（作り直しは選択欄から手動で）
+            self.remove_species_mesh()
 
         self.main.show()
 

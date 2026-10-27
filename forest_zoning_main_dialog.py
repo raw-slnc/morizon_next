@@ -427,6 +427,7 @@ class ForestZoningMainDialog(QDialog):
         """プラグインを外すときに呼ぶ（この画面は破棄されるので、知らせの受け先から外す）"""
         self._refresh_timer.stop()
         utils.set_outputs_changed_callback(None)
+        self.aggregate.stop_conifer_watch()
 
     def schedule_refresh_all_tabs(self):
         if self.isVisible():
