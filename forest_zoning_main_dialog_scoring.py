@@ -8,7 +8,7 @@ import gc
 
 # QGIS-API
 from qgis.PyQt.QtCore import QTimer
-from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QMessageBox
+from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QMessageBox, QPushButton
 from qgis.core import QgsLayerTreeGroup, QgsMapLayer, QgsMapLayerProxyModel, QgsProject
 from qgis.gui import QgsMapLayerComboBox
 from qgis.utils import iface
@@ -240,6 +240,17 @@ class ForestZoningMainDialogScoring:
             lambda: self.show_scoring_rlayer_stats(self.scoring_objs_dict.get("shc"))
         )
 
+        # 保全対象を含む流域は2値でしきい値・統計値が無く、行の操作で表示に切り替わらないので、
+        # 統計値表示の列に「地図に表示」ボタンを置く（ほかの行の操作と同じく、このレイヤーだけを表示して凡例を開く）
+        self.savearea_show_button = QPushButton("地図に表示", self.main.scoringDisasterGroupbox)
+        self.savearea_show_button.setSizePolicy(self.main.scoringShcStatsButton.sizePolicy())
+        self.savearea_show_button.setToolTip("保全対象を含む流域のレイヤーだけを地図に表示する")
+        # グループボックス直下は縦並びのレイアウトで、行と列はその中のグリッド（gridLayout_7）
+        self.main.gridLayout_7.addWidget(self.savearea_show_button, 3, 2)
+        self.savearea_show_button.clicked.connect(
+            lambda: self.show_layer_on_map(self.main.scoringSaveareaLayerCombobox.currentLayer())
+        )
+
         # 初期値に戻すボタン
         self.main.scoringSiteidxStyleInitPushbutton.clicked.connect(
             lambda: self.back_to_initial_state(self.scoring_objs_dict.get("siteidx"))
@@ -444,6 +455,9 @@ class ForestZoningMainDialogScoring:
                 is_valid = utils.is_valid_elements_layer(combobox.currentLayer())
                 stats_button.setEnabled(is_valid)
                 init_button.setEnabled(is_valid)
+        savearea_layer = self.main.scoringSaveareaLayerCombobox.currentLayer()
+        # 表示するだけなので、統計値は見ずに、読めるレイヤーかだけを見る
+        self.savearea_show_button.setEnabled(utils.is_usable_raster_layer(savearea_layer))
 
     def update_scoring_layer_scope(self):
         name_suffix = "[スコアリング]"
@@ -563,6 +577,8 @@ class ForestZoningMainDialogScoring:
         focus(top_group)
 
     def show_scoring_rlayer_stats(self, scoring_obj: ScoringObject):
+        # 統計値を開くのも、その要素の操作として扱う（今のしきい値で塗り直して表示する。キャンセルで閉じても戻さない）
+        self.apply_row_operation(scoring_obj)
         self.main.hide()
 
         stats_dialog = ForestZoningScoringStatsDialog(

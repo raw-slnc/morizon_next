@@ -208,7 +208,7 @@ class ForestZoningMainDialogAggregate:
 
     # ── 現在地の樹種メッシュ（全国森林資源メッシュ） ──
     def load_species_mesh(self):
-        """ゾーニング図の範囲の全国森林資源メッシュを取得して、ポリゴンレイヤーとして選び、針葉樹フィルターを樹種で設定する"""
+        """ゾーニング図の範囲の全国森林資源メッシュを取得して、ポリゴンレイヤーとして選び、針葉樹フィルターの列と値を樹種で入れる（チェックは入れない）"""
         from .processes.species_mesh import CONIFER_VALUES, LAYER_NAME, OUTPUT_KEY, SPECIES_FIELD, SpeciesMeshThread
         zoning = self.main.aggregateZoningLayerCombobox.currentLayer()
         if zoning is None:
@@ -253,14 +253,16 @@ class ForestZoningMainDialogAggregate:
         try:
             self.conifer_field_combo.setField(SPECIES_FIELD)
             self.conifer_values = values & set(CONIFER_VALUES)
-            self.conifer_check.setChecked(bool(self.conifer_values))
+            # 列と値は入れておくが、フィルターを使うかは利用者が決める（チェックは入れない）
+            self.conifer_check.setChecked(False)
         finally:
             self._conifer_restoring = False
         self.main.radioButtonPolygon.setChecked(True)  # 樹種メッシュは「任意のポリゴン」で集計する
         self.store_conifer_settings()
         self.refresh_aggregate_ui()
         missing = result["total"] - result["with_species"]
-        message = f"樹種メッシュを用意しました（{result['total']:,} マス）。針葉樹フィルターを樹種で設定しました。"
+        message = (f"樹種メッシュを用意しました（{result['total']:,} マス）。"
+                   "針葉樹フィルターの列と値を樹種で入れました（使うときはチェックを入れてください）。")
         if missing > result["total"] * 0.5:
             message += (f"\n\n樹種の入っていないマスが {missing:,} あります（森林簿の情報が無い地域など）。"
                         "樹種の無いマスは、針葉樹でないものとして扱われます。")
