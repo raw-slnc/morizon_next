@@ -1198,6 +1198,8 @@ class ForestZoningMainDialogElements:
             login_dlg = FgdLoginDialog(self.main)
             if login_dlg.exec() != QDialog.DialogCode.Accepted:
                 return
+            # ログインの画面で選んだ自動入力を、「設定」タブの表示にも反映する
+            self.main.settings.set_fgd_credentials_ui_values()
             session = login_dlg.get_session()
             self._fgd_session = session
 
@@ -1329,10 +1331,12 @@ class ForestZoningMainDialogElements:
             message = "建物ポリゴン・道路縁データを取得しました。"
         QMessageBox.information(self.main, "完了", message)
 
-    def _show_guide_warning(self, title: str, message: str, guide_pages: str):
-        """知らせの下に公式の手引の題名と参照ページを添え、手引を開くボタンを付けて出す"""
+    def _show_guide_warning(self, title: str, message: str, guide_pages: str,
+                            icon=QMessageBox.Icon.Warning):
+        """知らせの下に公式の手引の題名と参照ページを添え、手引を開くボタンを付けて出す。
+        処理の結果を知らせるだけのとき（警告ではないとき）は icon に Information を渡す"""
         box = QMessageBox(self.main)
-        box.setIcon(QMessageBox.Icon.Warning)
+        box.setIcon(icon)
         box.setWindowTitle(title)
         text = f"{message}\n\n- 公式の手引 -\n{MORIZON_GUIDE_TITLE}\n参照ページ：{guide_pages}"
         box.setText(text)
@@ -1966,6 +1970,7 @@ class ForestZoningMainDialogElements:
                     "地利はDEM全域を道路から遠い条件（1点相当）として作成しました。\n\n"
                     "実際の林道・作業道を反映する場合は、独自の道路データの作成をおすすめします。",
                     MORIZON_GUIDE_ROAD_PAGES,
+                    icon=QMessageBox.Icon.Information,
                 )
             if getattr(thread, "no_building_savearea_created", False):
                 self._show_guide_warning(
@@ -1974,15 +1979,18 @@ class ForestZoningMainDialogElements:
                     "保全対象を含む流域は、どの流域にも保全対象が無い条件（全域0）として作成しました。\n\n"
                     "地域の保全対象を反映する場合は、独自の建物データの作成をおすすめします。",
                     MORIZON_GUIDE_BUILDING_PAGES,
+                    icon=QMessageBox.Icon.Information,
                 )
             if getattr(thread, "no_overlap_savearea_created", False):
                 self._show_guide_warning(
                     "保全対象を含む流域が全域0になりました",
                     "建物データはありますが、解析範囲の流域に重なる建物がありませんでした。\n"
                     "保全対象を含む流域は、全域0（どの流域にも保全対象が無い）になっています。\n\n"
-                    "保全対象は解析範囲の下流（範囲の外）にあることが多いので、範囲を下流の集落まで広げるか、"
+                    "影響のある範囲に保全対象が無い場合は、このままで問題ありません。\n"
+                    "解析範囲の下流（範囲の外）に集落などの保全対象がある場合は、範囲を下流まで広げるか、\n"
                     "地域の保全対象を描き足してください（マニュアル 1.9）。",
                     MORIZON_GUIDE_BUILDING_PAGES,
+                    icon=QMessageBox.Icon.Information,
                 )
             QMessageBox.information(self.main, "終了", "処理が終了しました。")
 

@@ -41,7 +41,7 @@ def generate(target_name, background_layers, target_layer, extent_layers=None):
         template_file = os.path.join(plugin_dir, "template/zoning_template.qpt")
     else:
         template_file = os.path.join(plugin_dir, "template/aggregate_template.qpt")
-    with open(template_file) as f:
+    with open(template_file, encoding="utf-8") as f:
         template_content = f.read()
 
     document.setContent(template_content)

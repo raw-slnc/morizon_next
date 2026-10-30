@@ -589,6 +589,20 @@ class CostCsvEditorWidget(QWidget):
         legend = self._get_legend()
         if len(legend) != len(DEFAULT_LEGEND):
             raise ValueError("機材名の一覧が不正です（行数が変わっています）")
+        # Shift_JIS（CP932）で書き出すので、表せない文字があれば書き出す前に止める（前に書き出したCSVを消さないため）
+        for _, name in legend:
+            unusable = []
+            for ch in str(name):
+                try:
+                    ch.encode("cp932")
+                except UnicodeEncodeError:
+                    if ch not in unusable:
+                        unusable.append(ch)
+            if unusable:
+                raise ValueError(
+                    f"機材名「{name}」に、作業システムCSV（Shift_JIS）で使えない文字があります：{'、'.join(unusable)}\n"
+                    "別の文字に置き換えてください。"
+                )
 
         # 実際の10x6セル(閾値の中間点)に対してマージン適用後のスコアを計算する
         n_rows = len(RUGGEDNESS_THRESHOLDS) - 1

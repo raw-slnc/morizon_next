@@ -122,11 +122,11 @@ def __write_qmlfile(qml_str: str, output_filepath=None):
         str: 生成されたQMLのファイルパス
     """
     if output_filepath is None:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False) as f:
             f.write(qml_str)
             return f.name
     else:
-        with open(output_filepath, mode='w') as f:
+        with open(output_filepath, mode='w', encoding='utf-8') as f:
             f.write(qml_str)
             return output_filepath
 

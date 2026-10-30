@@ -5,7 +5,7 @@
 import requests
 from qgis.PyQt.QtCore import Qt, QThread, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QApplication, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QLabel, QDialogButtonBox
+    QApplication, QCheckBox, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QLabel, QDialogButtonBox
 )
 
 from . import fgd_auth
@@ -88,6 +88,16 @@ class FgdLoginDialog(QDialog):
             self.usernameEdit.setText(saved["username"])
             self.passwordEdit.setText(saved["password"])
 
+        # ログインに成功したとき、このチェックの状態を「設定」タブの自動入力に当てはめる。
+        # 初めの状態は設定のとおり（保存がなければ外しておき、使う人が選ぶ）
+        self.autoFillCheckbox = QCheckBox("設定に登録し、次回から自動入力する")
+        self.autoFillCheckbox.setChecked(bool(saved["auto_fill"]))
+        layout.addWidget(self.autoFillCheckbox)
+        auto_fill_note = QLabel("※パスワードは暗号化せず設定に保存されます。共有PCでは推奨しません。")
+        auto_fill_note.setStyleSheet("color:#c00;")
+        auto_fill_note.setWordWrap(True)
+        layout.addWidget(auto_fill_note)
+
         self.errorLabel = QLabel("")
         self.errorLabel.setStyleSheet("color: #c00;")
         self.errorLabel.setWordWrap(True)
@@ -107,9 +117,12 @@ class FgdLoginDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        self._focus_order = [self.usernameEdit, self.passwordEdit, login_button, cancel_button]
+        self._focus_order = [
+            self.usernameEdit, self.passwordEdit, self.autoFillCheckbox, login_button, cancel_button
+        ]
         self.setTabOrder(self.usernameEdit, self.passwordEdit)
-        self.setTabOrder(self.passwordEdit, login_button)
+        self.setTabOrder(self.passwordEdit, self.autoFillCheckbox)
+        self.setTabOrder(self.autoFillCheckbox, login_button)
         self.setTabOrder(login_button, cancel_button)
 
         self.adjustSize()
@@ -186,7 +199,19 @@ class FgdLoginDialog(QDialog):
 
     def _on_succeeded(self, session):
         self.session = session
+        self._apply_auto_fill_choice()
         self.accept()
+
+    def _apply_auto_fill_choice(self):
+        # チェックあり：ログインできたID/パスワードで保存し直す（変更した場合も更新される）。
+        # チェックなし：自動入力だけを止め、入力したパスワードは保存しない
+        manager = FgdCredentialsManager()
+        if self.autoFillCheckbox.isChecked():
+            manager.store(self.usernameEdit.text().strip(), self.passwordEdit.text(), True)
+        else:
+            saved = manager.load()
+            if saved["auto_fill"]:
+                manager.store(saved["username"], saved["password"], False)
 
     def _on_failed(self, message):
         self.errorLabel.setStyleSheet("color: #c00;")

@@ -81,6 +81,7 @@ class ProcessingThread(QThread):
                 f"{OUTPUT_ZONING_THRESHOLDS_JSON['FILE_NAME']}.{OUTPUT_ZONING_THRESHOLDS_JSON['EXTENSION']}",
             ),
             mode="wt",
+            encoding="utf-8",
         ) as f:
             json.dump(self.input_thresholds_dict, f, ensure_ascii=False, indent=2)
 

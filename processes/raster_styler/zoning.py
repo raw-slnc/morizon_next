@@ -14,7 +14,7 @@ from .utils import output_blend_mode_value
 def write_qml(output_dir: str) -> str:
     output_filepath = os.path.join(output_dir,
                                    OUTPUT_ZONING["FILE_NAME"] + ".qml")
-    with open(output_filepath, mode="w") as f:
+    with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write(f"""
     <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis hasScaleBasedVisibilityFlag="0" minScale="1e+08" version="3.16.7-Hannover" maxScale="0" styleCategories="AllStyleCategories">

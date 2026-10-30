@@ -88,7 +88,7 @@ def write_rawdata_qml(costcsv_filepath: str, output_dir: str) -> str:
 
     output_filepath = os.path.join(
         output_dir, OUTPUT_COST["FILE_NAME"] + '_raw.qml')
-    with open(output_filepath, mode='w') as f:
+    with open(output_filepath, mode='w', encoding='utf-8') as f:
         f.write(qml_str)
 
     return output_filepath

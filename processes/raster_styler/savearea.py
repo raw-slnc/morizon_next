@@ -17,7 +17,7 @@ from .utils import output_blend_mode_value
 def write_rawdata_qml(output_dir: str) -> str:
     output_filepath = os.path.join(output_dir,
                                    OUTPUT_SAVEAREA["FILE_NAME"] + "_raw.qml")
-    with open(output_filepath, mode="w") as f:
+    with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write(f"""
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis maxScale="0" version="3.16.9-Hannover" styleCategories="AllStyleCategories" hasScaleBasedVisibilityFlag="0" minScale="1e+08">
@@ -74,7 +74,7 @@ def write_scoring_qml(output_dir: str) -> str:
 
     output_filepath = os.path.join(output_dir,
                                    OUTPUT_SAVEAREA["FILE_NAME"] + "_score.qml")
-    with open(output_filepath, mode="w") as f:
+    with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write(f"""
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis maxScale="0" version="3.16.9-Hannover" styleCategories="AllStyleCategories" hasScaleBasedVisibilityFlag="0" minScale="1e+08">

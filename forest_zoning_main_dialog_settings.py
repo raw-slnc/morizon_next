@@ -361,7 +361,7 @@ class ForestZoningMainDialogSettings:
         if output_filepath == "":
             return
 
-        with open(output_filepath, mode='w') as f:
+        with open(output_filepath, mode='w', encoding='utf-8') as f:
             json.dump(current_settings, f, indent=2)
 
         QMessageBox.information(self.widget, "完了", "設定ファイルを保存しました")
@@ -376,7 +376,7 @@ class ForestZoningMainDialogSettings:
             return
 
         try:
-            with open(settings_filepath) as f:
+            with open(settings_filepath, encoding='utf-8') as f:
                 settings_json = json.load(f)
         except Exception as e:
             QMessageBox.information(

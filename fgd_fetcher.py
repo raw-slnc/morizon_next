@@ -445,6 +445,8 @@ def _translate_layer_with_ogr2ogr(ogr2ogr: str, src: str, output_path: str,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         **kwargs,
     )
     # 終わるまで待ちきらず、少しずつ待ちながら中断を確かめる。中断なら ogr2ogr を終わらせる

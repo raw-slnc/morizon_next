@@ -84,7 +84,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
                         f' symbol="5" key="{_CONIFER_RULE_KEY}"/>\n')
     else:
         only = conifer_rule = ""
-    with open(output_filepath, mode="w") as f:
+    with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write((
             """
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
