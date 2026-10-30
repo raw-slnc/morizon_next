@@ -3,6 +3,7 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import csv
+import io
 
 # 表の形（原版のExcelひな形・手引 5.5 と同じ）。マスの数は固定で、区切りの値だけが変わり得る
 # （集材作業効率を「傾斜と地形の複雑さ」で計算するときは、縦軸の区切りを地形の複雑さの値に差し替える：手引 p.107）
@@ -15,12 +16,21 @@ CODES = range(0, 11)  # 機材のコード
 def read_costcsv_rows(csv_filepath: str) -> list:
     """作業システムCSVを文字列の行の配列として読む。UTF-8（BOM付きも可）か Shift_JIS（CP932）。
     UTF-8 を先に試す（Shift_JIS の日本語は UTF-8 として読めないため取り違えない。BOM は取り除く）"""
+    with open(csv_filepath, "rb") as f:
+        data = f.read()
+    # UTF-16（Excel の「Unicode テキスト」など）は Shift_JIS として読めてしまい、1行目が数でないという
+    # 的外れな知らせになるため先に見分ける。Shift_JIS・UTF-8 のCSVには 0 のバイトが入らない
+    if b"\x00" in data:
+        raise ValueError(
+            "文字コードを判別できません。UTF-16（Excel の「Unicode テキスト」など）で保存されているようです"
+            "（Shift_JIS か UTF-8 で保存してください）"
+        )
     for encoding in ("utf-8-sig", "cp932"):
         try:
-            with open(csv_filepath, encoding=encoding, newline="") as f:
-                return [[cell.strip() for cell in row] for row in csv.reader(f)]
+            text = data.decode(encoding)
         except UnicodeDecodeError:
             continue
+        return [[cell.strip() for cell in row] for row in csv.reader(io.StringIO(text, newline=""))]
     raise ValueError("文字コードを判別できません（Shift_JIS か UTF-8 で保存してください）")
 
 

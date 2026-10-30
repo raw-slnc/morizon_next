@@ -581,15 +581,13 @@ class CostCsvEditorWidget(QWidget):
 
         self.panelLabel.setPixmap(pixmap)
 
-    def export_to_csv(self, output_path: str) -> str:
-        """
-        作業システムCSVを書き出す(processes/costcsv_parser.pyのCostcsvParserが読める形式)。
-        入力に不正があればValueErrorを送出する。
-        """
+    def validate_legend(self) -> list:
+        """機材名の一覧を確かめて返す。書き出せない内容なら ValueError を送出する。
+        Shift_JIS（CP932）で書き出すので、表せない文字があれば書き出す前に止める（前に書き出したCSVを消さないため）。
+        ファイルの置き換えを確かめる前にも呼ぶ（書き出せないのに置き換えを聞かないように）"""
         legend = self._get_legend()
         if len(legend) != len(DEFAULT_LEGEND):
             raise ValueError("機材名の一覧が不正です（行数が変わっています）")
-        # Shift_JIS（CP932）で書き出すので、表せない文字があれば書き出す前に止める（前に書き出したCSVを消さないため）
         for _, name in legend:
             unusable = []
             for ch in str(name):
@@ -603,6 +601,14 @@ class CostCsvEditorWidget(QWidget):
                     f"機材名「{name}」に、作業システムCSV（Shift_JIS）で使えない文字があります：{'、'.join(unusable)}\n"
                     "別の文字に置き換えてください。"
                 )
+        return legend
+
+    def export_to_csv(self, output_path: str) -> str:
+        """
+        作業システムCSVを書き出す(processes/costcsv_parser.pyのCostcsvParserが読める形式)。
+        入力に不正があればValueErrorを送出する。
+        """
+        legend = self.validate_legend()
 
         # 実際の10x6セル(閾値の中間点)に対してマージン適用後のスコアを計算する
         n_rows = len(RUGGEDNESS_THRESHOLDS) - 1

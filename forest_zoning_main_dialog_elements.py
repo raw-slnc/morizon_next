@@ -328,6 +328,12 @@ class ForestZoningMainDialogElements:
         # 1種類1ファイルにそろえる（Excel など CSV 以外は残す）
         others = [path for path in self._files_of_type(target_dir, INPUT_COSTCSV["EXT"])
                   if os.path.normcase(path) != os.path.normcase(output_path)]
+        # 書き出せない内容なら、ファイルの置き換えを聞く前に知らせる
+        try:
+            editor_widget.validate_legend()
+        except ValueError as e:
+            QMessageBox.warning(self.main, "入力エラー", str(e))
+            return
         if not self._confirm_replace_external(target_dir, others):
             return
         try:
