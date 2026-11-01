@@ -425,12 +425,6 @@
          </property>
          <property name="text">
           <string>エラーメッセージ
-エラーメッセージ
-エラーメッセージ
-エラーメッセージ
-エラーメッセージ
-エラーメッセージ
-エラーメッセージ
 エラーメッセージ</string>
          </property>
         </widget>
@@ -1607,7 +1601,11 @@
       </attribute>
       <layout class="QGridLayout" name="gridLayout_11">
        <item row="2" column="0">
-        <layout class="QHBoxLayout" name="horizontalLayout_8">
+        <widget class="QGroupBox" name="aggregateStyleGroupBox">
+         <property name="title">
+          <string>色表示</string>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_8">
          <item>
           <spacer name="horizontalSpacer_5">
            <property name="orientation">
@@ -1626,13 +1624,6 @@
          </item>
          <item>
           <layout class="QVBoxLayout" name="verticalLayout_10">
-           <item>
-            <widget class="QLabel" name="label_9">
-             <property name="text">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;色表示&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-             </property>
-            </widget>
-           </item>
            <item>
             <widget class="QLabel" name="label_41">
              <property name="text">
@@ -1708,8 +1699,8 @@
            </property>
            <property name="maximumSize">
             <size>
-             <width>300</width>
-             <height>300</height>
+              <width>300</width>
+              <height>300</height>
             </size>
            </property>
            <property name="text">
@@ -1729,7 +1720,8 @@
            </property>
           </widget>
          </item>
-        </layout>
+         </layout>
+        </widget>
        </item>
        <item row="4" column="0">
         <layout class="QHBoxLayout" name="horizontalLayout_7">
@@ -1774,118 +1766,107 @@
          <layout class="QVBoxLayout" name="aggregateLayersGroupLayout">
           <item>
         <layout class="QGridLayout" name="gridLayout_5">
-         <item row="0" column="2">
-          <widget class="QPushButton" name="aggregateSetLayersButton">
-           <property name="text">
-            <string>既定のレイヤーを再読込する</string>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="0">
-          <widget class="QLabel" name="label_5">
-           <property name="styleSheet">
-            <string notr="true">margin-left:16px;</string>
-           </property>
-           <property name="text">
-            <string>DEM</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="1" colspan="2">
-          <widget class="QgsMapLayerComboBox" name="aggregatePolygonLayerCommbobox">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="0">
-          <widget class="QLabel" name="aggregateVectorLayerText">
-           <property name="styleSheet">
-            <string notr="true">margin-left:16px;</string>
-           </property>
-           <property name="text">
-            <string>ポリゴンレイヤー</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-           </property>
-          </widget>
-         </item>
          <item row="0" column="0">
-          <widget class="QLabel" name="aggregateVectorLayerText_2">
-           <property name="text">
-            <string>ゾーニング図</string>
-           </property>
-          </widget>
+          <layout class="QHBoxLayout" name="aggregateZoningRow" stretch="0,1,0">
+           <item>
+            <widget class="QLabel" name="aggregateVectorLayerText_2">
+             <property name="minimumSize">
+              <size>
+               <width>121</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>ゾーニング図</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QVBoxLayout" name="aggregateZoningColumnLayout">
+             <item>
+              <widget class="QgsMapLayerComboBox" name="aggregateZoningLayerCombobox">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QPushButton" name="aggregateSetLayersButton">
+             <property name="text">
+              <string>既定のレイヤーを再読込する</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
-         <item row="4" column="1">
-          <widget class="QLabel" name="label_8">
-           <property name="text">
-            <string>入力ポリゴンのジオメトリが不正である場合、意図した結果が得られないことがあります。
+         <item row="1" column="0">
+          <layout class="QGridLayout" name="aggregatePolygonGrid" columnstretch="0,1">
+           <item row="0" column="0">
+            <widget class="QRadioButton" name="radioButtonPolygon">
+             <property name="text">
+              <string>任意のポリゴンで集計</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QgsMapLayerComboBox" name="aggregatePolygonLayerCommbobox">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLabel" name="label_8">
+             <property name="text">
+              <string>入力ポリゴンのジオメトリが不正である場合、意図した結果が得られないことがあります。
 不正なジオメトリはプログラム上で修復を試みますが、全てのエラーを修復できないことがあります。</string>
-           </property>
-          </widget>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
-         <item row="0" column="1">
-          <widget class="QgsMapLayerComboBox" name="aggregateZoningLayerCombobox">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="0" colspan="3">
-          <widget class="QRadioButton" name="radioButtonWatershed">
-           <property name="text">
-            <string>流域で集計</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0" colspan="3">
-          <widget class="QRadioButton" name="radioButtonPolygon">
-           <property name="text">
-            <string>任意のポリゴンで集計</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="1">
-          <widget class="QgsFileWidget" name="aggregateDemFileWidget">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="2">
-          <widget class="QPushButton" name="aggregateSetDemButton">
-           <property name="text">
-            <string>フォルダから読み込み</string>
-           </property>
-          </widget>
+         <item row="4" column="0">
+          <layout class="QHBoxLayout" name="aggregateWatershedRow" stretch="0,1,0">
+           <item>
+            <widget class="QRadioButton" name="radioButtonWatershed">
+             <property name="text">
+              <string>流域（DEM）で集計</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QgsFileWidget" name="aggregateDemFileWidget">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="aggregateSetDemButton">
+             <property name="text">
+              <string>フォルダから読み込み</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
         </layout>
           </item>
          </layout>
-        </widget>
-       </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="label_35">
-         <property name="text">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-         </property>
         </widget>
        </item>
       </layout>

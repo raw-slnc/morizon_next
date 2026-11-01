@@ -382,7 +382,7 @@
         </sizepolicy>
        </property>
        <property name="text">
-        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;スコア設定の変更により、点数に重みづけをすることができます。例えば、災害リスクの3要素の中で傾斜をより重視したい場合、1, 2, 3から1, 3, 5と変更することができます。&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;起伏量計算範囲、地形の複雑さ計算範囲は、DEMのピクセル数（奇数のみ）を指定します。DEMが10mメッシュの場合、49pxは490mの範囲に相当します。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;スコア設定の変更により、点数に重みづけをすることができます。&lt;br/&gt;例えば、災害リスクの3要素の中で傾斜をより重視したい場合、1, 2, 3から1, 3, 5と変更することができます。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
        </property>
        <property name="textFormat">
         <enum>Qt::RichText</enum>
@@ -825,6 +825,9 @@
         <property name="text">
          <string>※地位指数 = 定数 + (NPP値 - NPP1) * NPP2 - (SRAD値 - SRAD1) * 0.01 * SRAD2 - (VTEX値 - VTEX1) * 0.01 * VTEX2</string>
         </property>
+        <property name="alignment">
+         <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+        </property>
         <property name="indent">
          <number>-1</number>
         </property>
@@ -960,17 +963,14 @@
        </layout>
       </item>
       <item>
-       <spacer name="verticalSpacer_5">
-        <property name="orientation">
-         <enum>Qt::Vertical</enum>
+       <widget class="QLabel" name="settingsCalculationRangeDescriptionLabel">
+        <property name="text">
+         <string>起伏量計算範囲、地形の複雑さ計算範囲は、DEMのピクセル数（奇数のみ）を指定します。DEMが10mメッシュの場合、49pxは490mの範囲に相当します。</string>
         </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>20</width>
-          <height>40</height>
-         </size>
+        <property name="wordWrap">
+         <bool>true</bool>
         </property>
-       </spacer>
+       </widget>
       </item>
      </layout>
     </widget>

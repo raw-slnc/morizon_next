@@ -6,7 +6,10 @@
 import json
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QApplication, QCheckBox, QFileDialog, QGridLayout, QLabel, QMessageBox, QSpinBox
+from qgis.PyQt.QtWidgets import (
+    QApplication, QCheckBox, QFileDialog, QGridLayout, QLabel, QMessageBox, QSpinBox,
+    QSizePolicy, QTabWidget, QVBoxLayout, QWidget,
+)
 
 from . import saga_check
 from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
@@ -20,7 +23,111 @@ class ForestZoningMainDialogSettings:
     def __init__(self, widget, main):
         self.widget = widget
         self.main = main
+        self._init_settings_tabs()
         self.init_ui()
+        self._finalize_settings_tabs()
+
+    def _init_settings_tabs(self):
+        """縦に並んでいたスコア設定と要素計算設定を、設定タブ内のタブにまとめる。"""
+        root_layout = self.widget.layout()
+        if root_layout is None or root_layout.count() < 2:
+            return
+
+        score_item = root_layout.itemAt(0)
+        elements_item = root_layout.itemAt(1)
+        score_layout = score_item.layout()
+        elements_widget = elements_item.widget()
+        if score_layout is None or elements_widget is None:
+            return
+        root_layout.takeAt(0)
+        root_layout.takeAt(0)
+
+        tabs = QTabWidget()
+        tabs.setObjectName("settingsSectionTabWidget")
+        self.widget.settingsSectionTabWidget = tabs
+
+        score_page = QWidget()
+        score_page.setObjectName("settingsScorePage")
+        score_page_layout = QVBoxLayout(score_page)
+        score_page_layout.setContentsMargins(0, 0, 0, 0)
+        score_page_layout.addLayout(score_layout)
+        score_page_layout.setAlignment(score_layout, Qt.AlignmentFlag.AlignTop)
+        tabs.addTab(score_page, "スコア")
+
+        elements_page = QWidget()
+        elements_page.setObjectName("settingsElementsPage")
+        elements_page_layout = QVBoxLayout(elements_page)
+        elements_page_layout.setContentsMargins(0, 0, 0, 0)
+        line_spacing = self.widget.fontMetrics().lineSpacing()
+        elements_page_layout.addSpacing(line_spacing)
+        elements_widget.setFlat(True)
+        title_indent = self.widget.fontMetrics().horizontalAdvance("字")
+        elements_widget.setStyleSheet(
+            "QGroupBox#groupBox_3 { border: 0; margin-top: 1.4em; }"
+            f"QGroupBox#groupBox_3::title {{"
+            f" subcontrol-origin: margin; subcontrol-position: top left;"
+            f" left: {title_indent}px; padding: 0; }}"
+        )
+        elements_policy = elements_widget.sizePolicy()
+        elements_policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)
+        elements_widget.setSizePolicy(elements_policy)
+
+        description = getattr(self.widget, "settingsCalculationRangeDescriptionLabel", None)
+        elements_content_layout = elements_widget.layout()
+        if description is not None and elements_content_layout is not None:
+            description_index = elements_content_layout.indexOf(description)
+            if description_index >= 0:
+                elements_content_layout.insertSpacing(description_index, line_spacing)
+
+        elements_page_layout.addWidget(elements_widget, 0, Qt.AlignmentFlag.AlignTop)
+        tabs.addTab(elements_page, "要素計算")
+
+        root_layout.insertWidget(0, tabs)
+
+    def _finalize_settings_tabs(self):
+        """設定内タブを内容に必要な共通高さへ固定し、内部の縦伸縮を防ぐ。"""
+        tabs = getattr(self.widget, "settingsSectionTabWidget", None)
+        if tabs is None:
+            return
+
+        for name in (
+            "groupBox_5",
+            "label_14",
+            "morizonNextSettingsGroupBox",
+            "fgdCredentialsGroupBox",
+            "shcMethodGroupBox",
+        ):
+            child = getattr(self.widget, name, None)
+            if child is None:
+                continue
+            policy = child.sizePolicy()
+            policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)
+            child.setSizePolicy(policy)
+
+        mnx_layout = getattr(self.widget, "horizontalLayout_mnx", None)
+        if mnx_layout is not None:
+            for name in ("fgdCredentialsGroupBox", "shcMethodGroupBox"):
+                child = getattr(self.widget, name, None)
+                if child is not None:
+                    mnx_layout.setAlignment(child, Qt.AlignmentFlag.AlignTop)
+
+        root_layout = self.widget.layout()
+        if root_layout is not None and not getattr(self.widget, "_settingsHeightSpacerAdded", False):
+            root_layout.insertStretch(root_layout.count() - 1, 1)
+            self.widget._settingsHeightSpacerAdded = True
+
+        self.widget.ensurePolished()
+        for index in range(tabs.count()):
+            page_layout = tabs.widget(index).layout()
+            if page_layout is not None:
+                page_layout.activate()
+        tabs.ensurePolished()
+
+        tab_policy = tabs.sizePolicy()
+        tab_policy.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+        tab_policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)
+        tabs.setSizePolicy(tab_policy)
+        tabs.setFixedHeight(tabs.sizeHint().height())
 
     def _init_aggregate_risk_threshold_ui(self):
         """スコア設定の表の下に「災害リスク高の基準」を足す。事業者が合意の出発点にする基準で、

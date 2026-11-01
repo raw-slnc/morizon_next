@@ -11,7 +11,7 @@ import re
 from qgis.PyQt import sip
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
 )
 from qgis.core import QgsFields, QgsFillSymbol, QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
@@ -137,7 +137,7 @@ class ForestZoningMainDialogAggregate:
         self.main.aggregateStyleThresholdspinBox.setValue(value)
 
     def init_conifer_ui(self):
-        """ポリゴンレイヤーの欄の下（ジオメトリの注意書きと同じ行）に、チェック・列の選択・設定ボタンを足す。
+        """ポリゴンレイヤーの欄の下に、注意書きとチェック・列の選択・設定ボタンを足す。
         チェックを外していれば、集計は原版と同じ"""
         self.conifer_values = set()  # 針葉樹とみなす値（文字列）
         self._conifer_restoring = False  # 保存した設定を戻している間は、選択の変更で値を解かない
@@ -159,10 +159,6 @@ class ForestZoningMainDialogAggregate:
         row.addWidget(self.conifer_values_button)
         box = QVBoxLayout()
         box.setContentsMargins(0, 0, 0, 0)
-        grid = self.main.findChild(QGridLayout, "gridLayout_5")
-        note = self.main.label_8  # ジオメトリの注意書き（4行目・2列目）
-        grid.removeWidget(note)
-        box.addWidget(note)
         # 「外周線を出力しない」（ゾーニング図の選択欄の下。表示だけで、集計の値は変わらない）
         self.no_outline_check = QCheckBox("外周線を出力しない")
         self.no_outline_check.setToolTip(
@@ -183,20 +179,13 @@ class ForestZoningMainDialogAggregate:
         style_row.addWidget(self.no_outline_check)
         style_row.addWidget(self.full_opacity_check)
         style_row.addStretch(1)
-        # 表示の設定は「任意のポリゴン」「流域」のどちらでも使うため、ゾーニング図の選択欄（1行目・2列目）の下に置く。
-        # 同じ行の「ゾーニング図」の文字と再読込ボタンは、選択欄の横にそろうよう上寄せにする
-        zoning_combo = self.main.aggregateZoningLayerCombobox
-        grid.removeWidget(zoning_combo)
-        zoning_box = QVBoxLayout()
-        zoning_box.setContentsMargins(0, 0, 0, 0)
-        zoning_box.addWidget(zoning_combo)
-        zoning_box.addLayout(style_row)
-        grid.addLayout(zoning_box, 0, 1)
+        # ゾーニング図の行は独立した全幅レイアウトとし、他の行の幅計算に影響させない。
+        self.main.aggregateZoningColumnLayout.addLayout(style_row)
         for widget in (self.main.aggregateVectorLayerText_2, self.main.aggregateSetLayersButton):
-            grid.setAlignment(widget, Qt.AlignmentFlag.AlignTop)
+            self.main.aggregateZoningRow.setAlignment(widget, Qt.AlignmentFlag.AlignTop)
         box.addLayout(row)
         box.addWidget(self.conifer_values_label)
-        grid.addLayout(box, 4, 1, 1, 2)
+        self.main.aggregatePolygonGrid.addLayout(box, 2, 1)
 
         self._set_conifer_fields(self.main.aggregatePolygonLayerCommbobox.currentLayer())
         self._watch_conifer_layer(self.main.aggregatePolygonLayerCommbobox.currentLayer())
