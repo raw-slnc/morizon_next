@@ -22,6 +22,7 @@ from . import layer_db
 from . import morizon_data
 from . import utils
 from .constants import DIR_AGGREGATE, OUTPUT_ZONING, OUTPUT_AGGREGATE, INPUT_DEM
+from .forest_zoning_main_dialog_costcsv_editor import ElidedLabel
 from .processes.species_mesh import OUTPUT_KEY as SPECIES_MESH_KEY
 from .progress_dialog import run_with_progress
 from .settings_manager import AggregateConiferManager, AggregateStyleManager, SettingsManager
@@ -150,7 +151,18 @@ class ForestZoningMainDialogAggregate:
         self.conifer_field_combo.setToolTip("針葉樹かどうかを見分ける列")
         self.conifer_values_button = QPushButton("設定")
         self.conifer_values_button.setToolTip("選んだ列の値から、針葉樹とみなす値を選ぶ")
-        self.conifer_values_label = QLabel()
+        # 表示を切り替えても画面全体の大きさが変わらないよう、最初から1行分を確保する。
+        # 値が横に入りきらないときは、タブを広げず途中を省略し、全文はツールチップに出す。
+        self.conifer_values_label = ElidedLabel()
+        conifer_label_height = self.conifer_values_label.fontMetrics().lineSpacing()
+        self.conifer_values_label.setFixedHeight(conifer_label_height)
+        # 追加した1行分は「色表示」の画像を常に同じ分だけ小さくして吸収する。
+        # チェックの切替時に、メイン画面や画像の大きさが動かないようにする。
+        aggregate_spacing = max(0, self.main.aggregatePolygonGrid.verticalSpacing())
+        image_max_side = min(
+            self.main.label_40.maximumWidth(), self.main.label_40.maximumHeight())
+        image_side = max(1, image_max_side - conifer_label_height - aggregate_spacing)
+        self.main.label_40.setMaximumSize(image_side, image_side)
 
         row = QHBoxLayout()
         row.addWidget(self.conifer_check)
@@ -574,7 +586,7 @@ class ForestZoningMainDialogAggregate:
                 self.conifer_values_label.setText("針葉樹とみなす値：未設定（「設定」で選んでください）")
             else:
                 self.conifer_values_label.setText("")
-            self.conifer_values_label.setVisible(use)
+            self.conifer_values_label.setVisible(True)
 
         error_texts = self.get_aggregate_error()
         has_no_error = len(error_texts) == 0

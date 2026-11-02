@@ -78,7 +78,7 @@ def generate(dem_filepath: str, output_dir: str, feedback=None) -> str:
         # SAGA/GRASS には OS に関係なく半角の内部パスだけを渡す。最終成果物は
         # Unicode パスを扱える Python 版 GDAL で、利用者が指定した場所へ生成する。
         grass_output_filepath = os.path.join(temp_dir, "shc_neighbors.tif")
-        set_stage(feedback, "曲率のばらつき（円形の範囲）")
+        set_stage(feedback, "曲率（標準偏差）")
         run_processing(resolve_algorithm_id("grass:r.neighbors", "grass7:r.neighbors"), {
             'input': normalized_curvature_filepath,
             'output': grass_output_filepath,

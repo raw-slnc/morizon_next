@@ -26,7 +26,7 @@
        <item>
         <widget class="QGroupBox" name="groupBox_5">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
@@ -376,7 +376,7 @@
      <item>
       <widget class="QLabel" name="label_14">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -399,6 +399,12 @@
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox_3">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
      <property name="title">
       <string>要素計算に関わる詳細設定の変更</string>
      </property>
@@ -963,6 +969,22 @@
        </layout>
       </item>
       <item>
+       <widget class="QWidget" name="settingsCalculationRangeDescriptionTopSpacer">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>20</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="settingsCalculationRangeDescriptionLabel">
         <property name="text">
          <string>起伏量計算範囲、地形の複雑さ計算範囲は、DEMのピクセル数（奇数のみ）を指定します。DEMが10mメッシュの場合、49pxは490mの範囲に相当します。</string>
@@ -978,7 +1000,7 @@
    <item>
     <widget class="QGroupBox" name="morizonNextSettingsGroupBox">
      <property name="title">
-      <string>Morizon Next 設定</string>
+      <string/>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_mnx" stretch="1,1">
       <item>
