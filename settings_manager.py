@@ -324,23 +324,31 @@ class AggregateConiferManager:
 
 class AggregateStyleManager:
     """
-    ゾーン統計量の表示の設定（「外周線を出力しない」「不透明度を100％設定」）。作業の好みなので QGISの設定に保存する
+    ゾーン統計量の表示の設定（「外周線を表示する」「不透明度を100％設定」）。作業の好みなので QGISの設定に保存する
     """
 
     SETTING_GROUP = '/MORIZON/aggregate_style'
-    NO_OUTLINE_KEY = 'no_outline'
+    SHOW_OUTLINE_KEY = 'show_outline'
+    # 0.1.7 までの「外周線を出力しない」の値。読むときに逆にして SHOW_OUTLINE_KEY へ移し、消す
+    OLD_NO_OUTLINE_KEY = 'no_outline'
 
-    def load_no_outline(self) -> bool:
+    def load_show_outline(self) -> bool:
+        """「外周線を表示する」。初めは表示しない（チェックありが原版と同じ描き方）"""
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
-        value = qsettings.value(self.NO_OUTLINE_KEY, False, type=bool)
+        if not qsettings.contains(self.SHOW_OUTLINE_KEY) and qsettings.contains(self.OLD_NO_OUTLINE_KEY):
+            # 前の版で選んだ見た目のまま引き継ぐ（出力しない＝表示しない）
+            no_outline = qsettings.value(self.OLD_NO_OUTLINE_KEY, False, type=bool)
+            qsettings.setValue(self.SHOW_OUTLINE_KEY, not no_outline)
+            qsettings.remove(self.OLD_NO_OUTLINE_KEY)
+        value = qsettings.value(self.SHOW_OUTLINE_KEY, False, type=bool)
         qsettings.endGroup()
         return bool(value)
 
-    def store_no_outline(self, no_outline: bool):
+    def store_show_outline(self, show_outline: bool):
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
-        qsettings.setValue(self.NO_OUTLINE_KEY, bool(no_outline))
+        qsettings.setValue(self.SHOW_OUTLINE_KEY, bool(show_outline))
         qsettings.endGroup()
 
     FULL_OPACITY_KEY = 'full_opacity'

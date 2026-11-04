@@ -69,7 +69,7 @@ class ProcessingThread(QThread):
         self.db_path = db_path
         # (列名, 針葉樹とみなす値の集合)。None なら樹種で分けない。集計の値は変えず、表示（スタイル）だけで分ける
         self.conifer = conifer
-        self.no_outline = no_outline  # 「外周線を出力しない」（表示だけ）
+        self.no_outline = no_outline  # 「外周線を表示する」のチェックを外したとき（表示だけ）
         self.full_opacity = full_opacity  # 「不透明度を100％設定」（表示だけ）
 
         self.abort_flag = False

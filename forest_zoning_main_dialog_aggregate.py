@@ -159,10 +159,11 @@ class ForestZoningMainDialogAggregate:
         # 追加した1行分は「色表示」の画像を常に同じ分だけ小さくして吸収する。
         # チェックの切替時に、メイン画面や画像の大きさが動かないようにする。
         aggregate_spacing = max(0, self.main.aggregatePolygonGrid.verticalSpacing())
-        image_max_side = min(
-            self.main.label_40.maximumWidth(), self.main.label_40.maximumHeight())
-        image_side = max(1, image_max_side - conifer_label_height - aggregate_spacing)
-        self.main.label_40.setMaximumSize(image_side, image_side)
+        image_height = max(
+            1, self.main.label_40.maximumHeight() - conifer_label_height - aggregate_spacing)
+        # 横長の4象限図を、元の画面と同じ高さの中で縦横比を保って表示する。
+        image_width = min(self.main.label_40.maximumWidth(), round(image_height * 1080 / 640))
+        self.main.label_40.setMaximumSize(image_width, image_height)
 
         row = QHBoxLayout()
         row.addWidget(self.conifer_check)
@@ -171,24 +172,26 @@ class ForestZoningMainDialogAggregate:
         row.addWidget(self.conifer_values_button)
         box = QVBoxLayout()
         box.setContentsMargins(0, 0, 0, 0)
-        # 「外周線を出力しない」（ゾーニング図の選択欄の下。表示だけで、集計の値は変わらない）
-        self.no_outline_check = QCheckBox("外周線を出力しない")
-        self.no_outline_check.setToolTip(
-            "区分の塗りの外周線を描かず、災害リスクの斜線を薄く（不透明度30%）描く。\n"
-            "森林計画図の小班線など、ほかのレイヤーを重ねて見るときに使う（表示だけで、集計の値は変わらない）")
-        self.no_outline_check.setChecked(AggregateStyleManager().load_no_outline())
-        self.no_outline_check.toggled.connect(lambda checked: AggregateStyleManager().store_no_outline(checked))
-        # 「不透明度を100％設定」（「外周線を出力しない」の横。表示だけで、集計の値は変わらない）
+        # 「外周線を表示する」（ゾーニング図の選択欄の下。表示だけで、集計の値は変わらない）。
+        # チェックありが原版と同じ描き方（「乗算」「不透明度を100％設定」と同じく、チェックありを原版にそろえる）
+        self.show_outline_check = QCheckBox("外周線を表示する")
+        self.show_outline_check.setToolTip(
+            "区分の塗りの外周線を描き、災害リスクの斜線を不透明で描く（原版と同じ）。\n"
+            "チェックを外すと外周線を描かず、斜線を薄く（不透明度30%）描く。等高線や森林計画図の小班線など、\n"
+            "ほかのレイヤーを重ねて見るときに使う（表示だけで、集計の値は変わらない）")
+        self.show_outline_check.setChecked(AggregateStyleManager().load_show_outline())
+        self.show_outline_check.toggled.connect(lambda checked: AggregateStyleManager().store_show_outline(checked))
+        # 「不透明度を100％設定」（「外周線を表示する」の横。表示だけで、集計の値は変わらない）
         self.full_opacity_check = QCheckBox("不透明度を100％設定")
         self.full_opacity_check.setToolTip(
             "区分の塗りを不透明度100%・描画モード通常で描く（原版と同じ）。\n"
-            "既定は塗り40%・描画モード乗算で、背景の地図が透けて見える。\n"
+            "既定は塗り50%・描画モード乗算で、背景の地図が透けて見える。\n"
             "表示だけで、集計の値は変わらない")
         self.full_opacity_check.setChecked(AggregateStyleManager().load_full_opacity())
         self.full_opacity_check.toggled.connect(
             lambda checked: AggregateStyleManager().store_full_opacity(checked))
         style_row = QHBoxLayout()
-        style_row.addWidget(self.no_outline_check)
+        style_row.addWidget(self.show_outline_check)
         style_row.addWidget(self.full_opacity_check)
         style_row.addStretch(1)
         # ゾーニング図の行は独立した全幅レイアウトとし、他の行の幅計算に影響させない。
@@ -532,7 +535,7 @@ class ForestZoningMainDialogAggregate:
             style_threshold=self.main.aggregateStyleThresholdspinBox.value(),
             db_path=db_path,
             conifer=self.get_conifer_setting(),
-            no_outline=self.no_outline_check.isChecked(),
+            no_outline=not self.show_outline_check.isChecked(),
             full_opacity=self.full_opacity_check.isChecked(),
         )
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
@@ -572,11 +575,12 @@ class ForestZoningMainDialogAggregate:
             self.main.radioButtonWatershed.isChecked()
         )
 
-        # 針葉樹の判定はポリゴンで集計するときだけ。チェックを入れたときに列と値を選べる
+        # 針葉樹の判定はポリゴンレイヤーを選んだときだけ使える。チェックを入れたときに列と値を選べる
         if hasattr(self, "conifer_check"):
             polygon_mode = self.main.radioButtonPolygon.isChecked()
-            self.conifer_check.setEnabled(polygon_mode)
-            use = polygon_mode and self.conifer_check.isChecked()
+            has_polygon = self.main.aggregatePolygonLayerCommbobox.currentLayer() is not None
+            self.conifer_check.setEnabled(polygon_mode and has_polygon)
+            use = polygon_mode and has_polygon and self.conifer_check.isChecked()
             self.conifer_field_combo.setEnabled(use)
             self.conifer_values_button.setEnabled(use and bool(self.conifer_field_combo.currentField()))
             if use and self.conifer_values:
@@ -590,7 +594,11 @@ class ForestZoningMainDialogAggregate:
 
         error_texts = self.get_aggregate_error()
         has_no_error = len(error_texts) == 0
-        self.main.aggregateErrorLabel.setText("\n".join(error_texts))
+        # 0〜3行は高さを一定にし、4行以上も文が欠けない高さを確保する。
+        error_label = self.main.aggregateErrorLabel
+        error_label.setMinimumHeight(
+            error_label.fontMetrics().lineSpacing() * max(3, len(error_texts)))
+        error_label.setText("\n".join(error_texts))
         self.main.aggregateRunButton.setEnabled(has_no_error)
 
     def get_aggregate_error(self) -> list:
@@ -610,6 +618,7 @@ class ForestZoningMainDialogAggregate:
         if (
                 hasattr(self, "conifer_check")
                 and self.main.radioButtonPolygon.isChecked()
+                and self.main.aggregatePolygonLayerCommbobox.currentLayer() is not None
                 and self.conifer_check.isChecked()
         ):
             if not self.conifer_field_combo.currentField():

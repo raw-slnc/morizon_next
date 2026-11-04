@@ -5,16 +5,18 @@
 from ...constants import ZONING_COLORS
 
 
-# 地面（背景の地図）を隠さないよう、塗りは不透明度40%にし、レイヤーの描画モードを乗算にする
+# 地面（背景の地図）を隠さないよう、塗りは不透明度50%にし、レイヤーの描画モードを乗算にする
 # （外周線と斜線は不透明のまま）。記号の不透明度はどの区分も100%にし、薄さは塗りの色の不透明度だけで付ける。
 # 「不透明度を100％設定」では、原版と同じく塗り100%・描画モード通常にする
-FILL_OPACITY = 0.4
+FILL_OPACITY = 0.5
 # QGIS のスタイルの描画モードの値（通常・乗算）
 BLEND_NORMAL = 0
 BLEND_MULTIPLY = 6
 # 外周線は濃い紺。背景の等高線（茶系）や、重ねた森林計画図の小班線（黒）と見分けやすく、
 # 区分3・4の水色・青の塗りの上でも縁が見える。赤は「災害リスク高」の斜線の意味なので使わない
 OUTLINE_COLOR = "31,78,156,255"
+# 外周線の太さ（mm）。区分の塗り・斜線の記号・区分外のどれも同じ太さにする
+OUTLINE_WIDTH = 0.08
 
 
 def _fill_color(hex_color: str, opacity=FILL_OPACITY) -> str:
@@ -52,7 +54,7 @@ def _conifer_symbol(fill_opacity) -> str:
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
         </layer>
@@ -60,20 +62,20 @@ def _conifer_symbol(fill_opacity) -> str:
 
 
 # 区分の塗り（第1〜第4象限・区分外）と斜線の記号の外周線（どれも同じ線）。
-# 「外周線を出力しない」ときは、この組み合わせを描かない形にする
+# 外周線を描かないとき（「外周線を表示する」のチェックなし）は、この組み合わせを描かない形にする
 _ZONE_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="solid"/>'
 _ZONE_NO_OUTLINE = f'<prop k="outline_color" v="{OUTLINE_COLOR}"/>\n          <prop k="outline_style" v="no"/>'
-# 「外周線を出力しない」のとき（ほかのレイヤーに重ねて見る使い方）は、斜線を不透明度30%にする
+# 外周線を描かないとき（ほかのレイヤーに重ねて見る使い方）は、斜線を不透明度30%にする
 _HATCH_SYMBOL = '<symbol name="4" alpha="1"'
 _HATCH_SYMBOL_LIGHT = '<symbol name="4" alpha="0.3"'
 
 
 def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=False, full_opacity=False) -> str:
     """conifer：「針葉樹のフィーチャーだけで収益性を判定する」の (列名, 針葉樹とみなす値)。None なら使わない
-    no_outline：「外周線を出力しない」。区分の塗り（第1〜第4象限・区分なし）の外周線を描かず、
+    no_outline：外周線を描かない（「外周線を表示する」のチェックなし）。区分の塗り（第1〜第4象限・区分なし）の外周線を描かず、
     斜線（災害リスク高）を不透明度30%にする（ほかのレイヤーに重ねて見る使い方。斜線そのものは描く）
     full_opacity：「不透明度を100％設定」。区分の塗り（第1〜第4象限・区分外）を不透明度100%、
-    描画モードを通常にする（原版と同じ描き方）。使わないときは塗り40%・描画モード乗算"""
+    描画モードを通常にする（原版と同じ描き方）。使わないときは塗り50%・描画モード乗算"""
     output_filepath = output_shp_path.replace(".shp", ".qml")
     fill_opacity = 1.0 if full_opacity else FILL_OPACITY
     blend_mode = BLEND_NORMAL if full_opacity else BLEND_MULTIPLY
@@ -112,7 +114,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -134,7 +136,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -156,7 +158,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -178,7 +180,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>
@@ -308,7 +310,7 @@ def write_qml(output_shp_path: str, threshold=0.3, conifer=None, no_outline=Fals
           <prop k="offset_unit" v="MM"/>
           <prop k="outline_color" v="{OUTLINE_COLOR}"/>
           <prop k="outline_style" v="solid"/>
-          <prop k="outline_width" v="0.2"/>
+          <prop k="outline_width" v="{OUTLINE_WIDTH}"/>
           <prop k="outline_width_unit" v="MM"/>
           <prop k="style" v="solid"/>
           <data_defined_properties>

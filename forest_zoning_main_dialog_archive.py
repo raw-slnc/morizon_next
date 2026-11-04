@@ -591,7 +591,7 @@ class ForestZoningMainDialogArchive:
             road_shp=(found["network"] or [None])[0],
             building_shp=(found["building"] or [None])[0],
             aggregate_conifer=self.main.aggregate.get_conifer_setting(),
-            aggregate_no_outline=self.main.aggregate.no_outline_check.isChecked(),
+            aggregate_no_outline=not self.main.aggregate.show_outline_check.isChecked(),
             aggregate_full_opacity=self.main.aggregate.full_opacity_check.isChecked(),
         ))
         problems = list(outcome.get("problems", []))

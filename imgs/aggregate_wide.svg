@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <title>ゾーン統計量の4象限（横長案）</title>
+  <desc>元の aggregate.png を残したまま、各象限の説明文を横長に配置し直した候補図。</desc>
+  <g font-family="Meiryo, 'Yu Gothic', 'Noto Sans CJK JP', sans-serif" fill="#111">
+    <rect x="90" y="75" width="410" height="245" fill="#91cf57"/>
+    <rect x="500" y="75" width="410" height="245" fill="#ff9d73"/>
+    <rect x="90" y="320" width="410" height="245" fill="#15c8e8"/>
+    <rect x="500" y="320" width="410" height="245" fill="#c49ae8"/>
+    <path d="M500 565V65 M488 82L500 65L512 82 M90 320H920 M905 308L920 320L905 332"
+          fill="none" stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g text-anchor="middle">
+      <text x="295" y="115" font-size="30" font-weight="700">【第二象限】</text>
+      <text x="295" y="151" font-size="31" font-weight="700">林業経営適地</text>
+      <text x="130" y="224" font-size="26" text-anchor="start">① ： 林業に適した区域</text>
+      <text x="295" y="258" font-size="25">（収益性高・</text>
+      <text x="295" y="292" font-size="25">災害リスク低）</text>
+
+      <text x="705" y="115" font-size="30" font-weight="700">【第一象限】</text>
+      <text x="705" y="151" font-size="30" font-weight="700">災害リスクに注意</text>
+      <text x="540" y="219" font-size="25" text-anchor="start">② ： 収益性は高いが</text>
+      <text x="705" y="250" font-size="25">災害リスクも高く</text>
+      <text x="705" y="281" font-size="25">細心の注意が必要な区域</text>
+
+      <text x="295" y="361" font-size="30" font-weight="700">【第三象限】</text>
+      <text x="295" y="397" font-size="31" font-weight="700">要収益性向上</text>
+      <text x="295" y="485" font-size="26">③ ： 災害リスクは低いが、</text>
+      <text x="295" y="524" font-size="26">収益性も低い区域</text>
+
+      <text x="705" y="361" font-size="30" font-weight="700">【第四象限】</text>
+      <text x="705" y="397" font-size="28" font-weight="700">災害に強い森林管理</text>
+      <text x="540" y="475" font-size="25" text-anchor="start">④ ： 林業に適さない区域</text>
+      <text x="705" y="508" font-size="25">（収益性低・</text>
+      <text x="705" y="541" font-size="25">災害リスク高）</text>
+    </g>
+
+    <g id="axis-labels" text-anchor="middle" font-family="Meiryo" font-size="29" font-weight="700">
+      <text x="500" y="39">収益性（地位・地利等）</text>
+      <text x="50" y="255">防</text><text x="50" y="290">災</text><text x="50" y="325">軸</text>
+      <text x="500" y="614">林業軸</text>
+      <text x="944" y="205">災</text><text x="944" y="240">害</text><text x="944" y="275">リ</text>
+      <text x="944" y="310">ス</text><text x="944" y="345">ク</text>
+    </g>
+    <g text-anchor="middle" font-size="24" font-weight="700">
+      <text x="990" y="99">保</text><text x="990" y="124">全</text><text x="990" y="149">対</text>
+      <text x="990" y="174">象</text><text x="990" y="199">ま</text><text x="990" y="224">で</text>
+      <text x="990" y="249">の</text><text x="990" y="274">距</text><text x="990" y="299">離</text>
+      <text x="990" y="324">・</text><text x="990" y="349">斜</text><text x="990" y="374">面</text>
+      <text x="990" y="399">の</text><text x="990" y="424">崩</text><text x="990" y="449">れ</text>
+      <text x="990" y="474">や</text><text x="990" y="499">す</text><text x="990" y="524">さ</text>
+      <text x="990" y="549">等</text>
+    </g>
+  </g>
+</svg>

@@ -14,8 +14,8 @@ try:
 except ImportError:
     from qgis.PyQt.QtWidgets import QShortcut  # Qt5
 from qgis.PyQt.QtWidgets import (
-    QDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
-    QWidget,
+    QDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import Qgis, QgsApplication, QgsMessageLog, QgsProject
@@ -84,6 +84,7 @@ class ForestZoningMainDialog(QDialog):
         self._init_workspace_status()
         self._init_layer_watch()
         self.use_no_workspace(persist=False)
+        self._set_visual_tab_order()
         # 開いているプロジェクトがあれば、画面を表示したときに再開の分岐へ進む
         if QgsProject.instance().fileName():
             self._restore_pending = True
@@ -107,6 +108,39 @@ class ForestZoningMainDialog(QDialog):
         count = self.tabWidget.count()
         if count:
             self.tabWidget.setCurrentIndex((self.tabWidget.currentIndex() + step) % count)
+
+    @classmethod
+    def _widgets_in_layout_order(cls, layout):
+        """レイアウト上の読み順（上から下、同じ行は左から右）で入力部品をたどる。"""
+        indices = range(layout.count())
+        if isinstance(layout, QGridLayout):
+            indices = sorted(indices, key=lambda index: layout.getItemPosition(index)[:2])
+        for index in indices:
+            item = layout.itemAt(index)
+            if item.layout() is not None:
+                yield from cls._widgets_in_layout_order(item.layout())
+            elif item.widget() is not None:
+                yield from cls._widgets_in_visual_order(item.widget())
+
+    @classmethod
+    def _widgets_in_visual_order(cls, widget):
+        if isinstance(widget, QTabWidget):
+            if widget.focusPolicy() & Qt.FocusPolicy.TabFocus:
+                yield widget
+            for index in range(widget.count()):
+                yield from cls._widgets_in_visual_order(widget.widget(index))
+            return
+        # QgsFileWidget などの複合部品は、フォーカス代理先と内部のボタンを順に扱う。
+        if widget.focusPolicy() & Qt.FocusPolicy.TabFocus and widget.focusProxy() is None:
+            yield widget
+        if widget.layout() is not None:
+            yield from cls._widgets_in_layout_order(widget.layout())
+
+    def _set_visual_tab_order(self):
+        """UI 読み込み後に追加・差し替えた部品も含め、画面の並びで Tab 順を設定する。"""
+        widgets = list(self._widgets_in_visual_order(self))
+        for first, second in zip(widgets, widgets[1:]):
+            QWidget.setTabOrder(first, second)
 
     # ── 作業フォルダ ───────────────────────────────────────────────────────
     # 作業フォルダは入力（DATA/）と出力（YOUSO/・ZONING/・AGGREGATE/）を置く場所で、3つの状態がある。
@@ -462,10 +496,21 @@ class ForestZoningMainDialog(QDialog):
         if not getattr(self, "_tmp_tidied", False):
             # QGIS を起動して最初に開いたときだけ、前回までの一時ファイルを片付ける
             self._tmp_tidied = True
-            QTimer.singleShot(0, self._tidy_tmp_files)
+            self._when_placed(self._tidy_tmp_files)
         if self._restore_pending:
             self._restore_pending = False
-            QTimer.singleShot(0, self.restore_project_workspace)
+            self._when_placed(self.restore_project_workspace)
+
+    def _when_placed(self, callback, tries=0):
+        """画面が実際に表示されてから callback を呼ぶ（確認の窓をこの画面の真ん中に出すため）。
+        表示した直後は、OS（Linux の XFCE など）がまだ画面の置き場所を Qt に伝えておらず、Qt は画面が
+        原点 (0,0) のモニターにあるとみなす。そこで確認の窓を出すと、そのモニターの端に押し込まれる
+        （QGIS 4 で、メイン画面と別のモニターに出た）。表示されるまで少しずつ待ち、1秒ほどで打ち切って呼ぶ"""
+        handle = self.windowHandle()
+        if (handle is not None and handle.isExposed()) or tries >= 20:
+            QTimer.singleShot(0, callback)
+            return
+        QTimer.singleShot(50, lambda: self._when_placed(callback, tries + 1))
 
     def _tidy_tmp_files(self):
         """計算に使った半角の置き場所の一時ファイルを片付ける（utils.tidy_ascii_safe_tmp_for_session）。

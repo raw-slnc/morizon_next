@@ -1616,7 +1616,7 @@
            </property>
            <property name="sizeHint" stdset="0">
             <size>
-             <width>40</width>
+             <width>10</width>
              <height>20</height>
             </size>
            </property>
@@ -1681,9 +1681,12 @@
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
+           <property name="sizeType">
+            <enum>QSizePolicy::Fixed</enum>
+           </property>
            <property name="sizeHint" stdset="0">
             <size>
-             <width>40</width>
+             <width>0</width>
              <height>20</height>
             </size>
            </property>
@@ -1699,7 +1702,7 @@
            </property>
            <property name="maximumSize">
             <size>
-              <width>300</width>
+              <width>506</width>
               <height>300</height>
             </size>
            </property>
@@ -1707,7 +1710,7 @@
             <string/>
            </property>
            <property name="pixmap">
-            <pixmap>imgs/aggregate.png</pixmap>
+            <pixmap>imgs/aggregate_wide.png</pixmap>
            </property>
            <property name="scaledContents">
             <bool>true</bool>
