@@ -522,6 +522,18 @@ class ForestZoningMainDialogElements:
             return f"作業システムCSV（{os.path.basename(path)}）：{e}"
         return ""
 
+    def _accept_costcsv(self, path) -> bool:
+        """「…」で選んだ作業システムCSVが読めるか確かめる。読めなければ理由を知らせて False
+        （作業システム設定の「取込」と同じく、崩れた CSV では何も変えない）"""
+        try:
+            read_costcsv(path)
+        except (ValueError, OSError) as e:
+            QMessageBox.information(
+                self.main, "作業システムCSV",
+                f"この作業システムCSVは正しく読めないため、設定しませんでした。\n\n{os.path.basename(path)}：{e}")
+            return False
+        return True
+
     def _reflect_costcsv_to_editor(self, path):
         """「…」で選んだ作業システムCSVを、作業システム設定の表示にも反映する（形が崩れていれば反映しない。
         理由は要素計算タブの注意書きに出る）。プラグインが入力欄に入れたとき（再開など）は呼ばない"""
@@ -810,6 +822,11 @@ class ForestZoningMainDialogElements:
     def _on_input_file_changed(self, key):
         path = self.input_filewidgets()[key].filePath()
         previous = self._input_paths.get(key, "")
+        if key == "costcsv" and not self.main.is_input_import_suppressed() and path and os.path.isfile(path) \
+                and not self._accept_costcsv(path):
+            # 形の崩れた作業システムCSVは設定しない。置き換えの確認より先に確かめ、前の CSV を消さない
+            self._set_input_path(key, previous)
+            return
         if self.main.is_input_import_suppressed() or not path or not os.path.isfile(path) \
                 or not self.main.has_workspace():
             # プラグインが設定したとき・空欄・入力途中・作業フォルダが無い（未保存のプロジェクト）ときはそのまま
