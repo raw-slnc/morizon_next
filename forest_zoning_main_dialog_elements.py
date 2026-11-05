@@ -1825,6 +1825,8 @@ class ForestZoningMainDialogElements:
                     "次のものは削除できませんでした（使用中の可能性があります）。\n" + "\n".join(failed),
                 )
         self.reset_elements_inputs()
+        # 作業システムCSVも空にしたので、作業システム設定の表示も開いたときの状態に戻す（前の作業の表を残さない）
+        self.costcsv_editor.show_startup_state()
         ShcMethodManager().store_use_saga(False)
         self.main.settings.update_shc_method_button()
         self.main.use_no_workspace(persist=True)
