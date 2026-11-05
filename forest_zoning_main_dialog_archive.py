@@ -13,6 +13,7 @@ from qgis.PyQt.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, 
 from qgis.core import QgsProject
 
 from . import layer_db, morizon_data, morizon_restore, processes, utils
+from .forest_zoning_main_dialog_costcsv_editor import COSTCSV_SIDECAR_SUFFIX
 from .progress_dialog import ProgressDialog
 from .constants import (
     DATA_INFO_FILE_NAME,
@@ -192,12 +193,12 @@ class ForestZoningMainDialogArchive:
             for filepath in self.get_companion_files(path, input_def["EXT"]):
                 entries.append(("/".join([DIR_DATA, *input_def["PATH"], os.path.basename(filepath)]), filepath))
 
-        # 作業システムのExcel（「Excelシートを開く」で置いたもの・原版キットに入っていたもの）も
-        # クリアで消えないよう、CSVと同じフォルダに入れて残す
+        # 作業システムのExcel（「Excelシートを開く」で置いたもの・原版キットに入っていたもの）と、
+        # 「CSVとして反映する」で書いた表示の記録（マージンなど）も、クリアで消えないよう、CSVと同じフォルダに入れて残す
         costcsv_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         if os.path.isdir(costcsv_dir):
             for name in sorted(os.listdir(costcsv_dir)):
-                if os.path.splitext(name)[1].lower() in (".xlsx", ".xls"):
+                if os.path.splitext(name)[1].lower() in (".xlsx", ".xls") or name.endswith(COSTCSV_SIDECAR_SUFFIX):
                     entries.append((
                         "/".join([DIR_DATA, *INPUT_COSTCSV["PATH"], name]), os.path.join(costcsv_dir, name)
                     ))
@@ -450,8 +451,10 @@ class ForestZoningMainDialogArchive:
         ZIPを選んだ後に、レイヤーの初期化とプロジェクト内のデータの更新をまとめて確かめる（選択を取りやめたら何も変えない）"""
         if not self._require_project():
             return
+        # 最初は「保存ファイル出力」の書き出し先を開く（まだ無ければ、これまでどおり指定しない）
+        start_dir = utils.get_morizon_root_dir(ARCHIVE_DIR_NAME)
         path, _ = QFileDialog.getOpenFileName(
-            self.main, "読み込むZIPを選択", "", "ZIPファイル (*.zip *.ZIP)"
+            self.main, "読み込むZIPを選択", start_dir if os.path.isdir(start_dir) else "", "ZIPファイル (*.zip *.ZIP)"
         )
         if not path:
             return

@@ -4,6 +4,8 @@
 
 import bisect
 import csv
+import hashlib
+import json
 import os
 
 from qgis.PyQt.QtCore import QSettings, Qt
@@ -78,6 +80,25 @@ DEFAULT_LEGEND = [
 # 作業マージン: 傾斜(度)を実際よりどれだけ緩やかに(厳しく)見なすかのシフト量。
 # 機材の物理的な限界がある以上、この余地はごくわずかであるべき(ユーザー指示により±3度を上限とする)
 MARGIN_DEGREES_MAX = 3
+
+# 「CSVとして反映する」で書き出した CSV の隣に置く、表示の記録（マージンをかける前の表・マージン・保有していない機材）。
+# 書き出した CSV にはマージンと保有していない機材がかかった結果しか入らない（原版の CSV の形にマージンの欄は無い）
+# ため、読み込むときに元の表示へ戻せるよう別に残す。原版・旧版はこのファイルを読まないので、CSV だけで今までどおり動く
+COSTCSV_SIDECAR_SUFFIX = "_editor.json"
+COSTCSV_SIDECAR_FORMAT = 1
+
+
+def costcsv_sidecar_path(csv_path: str) -> str:
+    """作業システムCSVの隣に置く表示の記録のパス（costcsv.csv なら costcsv_editor.json）"""
+    return os.path.splitext(csv_path)[0] + COSTCSV_SIDECAR_SUFFIX
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def read_costcsv(csv_path: str) -> dict:
@@ -333,8 +354,80 @@ class CostCsvEditorWidget(QWidget):
 
     def load_from_csv(self, csv_path: str, persist=True):
         """作業システムCSVのパターン・区切り・機材名を表示に反映する。読めない場合は ValueError（表示は変えない）。
-        読み込んだパターンをそのまま基準にするため、保有していない機材の指定とマージンは初期化する"""
+        読み込んだパターンをそのまま基準にするため、保有していない機材の指定とマージンは初期化する。
+        「CSVとして反映する」で書き出した CSV で、隣の表示の記録が CSV と合っていれば、書き出したときの
+        マージンをかける前の表・マージン・保有していない機材に戻す"""
         self._load_table(read_costcsv(csv_path), csv_path, persist)
+        state = self._read_sidecar(csv_path)
+        if state is not None:
+            self._restore_sidecar(state, csv_path, persist)
+
+    def show_startup_state(self):
+        """プラグインを開いたときと同じ表示（ひな形の表と、QGISの設定に覚えている保有していない機材・マージン）にする。
+        作業を切り替えて作業システムCSVが無くなったとき、前の作業の表を出したままにしないため"""
+        self.load_defaults(persist=False)
+        self._disabled_codes = self._load_disabled_codes()
+        self.marginSlider.setValue(self._load_margin())
+        self._update_legend_visuals()
+        self._redraw_panel()
+
+    def _write_sidecar(self, csv_path: str):
+        state = {
+            "format": COSTCSV_SIDECAR_FORMAT,
+            "csv_sha256": _file_sha256(csv_path),
+            "scores_ascending": [row[:] for row in self._base_scores],
+            "row_thresholds": list(self._row_thresholds),
+            "col_thresholds": list(self._col_thresholds),
+            "names": {str(code): edit.text() for code, edit in zip(self._legend_codes, self.legendNameEdits)},
+            "margin": int(self._margin),
+            "disabled_codes": sorted(self._disabled_codes),
+        }
+        with open(costcsv_sidecar_path(csv_path), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=1)
+
+    def _read_sidecar(self, csv_path: str):
+        """隣の表示の記録を読む。無い・読めない・CSV が書き出したときから変わっている・形が合わないときは None
+        （そのときは CSV をそのまま表示する）"""
+        path = costcsv_sidecar_path(csv_path)
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = json.load(f)
+            if state.get("format") != COSTCSV_SIDECAR_FORMAT or state.get("csv_sha256") != _file_sha256(csv_path):
+                return None
+            scores = state["scores_ascending"]
+            n_rows, n_cols = len(RUGGEDNESS_THRESHOLDS) - 1, len(SLOPE_THRESHOLDS) - 1
+            codes = set(self._legend_codes)
+            if len(scores) != n_rows or any(len(row) != n_cols or not set(row) <= codes for row in scores):
+                return None
+            if len(state["row_thresholds"]) != n_rows + 1 or len(state["col_thresholds"]) != n_cols + 1:
+                return None
+            margin = int(state["margin"])
+            if not -MARGIN_DEGREES_MAX <= margin <= MARGIN_DEGREES_MAX:
+                return None
+            disabled = {int(code) for code in state["disabled_codes"]}
+            names = {int(code): str(name) for code, name in state["names"].items()}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        return {"scores": scores, "row_thresholds": state["row_thresholds"], "col_thresholds": state["col_thresholds"],
+                "margin": margin, "disabled": disabled & codes, "names": names}
+
+    def _restore_sidecar(self, state, csv_path, persist):
+        file_name = os.path.basename(csv_path)
+        merged_names = dict(DEFAULT_LEGEND)
+        merged_names.update({code: name for code, name in state["names"].items() if name})
+        self._set_pattern(state["scores"], merged_names, f"表示中：{file_name}", persist,
+                          elide_part=file_name, tooltip=csv_path,
+                          row_thresholds=state["row_thresholds"], col_thresholds=state["col_thresholds"])
+        self._disabled_codes = set(state["disabled"])
+        if persist:
+            self._store_disabled_codes()
+        self._update_legend_visuals()
+        # 値が変われば _on_margin_changed が表示・記録・描き直しをする
+        self.marginSlider.setValue(state["margin"])
+        self._margin = state["margin"]
+        self._redraw_panel()
 
     def load_from_xlsx(self, xlsx_path: str, persist=True):
         """原版のExcelひな形の内容を表示に反映する（load_from_csv と同じ扱い）。読めない場合は ValueError"""
@@ -635,6 +728,8 @@ class CostCsvEditorWidget(QWidget):
                 writer.writerow([])
             for code, name in legend:
                 writer.writerow([code, name])
+        # 読み込むときに、この表示（マージンをかける前の表など）へ戻せるよう隣に残す
+        self._write_sidecar(output_path)
 
         return output_path
 

@@ -65,7 +65,7 @@ from .constants import (
 from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
-from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget, read_costcsv
+from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget, costcsv_sidecar_path, read_costcsv
 from .siteidx_map_dialog import SiteIdxMapDialog
 
 
@@ -341,7 +341,9 @@ class ForestZoningMainDialogElements:
         except ValueError as e:
             QMessageBox.warning(self.main, "入力エラー", str(e))
             return
-        for path in others:
+        for path in others + [costcsv_sidecar_path(path) for path in others]:
+            if not os.path.exists(path):
+                continue
             try:
                 os.remove(path)
             except OSError:
@@ -535,8 +537,9 @@ class ForestZoningMainDialogElements:
         return True
 
     def _reflect_costcsv_to_editor(self, path):
-        """「…」で選んだ作業システムCSVを、作業システム設定の表示にも反映する（形が崩れていれば反映しない。
-        理由は要素計算タブの注意書きに出る）。プラグインが入力欄に入れたとき（再開など）は呼ばない"""
+        """入力欄の作業システムCSVを、作業システム設定の表示にも反映する（「…」で選んだとき、ZIP・フォルダからの
+        読み込みや再開で入ったとき）。形が崩れていれば反映しない（理由は要素計算タブの注意書きに出る）。
+        「CSVとして反映する」で書いたものなら、隣の記録からマージンなども戻る（load_from_csv）"""
         try:
             self.costcsv_editor.load_from_csv(path)
         except (ValueError, OSError):
@@ -831,8 +834,13 @@ class ForestZoningMainDialogElements:
                 or not self.main.has_workspace():
             # プラグインが設定したとき・空欄・入力途中・作業フォルダが無い（未保存のプロジェクト）ときはそのまま
             self._input_paths[key] = path
-            if key == "costcsv" and not self.main.is_input_import_suppressed() and path and os.path.isfile(path):
-                self._reflect_costcsv_to_editor(path)
+            if key == "costcsv":
+                if path and os.path.isfile(path):
+                    # ZIP・フォルダからの読み込みや再開で入ったCSVも、作業システム設定の表示に反映する
+                    self._reflect_costcsv_to_editor(path)
+                elif not path and self.main.is_input_import_suppressed():
+                    # 作業を切り替えてCSVが無くなったら、前の作業の表を出したままにしない
+                    self.costcsv_editor.show_startup_state()
             return
         input_def = morizon_data.INPUT_DEFS[key]
         target_dir = utils.get_workspace_dir(DIR_DATA, *input_def["PATH"])
@@ -847,6 +855,12 @@ class ForestZoningMainDialogElements:
             self._set_input_path(key, previous)
             return
         sources = ForestZoningMainDialogArchive.get_companion_files(path, input_def["EXT"]) or [path]
+        if key == "costcsv":
+            # 「CSVとして反映する」で書いた表示の記録（マージンなど）があれば一緒に取り込み、前のCSVの記録は消す
+            sidecar = costcsv_sidecar_path(path)
+            if os.path.isfile(sidecar):
+                sources.append(sidecar)
+            old_files = old_files + [p for p in (costcsv_sidecar_path(f) for f in old_files) if os.path.isfile(p)]
         os.makedirs(target_dir, exist_ok=True)
         # いったん .part の名前でコピーし、そろってから前のファイルと入れ替える（中断・失敗しても前のファイルは残る）
         tasks = [(src, os.path.join(target_dir, os.path.basename(src) + ".part")) for src in sources]
