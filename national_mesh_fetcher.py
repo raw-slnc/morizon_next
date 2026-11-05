@@ -6,7 +6,8 @@
 
 平面直角座標系の系ごとのデータセット（mesh_1〜mesh_19）に、国土基本図の図郭ごとの 7z（中は GeoPackage）と、
 図郭割データ（図郭名の入った GeoPackage）が置かれている。DEM の範囲にかかる図郭だけを取得し、共有データに保存する
-（同じ図郭は2回目から取得しない）。7z は解凍せず、GDAL の /vsi7z/ で中の GeoPackage を読む。
+（同じ図郭は2回目から取得しない）。7z の中の GeoPackage は GDAL の /vsi7z/ で読む。/vsi7z/ が無い GDAL
+（Linux のディストリビューションの GDAL など）では、7z のパスのまま返し、使う側が sevenzip_reader で取り出す。
 """
 
 import json
@@ -18,6 +19,9 @@ PACKAGE_SHOW_URL = "https://www.geospatial.jp/ckan/api/3/action/package_show"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; QGIS plugin)", "Accept-Encoding": "identity"}
 TIMEOUT = (30, 120)  # （つなぐまで, 受け取りの合間）。混み合っているときは受け取りが遅いので長めにする
 CACHE_SUBDIR = "national_mesh"
+
+# 試験用：/vsi7z/ が使える環境でも、プラグインの中で取り出す道を通す。試験が済んだら False に戻す
+FORCE_INTERNAL_7Z = False
 
 UNREADABLE_7Z = (
     "このQGISでは、全国森林資源メッシュ（7z）の中を読めませんでした。"
@@ -91,8 +95,24 @@ def tiles_for_bounds(index_path, bounds):
     return sorted({str(feature.GetField("図郭名")) for feature in layer if feature.GetField("図郭名")})
 
 
+def vsi7z_available():
+    """この QGIS の GDAL で /vsi7z/ が使えるか（libarchive 付きで作られているか）"""
+    from osgeo import gdal
+    return not FORCE_INTERNAL_7Z and "/vsi7z/" in (gdal.GetFileSystemsPrefixes() or [])
+
+
 def gpkg_in_7z(path):
-    """7z の中の GeoPackage を、GDAL で読めるパス（/vsi7z/…）で返す。読めない環境なら RuntimeError"""
+    """7z の中の GeoPackage を、GDAL で読めるパス（/vsi7z/…）で返す。/vsi7z/ が無い環境では、
+    中身がプラグインで取り出せる形か確かめて、7z のパスのまま返す。どちらでも読めなければ RuntimeError"""
+    if not vsi7z_available():
+        from . import sevenzip_reader
+        try:
+            name = sevenzip_reader.single_file_name(path)
+        except (ValueError, OSError) as e:
+            raise RuntimeError(f"{UNREADABLE_7Z}\n（{e}）") from e
+        if not name.lower().endswith(".gpkg"):
+            raise RuntimeError(UNREADABLE_7Z)
+        return path
     from osgeo import gdal
     entries = gdal.ReadDir(f"/vsi7z/{path}")
     names = [name for name in (entries or []) if name.lower().endswith(".gpkg")]
@@ -102,8 +122,8 @@ def gpkg_in_7z(path):
 
 
 def fetch_tiles(zone, bounds, cache_base_dir, message_cb=None, progress_cb=None, cancel_cb=None):
-    """DEM の範囲にかかる図郭の 7z を取得し（共有データに保存）、中の GeoPackage を読むパスの一覧を返す。
-    中断したら None"""
+    """DEM の範囲にかかる図郭の 7z を取得し（共有データに保存）、中の GeoPackage を読むパスの一覧を返す
+    （/vsi7z/ が無い環境では 7z のパス。gpkg_in_7z）。中断したら None"""
     cache_dir = os.path.join(cache_base_dir, CACHE_SUBDIR, f"zone_{zone}")
     resources = _resources(zone, cache_dir)
     index = next((r for r in resources if r["url"].lower().endswith(".gpkg") and "index" in r["url"].lower()), None)

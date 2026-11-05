@@ -53,6 +53,19 @@ class SpeciesMeshThread(QThread):
         except Exception as e:  # noqa: BLE001  画面に理由を出すため、まとめて受ける
             self.processFailed.emit(str(e))
 
+    def _extract_7z(self, path, plain, index, count):
+        """7z の中の GeoPackage を plain に取り出し、中のファイル名を返す。中断したら None"""
+        from .. import sevenzip_reader
+
+        def progress(done, total):
+            self.postDetail.emit(f"図郭 {index + 1}/{count} を解凍中 {done / total * 100:.0f}%" if total else "")
+        try:
+            name = sevenzip_reader.extract_single(path, plain, cancel_cb=lambda: self.abort_flag, progress_cb=progress)
+        except ValueError as e:
+            raise RuntimeError(f"全国森林資源メッシュ（{os.path.basename(path)}）を解凍できませんでした。\n（{e}）") from e
+        self.postDetail.emit("")
+        return name
+
     def _run(self):
         from osgeo import gdal, ogr, osr
         from .. import national_mesh_fetcher
@@ -94,8 +107,15 @@ class SpeciesMeshThread(QThread):
         try:
             for index, path in enumerate(paths):
                 plain = os.path.join(temp_dir, f"mesh_{index}.gpkg")
-                gdal.CopyFile(path, plain)
-                source_layer = os.path.basename(path)[:-len(".gpkg")]
+                if path.startswith("/vsi7z/"):
+                    gdal.CopyFile(path, plain)
+                    inner_name = os.path.basename(path)
+                else:
+                    # この QGIS の GDAL に /vsi7z/ が無いので、プラグインで取り出す
+                    inner_name = self._extract_7z(path, plain, index, len(paths))
+                    if inner_name is None:
+                        return None
+                source_layer = inner_name[:-len(".gpkg")]
                 # 列を選んで切り出すのと、既存のファイルへの追加は同時にできないので、2図郭目からは一度別のファイルに切り出す
                 target = self.output_path if index == 0 else os.path.join(temp_dir, f"part_{index}.gpkg")
                 gdal.VectorTranslate(
