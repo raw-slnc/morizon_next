@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 
-from qgis.PyQt.QtCore import QSettings, Qt
+from qgis.PyQt.QtCore import QSettings, Qt, pyqtSignal
 from qgis.PyQt.QtGui import QImage, QPixmap, QPainter, QColor, QPen
 from qgis.PyQt.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QTextBrowser, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -188,6 +188,8 @@ class ElidedLabel(QLabel):
 
 
 class CostCsvEditorWidget(QWidget):
+    # 表示（表・区切り・機材名・マージン・保有していない機材）が変わったとき。計算に使うCSVと比べ直すため
+    displayChanged = pyqtSignal()
     """
     作業システムCSV（起伏量×傾斜と機材コードの対応）を編集し、
     CostcsvParserが読める形式のCSVへ書き出すウィジェット。
@@ -225,9 +227,14 @@ class CostCsvEditorWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # 止めない注意（縦軸の注意・手引の例・未反映・相違）は、一覧と図の下に全幅で出す（1つの注意を1行に収める。
+        # 一覧の下だけでは幅が足りず折り返した）
         self.axisLabel = QLabel()
         self.axisLabel.setWordWrap(True)
-        layout.addWidget(self.axisLabel)
+        # 状態は1行に1つだけ出す（問題があればその注意、無ければ設定済み・未設定）。出入りで高さが動かないよう1行分を確保する
+        self.axisLabel.setMinimumHeight(self.axisLabel.fontMetrics().lineSpacing())
+        self._axis_notice = ""
+        self._sync_notice = ""
         columns_row = QHBoxLayout()
 
         left_col = QVBoxLayout()
@@ -237,11 +244,13 @@ class CostCsvEditorWidget(QWidget):
         # 軸の説明もこの1行にまとめる（縦軸の名前はモードで変わるため _update_axis_label で書く）
         self.titleLabel = QLabel()
         title_row.addWidget(self.titleLabel)
+        title_row.addStretch(1)
+        left_col.addLayout(title_row)
+        # 表示中の出どころ（デフォルトか、読み込んだファイルか）は次の行に出す（見出しの横では名前が短く省かれた）
         self.sourceLabel = ElidedLabel()
         self.sourceLabel.setStyleSheet("color:#555;")
         self.sourceLabel.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        title_row.addWidget(self.sourceLabel, stretch=1)
-        left_col.addLayout(title_row)
+        left_col.addWidget(self.sourceLabel)
         legend_grid = QGridLayout()
         legend_grid.setHorizontalSpacing(6)
         legend_grid.setVerticalSpacing(2)
@@ -265,6 +274,7 @@ class CostCsvEditorWidget(QWidget):
 
             name_edit = QLineEdit(name)
             name_edit.setFixedHeight(18)
+            name_edit.textChanged.connect(lambda _text: self.displayChanged.emit())
             legend_grid.addWidget(name_edit, row, col_base + 1)
             self.legendNameEdits.append(name_edit)
 
@@ -299,6 +309,7 @@ class CostCsvEditorWidget(QWidget):
         columns_row.addLayout(right_col, stretch=1)
 
         layout.addLayout(columns_row)
+        layout.addWidget(self.axisLabel)
 
         self.modeLabel = QLabel()
         self.modeLabel.setWordWrap(True)
@@ -473,11 +484,25 @@ class CostCsvEditorWidget(QWidget):
             text = (f"<span style='color:#c00000;'>表示中の表の縦軸は{other}の値に見えます。"
                     f"設定の「集材作業効率の計算処理」（{name}）と合っているか確かめてください。</span>")
         elif self._showing_default and self._axis_kind == "shc":
-            text = ("<span style='color:#8a5a00;'>縦軸の区切りは手引の例です。そのままでは地形による差がほとんど出ません。"
-                    "地域の地形の複雑さの値（スコアリングタブの統計値表示など）を見て、"
-                    "Excelシートの「CSVで出力」シートで区切りを変えてください。</span>")
+            text = ("<span style='color:#8a5a00;'>縦軸の区切りは手引の例のままです（地形による差がほとんど出ません）。"
+                    "地域の値に合わせてExcelシートで区切りを変えてください。</span>")
+        self._axis_notice = text
+        self._show_notices()
+
+    def set_sync_notice(self, text: str, problem: bool = False):
+        """計算に使う作業システムCSVとの関係（未反映・相違・未設定・設定済み）。problem は未反映・相違のとき"""
+        self._sync_problem = problem
+        if text != self._sync_notice:
+            self._sync_notice = text
+            self._show_notices()
+
+    def _show_notices(self):
+        """1行に1つだけ出す。CSVとの食い違い（未反映・相違）＞表の中身の注意（縦軸・手引の例）＞未設定・設定済み の順"""
+        if self._sync_notice and getattr(self, "_sync_problem", False):
+            text = self._sync_notice
+        else:
+            text = self._axis_notice or self._sync_notice
         self.axisLabel.setText(text)
-        self.axisLabel.setVisible(bool(text))
 
     def _set_pattern(self, scores_ascending, names_by_code, source_text, persist, elide_part=None, tooltip=None,
                      row_thresholds=None, col_thresholds=None):
@@ -631,6 +656,7 @@ class CostCsvEditorWidget(QWidget):
         self._redraw_panel()
 
     def _redraw_panel(self, *_args):
+        self.displayChanged.emit()
         total_w = self.GUTTER_LEFT + self.PLOT_WIDTH + self.GUTTER_RIGHT
         total_h = self.PLOT_HEIGHT + self.GUTTER_BOTTOM
         image = QImage(total_w, total_h, QImage.Format.Format_RGB32)
@@ -696,13 +722,8 @@ class CostCsvEditorWidget(QWidget):
                 )
         return legend
 
-    def export_to_csv(self, output_path: str) -> str:
-        """
-        作業システムCSVを書き出す(processes/costcsv_parser.pyのCostcsvParserが読める形式)。
-        入力に不正があればValueErrorを送出する。
-        """
-        legend = self.validate_legend()
-
+    def effective_scores(self) -> list:
+        """書き出すときの表（縦軸昇順の10x6、マージンと保有していない機材をかけたもの）"""
         # 実際の10x6セル(閾値の中間点)に対してマージン適用後のスコアを計算する
         n_rows = len(RUGGEDNESS_THRESHOLDS) - 1
         n_cols = len(SLOPE_THRESHOLDS) - 1
@@ -714,6 +735,31 @@ class CostCsvEditorWidget(QWidget):
                 s_mid = (SLOPE_THRESHOLDS[j] + SLOPE_THRESHOLDS[j + 1]) / 2
                 row.append(self._score_at(r_mid, s_mid))
             scores.append(row)
+        return scores
+
+    def matches_table(self, table) -> bool:
+        """今の表示を書き出したときの中身が、read_costcsv で読んだ表 table と同じか（未反映・相違の見分けに使う）。
+        ファイルの書き方（文字コード・空き行・数の書き方）の違いは見ず、表・区切り・機材名だけを比べる"""
+        if self.effective_scores() != table["scores_ascending"]:
+            return False
+        for mine, theirs in ((self._row_thresholds, table["row_thresholds"]),
+                             (self._col_thresholds, table["col_thresholds"])):
+            if len(mine) != len(theirs) or any(abs(float(a) - float(b)) > 1e-9 for a, b in zip(mine, theirs)):
+                return False
+        # 読み込むときは名前の無いコードにひな形の名前を入れるので、比べるときも同じ扱いにする
+        defaults = dict(DEFAULT_LEGEND)
+        theirs = {code: (table["names"].get(code) or defaults.get(code, "")) for code in self._legend_codes}
+        mine = {code: edit.text().strip() for code, edit in zip(self._legend_codes, self.legendNameEdits)}
+        return all(mine[code] == str(theirs[code]).strip() for code in self._legend_codes)
+
+    def export_to_csv(self, output_path: str) -> str:
+        """
+        作業システムCSVを書き出す(processes/costcsv_parser.pyのCostcsvParserが読める形式)。
+        入力に不正があればValueErrorを送出する。
+        """
+        legend = self.validate_legend()
+        scores = self.effective_scores()
+        n_rows = len(scores)
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w", encoding="cp932", newline="") as f:

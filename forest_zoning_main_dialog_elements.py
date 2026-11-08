@@ -12,7 +12,7 @@ import zipfile
 from qgis.PyQt.QtCore import (
     QCoreApplication, QEvent, QEventLoop, QFileSystemWatcher, QObject, QPoint, QTimer, QUrl, Qt,
 )
-from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtGui import QDesktopServices, QFont, QFontMetrics
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -65,7 +65,9 @@ from .constants import (
 from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
-from .forest_zoning_main_dialog_costcsv_editor import CostCsvEditorWidget, costcsv_sidecar_path, read_costcsv
+from .forest_zoning_main_dialog_costcsv_editor import (
+    CostCsvEditorWidget, _file_sha256, costcsv_sidecar_path, read_costcsv,
+)
 from .siteidx_map_dialog import SiteIdxMapDialog
 
 
@@ -186,6 +188,11 @@ class ForestZoningMainDialogElements:
             on_import=self.import_costcsv,
         )
         self.main.costCsvGroupBoxLayout.addWidget(self.costcsv_editor)
+        # 表示と計算に使うCSVを最後に合わせたとき（反映・読み込み）のCSVの中身の目印。未反映か相違かの見分けに使う
+        self._costcsv_synced_sha = None
+        self.costcsv_editor.displayChanged.connect(self.update_costcsv_sync_notice)
+        # 下部の注意書きは、長い文（作業システムCSVの理由・長いファイル名）でも窓の幅を広げないよう折り返す
+        self.main.elementsErrorLabel.setWordWrap(True)
         self._init_road_building_edit_ui()
 
         self.refresh_elements_ui()
@@ -341,6 +348,7 @@ class ForestZoningMainDialogElements:
         except ValueError as e:
             QMessageBox.warning(self.main, "入力エラー", str(e))
             return
+        self._costcsv_synced_sha = _file_sha256(output_path)
         for path in others + [costcsv_sidecar_path(path) for path in others]:
             if not os.path.exists(path):
                 continue
@@ -349,6 +357,8 @@ class ForestZoningMainDialogElements:
             except OSError:
                 pass
         self._set_input_path("costcsv", output_path)
+        # 同じ名前（costcsv.csv）に書き直したときは欄が変わらず知らせが来ないので、ここで比べ直す
+        self.update_costcsv_sync_notice()
         QMessageBox.information(
             self.main, "完了", f"作業システムCSVを書き出しました。\n{output_path}"
         )
@@ -361,10 +371,34 @@ class ForestZoningMainDialogElements:
         self._refresh_siteidx_map_button()
         other_errors = self.get_elements_error_texts()
         self.main.elementsErrorLabel.setText("\n".join(other_errors))
+        self.update_costcsv_sync_notice()
         missing_inputs = self.get_missing_mandatory_inputs()
         self.main.elementsRunPushButton.setEnabled(
             len(other_errors) == 0 and not any(missing_inputs.values())
         )
+
+    @staticmethod
+    def _set_status_text(label, text, color, bold=False):
+        """入力行の右端の状態の表示。どの表示も3文字分の幅にそろえ（列の幅が変わらないように）、
+        2文字（任意）は前・間・後ろの空きを同じにして3文字分に割り付ける"""
+        font = QFont(label.font())
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0)
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+        # 幅は太字（編集中）でも入る3文字分にする
+        width = QFontMetrics(bold_font).horizontalAdvance("設定済") + 2
+        label.setFixedWidth(width)
+        font.setBold(bold)
+        indent = 0
+        if len(text) == 2:
+            # 余りを3つに分け、字下げ（前）と文字の間隔（間）に同じだけ使う。後ろには残りの同じだけが空く
+            gap = (width - QFontMetrics(font).horizontalAdvance(text)) / 3
+            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, gap)
+            indent = round(gap)
+        label.setFont(font)
+        label.setIndent(indent)
+        label.setText(text)
+        label.setStyleSheet(f"color:{color};")
 
     def get_elements_filewidgets(self) -> dict:
         return {
@@ -401,20 +435,16 @@ class ForestZoningMainDialogElements:
         }
         for key, label in status_labels.items():
             if missing_inputs[key]:
-                label.setText("未設定")
-                label.setStyleSheet("color:#ff0000;")
+                self._set_status_text(label, "未設定", "#ff0000")
             elif not mandatory_files_dict[key]:
-                label.setText("任意")
-                label.setStyleSheet("color:#666666;")
+                self._set_status_text(label, "任意", "#666666")
             else:
-                label.setText("設定済")
-                label.setStyleSheet("color:#188038;")
+                self._set_status_text(label, "設定済", "#188038")
         # 道路・建物を編集している間は、その行に「編集中」と出す（要素のチェックが選べない理由が行でも分かるように）
         for kind, label in ((layer_db.KIND_BUILDING, status_labels["building"]),
                             (layer_db.KIND_ROAD, status_labels["network"])):
             if self._rb_is_editing(kind):
-                label.setText("編集中")
-                label.setStyleSheet("color:#c05000; font-weight:bold;")
+                self._set_status_text(label, "編集中", "#c05000", bold=True)
 
     def update_elements_calculate_checkboxes(self):
         """
@@ -521,8 +551,21 @@ class ForestZoningMainDialogElements:
         try:
             read_costcsv(path)
         except (ValueError, OSError) as e:
-            return f"作業システムCSV（{os.path.basename(path)}）：{e}"
+            return f"作業システムCSV（{self._elided_costcsv_name(path, str(e))}）：{e}"
         return ""
+
+    def _elided_costcsv_name(self, path, reason):
+        """下部の注意書きに出すCSVのファイル名。理由の文と合わせて1行に収まらなければ、名前の途中を「…」で省く
+        （拡張子は残す。理由の文そのものが長いときは折り返す）"""
+        label = self.main.elementsErrorLabel
+        metrics = label.fontMetrics()
+        name = os.path.basename(path)
+        rest = metrics.horizontalAdvance(f"作業システムCSV（）：{reason}")
+        budget = label.width() - rest - metrics.horizontalAdvance("…")
+        if budget < metrics.horizontalAdvance("costcsv.csv"):
+            # 理由の文が長く、どのみち折り返すときは、名前を読める長さ（欄の3分の1）までにとどめる
+            budget = label.width() // 3
+        return metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, budget)
 
     def _accept_costcsv(self, path) -> bool:
         """「…」で選んだ作業システムCSVが読めるか確かめる。読めなければ理由を知らせて False
@@ -542,8 +585,44 @@ class ForestZoningMainDialogElements:
         「CSVとして反映する」で書いたものなら、隣の記録からマージンなども戻る（load_from_csv）"""
         try:
             self.costcsv_editor.load_from_csv(path)
+            self._costcsv_synced_sha = _file_sha256(path)
         except (ValueError, OSError):
-            pass
+            self._costcsv_synced_sha = None
+        self.update_costcsv_sync_notice()
+
+    # 表示と計算に使うCSVが違うときの注意。止めない（止めると「反映」か読み直しでしか戻れず、編集が一方通行になる）
+    COSTCSV_UNREFLECTED = "作業システム設定が未反映です（「CSVとして反映する」で計算に使われます）"
+    COSTCSV_DIFFERENT = "読み込まれた作業システムCSVと作業システム設定の表示が違います"
+
+    COSTCSV_NOT_SET = "作業システムCSVは未設定です"
+    COSTCSV_READY = "実行可能な作業システムCSVが設定されました"
+
+    def update_costcsv_sync_notice(self):
+        """作業システム設定の注意の1行目：要素計算の欄のCSVとの関係を出す。
+        欄が空なら未設定（灰）、表示を書き出したときの中身と欄のCSVが同じなら設定済み（青）、
+        違えば、CSVが変わっていなければ表示を変えた（未反映）、変わっていれば外で書き換わった（相違）とみなす（茶）。
+        CSVが読めない（形の崩れ）ときは下部の注意書きで止めるので、ここには出さない"""
+        editor = getattr(self, "costcsv_editor", None)
+        if editor is None:
+            return
+        path = self.main.elementsCostCsvFileWidget.filePath()
+        if not path or not os.path.isfile(path):
+            editor.set_sync_notice(f"<span style='color:#808080;'>{self.COSTCSV_NOT_SET}</span>")
+            return
+        try:
+            table = read_costcsv(path)
+        except (ValueError, OSError):
+            editor.set_sync_notice("")
+            return
+        if editor.matches_table(table):
+            editor.set_sync_notice(f"<span style='color:#1f5fbf;'>{self.COSTCSV_READY}</span>")
+            return
+        try:
+            unchanged = _file_sha256(path) == self._costcsv_synced_sha
+        except OSError:
+            unchanged = False
+        text = self.COSTCSV_UNREFLECTED if unchanged else self.COSTCSV_DIFFERENT
+        editor.set_sync_notice(f"<span style='color:#b35c00;'>{text}</span>", problem=True)
 
     def _confirm_vector_inputs(self) -> bool:
         """建物・道路の座標系と範囲を、計算の前に確かめる。座標系が分からないまま（.prj が無いなど）だと、
