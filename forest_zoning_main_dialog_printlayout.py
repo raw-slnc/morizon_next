@@ -235,7 +235,7 @@ class ForestZoningMainDialogPrintlayout:
             if layout is not None:
                 layout.setAlignment(align_center)
 
-        # 基本背景は常に使うので、チェックは描かない。背景補助の行のチェックと位置がそろうよう、場所だけ残す
+        # 基本背景は常に使うので、チェックは描かない。補助背景の行のチェックと位置がそろうよう、場所だけ残す
         for checkbox in (
             self.main.zoningPrintlayoutUseMainBackgroundCheckBox,
             self.main.aggregatePrintlayoutUseMainBackgroundCheckBox,
@@ -275,14 +275,10 @@ class ForestZoningMainDialogPrintlayout:
         self.main.createZoningPrintlayoutPushButton.setEnabled(has_no_error)
 
     def get_create_zoning_printlayout_error(self) -> list:
+        # 補助背景は任意（チェックしていても「未選択」なら使わない）
         error_texts = []
         if self.main.printlayoutBackgroundLayerCombobox.currentLayer() is None:
             error_texts.append("基本背景を指定してください")
-        if (
-            self.main.zoningPrintlayoutUseSubBackgroundCheckBox.isChecked()
-            and self.main.printlayoutBackgroundSubLayerCombobox.currentLayer() is None
-        ):
-            error_texts.append("背景補助を指定してください")
         if self.main.printlayoutZoningLayerCombobox.currentLayer() is None:
             error_texts.append("ゾーニング図を指定してください")
         return error_texts
@@ -303,11 +299,6 @@ class ForestZoningMainDialogPrintlayout:
         error_texts = []
         if self.main.printlayoutBackgroundLayerCombobox.currentLayer() is None:
             error_texts.append("基本背景を指定してください")
-        if (
-            self.main.aggregatePrintlayoutUseSubBackgroundCheckBox.isChecked()
-            and self.main.printlayoutBackgroundSubLayerCombobox.currentLayer() is None
-        ):
-            error_texts.append("背景補助を指定してください")
         if self.main.printlayoutAggregateLayerCombobox.currentLayer() is None:
             error_texts.append("ゾーン統計量を指定してください")
         return error_texts
@@ -406,7 +397,8 @@ class ForestZoningMainDialogPrintlayout:
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
                 "上書き確認",
-                f'出力先フォルダに"{printlayout_name}"のレイアウトが存在します、上書きしますか？',
+                f'このプロジェクトに"{printlayout_name}"の印刷レイアウトがあります。上書きしますか？\n'
+                "自分で設定する場合は「いいえ」を選び、レイアウトマネージャーから開いてください。",
                 QMessageBox.StandardButton.Yes,
                 QMessageBox.StandardButton.No,
             ):

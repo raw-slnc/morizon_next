@@ -1894,7 +1894,7 @@
              </size>
             </property>
             <property name="text">
-             <string>背景補助</string>
+             <string>補助背景</string>
             </property>
            </widget>
           </item>
@@ -2036,7 +2036,7 @@
                   <item>
                    <widget class="QLabel" name="zoningPrintlayoutSubLabel">
                     <property name="text">
-                     <string>背景補助：</string>
+                     <string>補助背景：</string>
                     </property>
                    </widget>
                   </item>
@@ -2244,7 +2244,7 @@
                   <item>
                    <widget class="QLabel" name="aggregatePrintlayoutSubLabel">
                     <property name="text">
-                     <string>背景補助：</string>
+                     <string>補助背景：</string>
                     </property>
                    </widget>
                   </item>
