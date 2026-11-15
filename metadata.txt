@@ -21,7 +21,7 @@ about=Morizon Next is an independent, unofficial continuation of MORIZON (もり
     Acknowledgements: the original MORIZON was developed through a project commissioned by the Forestry Agency of Japan, with the zoning workflow organized by the Japan Forest Technology Association and the QGIS plugin implemented by MIERUNE Inc. Morizon Next is not an official release of the Japan Forest Technology Association or the Forestry Agency of Japan.
 about[ja]=Morizon Next は、林野庁委託事業として開発された森林ゾーニング支援ツール「もりぞん（MORIZON）」を土台とする非公式の独自継続版です。
 
-    原版が採用する「林業の収益性」と「山地災害リスク」の両面から森林管理の方向性を検討する考え方と、基本的な処理体系を継承し、データ（DEM・地位データ・建物・道路縁）の自動取得、作業システムの設定画面、解析の保存と再開を加えています。
+    オリジナル版が採用する「林業の収益性」と「山地災害リスク」の両面から森林管理の方向性を検討する考え方と、基本的な処理体系を継承し、データ（DEM・地位データ・建物・道路縁）の自動取得、作業システムの設定画面、解析の保存と再開を加えています。
 
     本プラグインは日本国内専用です。地位データは平面直角座標系の第1〜13系の地域だけで提供されています。データの自動取得にはインターネット接続が必要です。建物・道路縁の自動取得には、国土地理院「基盤地図情報ダウンロードサービス」の利用者登録（無料）が必要です。
 
