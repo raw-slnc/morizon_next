@@ -37,28 +37,49 @@ def resolve_algorithm_id(*candidate_ids: str) -> str:
     return candidate_ids[0]
 
 
+def check_calculation(calc, result, output_filepath: str, label: str):
+    """QgsRasterCalculator の結果を確かめ、失敗したか出力が無ければ例外にする
+    （失敗しても前回の出力を結果として使ってしまわないため）"""
+    from qgis.analysis import QgsRasterCalculator
+
+    success = getattr(getattr(QgsRasterCalculator, "Result", QgsRasterCalculator), "Success", 0)
+    if not (result == success or str(result) in ("0", "Result.Success", "Success")):
+        raise RuntimeError(f"{label}ラスターの計算に失敗しました: {result}\n{calc.lastError()}")
+    if not os.path.exists(output_filepath) or os.path.getsize(output_filepath) == 0:
+        raise RuntimeError(f"{label}ラスターを作成できませんでした: {output_filepath}")
+
+
 def resampling(tiff_filepath: str,
                target_resolution: int,
                output_filepath=None,
                resampling_alg_name="cubicspline",
                feedback=None) -> str:
     """
-    TIFFを指定のZ解像度へリサンプリングする、EXTENTは変更されない
+    TIFFを指定のZ解像度へリサンプリングする、EXTENTは変更されない。
+    元のDEMにNoData（海・水面など）があれば、まとめ直した後に元のDEMのNoDataを同じ格子へ戻す。
+    cubicspline は周りの有効な値で水面の縁にも値を作る（1〜2セル）ため、そのままだと傾斜・地形の複雑さ・
+    流域が実在しない水面の標高で計算される。最終成果物を仕上げる restore_dem_nodata() と同じ判定にそろえる
     """
-    return run_processing("gdal:translate", {
+    output = run_processing("gdal:translate", {
         "EXTRA": f"-tr {target_resolution} {target_resolution} -r {resampling_alg_name}",
         "INPUT": tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT"
     }, feedback=feedback)["OUTPUT"]
+    if dem_has_nodata(tiff_filepath):
+        restore_dem_nodata(output, tiff_filepath, feedback=feedback)
+    return output
 
 
 def adjust_extent_and_resolution(basis_tiff_filepath: str,
                                  target_tiff_filepath: str,
                                  output_filepath=None,
                                  resampling_alg_name="cubicspline",
-                                 feedback=None) -> str:
+                                 feedback=None,
+                                 nodata=None) -> str:
     """
-    任意のラスターを、基準ラスターと同じ領域・解像度に調整して出力する
+    任意のラスターを、基準ラスターと同じ領域・解像度に調整して出力する。
+    nodata を渡すと出力の NoData をその値にする（元のラスターが基準ラスターを覆わない所も NoData になる。
+    渡さないと、NoData の値を持たないラスターでは覆わない所が 0 になる）
     """
     basis_deminfo = get_tiff_info(basis_tiff_filepath, feedback=feedback)
     resampling_alg_dict = {
@@ -68,7 +89,7 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
     }
     resampling_alg = resampling_alg_dict.get(resampling_alg_name, 3)
 
-    output = run_processing("gdal:warpreproject", {
+    params = {
         "TARGET_CRS": basis_deminfo["crs"],
         "TARGET_RESOLUTION": basis_deminfo["resolution"],
         "TARGET_EXTENT": ",".join(str(value) for value in basis_deminfo["extent"][:4]),
@@ -76,16 +97,20 @@ def adjust_extent_and_resolution(basis_tiff_filepath: str,
         "RESAMPLING": resampling_alg,
         "INPUT": target_tiff_filepath,
         "OUTPUT": output_filepath if output_filepath is not None else "TEMPORARY_OUTPUT",
-    }, feedback=feedback)["OUTPUT"]
+    }
+    if nodata is not None:
+        params["NODATA"] = nodata
+    output = run_processing("gdal:warpreproject", params, feedback=feedback)["OUTPUT"]
     return output
 
 
 def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
                                                 target_tiff_filepath: str,
                                                 resampling_alg_name="nearest",
-                                                feedback=None) -> str:
+                                                feedback=None,
+                                                nodata=None) -> str:
     """
-    既存の出力ラスターを、基準ラスターと同じ領域・解像度に揃えて置き換える
+    既存の出力ラスターを、基準ラスターと同じ領域・解像度に揃えて置き換える（nodata は adjust_extent_and_resolution と同じ）
     """
     # 作業用のファイルは半角の一時フォルダに作る（出力先が全角文字を含んでも、外部の処理に渡さないため）
     temp_dir = tempfile.mkdtemp(dir=get_ascii_safe_dir("morizon_next_tmp"))
@@ -97,6 +122,7 @@ def replace_with_adjusted_extent_and_resolution(basis_tiff_filepath: str,
             output_filepath=temp_filepath,
             resampling_alg_name=resampling_alg_name,
             feedback=feedback,
+            nodata=nodata,
         )
         if os.path.exists(target_tiff_filepath):
             os.remove(target_tiff_filepath)

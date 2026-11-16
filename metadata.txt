@@ -29,7 +29,7 @@ about[ja]=Morizon Next は、林野庁委託事業として開発された森林
 
     謝辞：原版は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc. が QGIS プラグインとして実装したものです。Morizon Next は日本森林技術協会または林野庁による公式版ではありません。
 changelog=
-    0.1.10 - The plugin description is easier to read: it is now split into paragraphs, and a short description in Japanese has been added.
+    0.1.10 - The plugin description is easier to read: it is now split into paragraphs, and a short description in Japanese has been added. In Hokkaido, Engaru, Yubetsu, Takinoue, Okoppe, Nishiokoppe and Omu now use zone XII of the plane rectangular coordinate system, as defined by law (they were given zone XIII).
     0.1.9 - Minor bug fixes.
     0.1.8 - Zone statistics: the zones are filled at 50 percent opacity instead of 40, with thinner outlines, so they show more clearly over the background map without hiding it. The 外周線を出力しない option is replaced by 外周線を表示する, and the choice made in earlier versions is kept. The conifer filter can now be checked only when a polygon layer is selected, and the four-quadrant figure is shown wider. Work system CSV: a CSV chosen with the "…" button that cannot be read correctly is no longer set, and the previous CSV is kept; the reason is shown. A work system CSV loaded from a saved ZIP or folder, or when resuming, is now also shown in 作業システム設定, and for a CSV written with CSVとして反映する the margin and the equipment marked as not owned are restored. 現在地の樹種メッシュ now also works where QGIS cannot read 7z files itself (such as QGIS on some Linux distributions). Adjusted 設定をクリアする. Minor UI adjustments.
     0.1.7 - Minor UI adjustments.

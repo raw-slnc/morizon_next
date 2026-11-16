@@ -9,6 +9,7 @@ from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 
 from ...settings_manager import SettingsManager
 from ...constants import OUTPUT_RISK
+from .utils import check_calculation
 
 
 def generate(slope_rlayer: QgsRasterLayer,
@@ -46,6 +47,9 @@ def generate(slope_rlayer: QgsRasterLayer,
                                   shc_entry.ref, shc_thresholds,
                                   savearea_entry.ref)
 
+    # 計算に失敗したとき前回の出力が残って使われないよう、先に削除しておく
+    if os.path.exists(output_filepath):
+        os.remove(output_filepath)
     calc = QgsRasterCalculator(expression,
                                output_filepath,
                                "GTiff",
@@ -53,7 +57,7 @@ def generate(slope_rlayer: QgsRasterLayer,
                                slope_rlayer.width(),
                                slope_rlayer.height(),
                                (slope_entry, shc_entry, savearea_entry))
-    calc.processCalculation()
+    check_calculation(calc, calc.processCalculation(), output_filepath, OUTPUT_RISK["DISPLAY_NAME"])
 
     return output_filepath
 

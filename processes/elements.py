@@ -30,6 +30,10 @@ from ..constants import (
 )
 
 
+# 取り込んだ地位指数マップを DEM のマス目にそろえるときの NoData の値
+SITEIDX_DOKUJI_NODATA = -9999.0
+
+
 class ProcessingThread(QThread):
     processStarted = pyqtSignal(int)
     addProgress = pyqtSignal(int)
@@ -87,8 +91,11 @@ class ProcessingThread(QThread):
             return None
         set_stage(self.feedback, "地位指数マップをDEMのマス目にそろえる")
         shutil.copyfile(map_filepath, output_filepath)
+        # マップが DEM を覆わない所は NoData にする（マップに NoData の値が無いと 0 になり、地位指数 0 として
+        # 最低点が付き、しきい値の初期値もずれるため）。マップの NoData も同じ値にそろう
         raster_writer.replace_with_adjusted_extent_and_resolution(
-            dem_filepath, output_filepath, resampling_alg_name="nearest", feedback=self.feedback)
+            dem_filepath, output_filepath, resampling_alg_name="nearest", feedback=self.feedback,
+            nodata=SITEIDX_DOKUJI_NODATA)
         return self._clip_final_output(output_filepath)
 
     def run(self):

@@ -8,6 +8,7 @@ from qgis.core import QgsRasterLayer
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 
 from ...constants import OUTPUT_ZONING
+from .utils import check_calculation
 
 
 def generate(profit_rlayer: QgsRasterLayer,
@@ -45,6 +46,9 @@ def generate(profit_rlayer: QgsRasterLayer,
     expression = _make_expression(profit_entry.ref, profit_threshold,
                                   risk_entry.ref, risk_threshold)
 
+    # 計算に失敗したとき前回の出力が残って使われないよう、先に削除しておく
+    if os.path.exists(output_filepath):
+        os.remove(output_filepath)
     calc = QgsRasterCalculator(expression,
                                output_filepath,
                                "GTiff",
@@ -52,7 +56,7 @@ def generate(profit_rlayer: QgsRasterLayer,
                                profit_rlayer.width(),
                                profit_rlayer.height(),
                                (profit_entry, risk_entry))
-    calc.processCalculation()
+    check_calculation(calc, calc.processCalculation(), output_filepath, OUTPUT_ZONING["DISPLAY_NAME"])
 
     return output_filepath
 
