@@ -101,6 +101,9 @@ def plan_curvature(z, cell_size):
     p2q2 = p * p + q * q
     with np.errstate(invalid="ignore", divide="ignore"):
         plan = np.where(p2q2 > 0, -(t * p * p + r * q * q - 2 * s * p * q) / np.power(p2q2, 1.5), 0.0)
+    # 0 にするのは本当に平らなとき（p2q2 == 0）だけ。周囲3x3にデータの無いセルがあると
+    # p2q2 も NaN になり、上の式では「NaN > 0」が偽で 0 が入ってしまうので NaN に戻す
+    plan[np.isnan(p2q2)] = np.nan
     out = np.full(z.shape, np.nan)
     out[1:-1, 1:-1] = plan
     return out
