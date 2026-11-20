@@ -8,7 +8,10 @@ from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDialogButtonBox
 )
-from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY, QgsProject
+from qgis.core import (
+    QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException,
+    QgsFeatureRequest, QgsPointXY, QgsProject, QgsVectorLayer, QgsWkbTypes,
+)
 from qgis.utils import iface
 
 from . import dem_sources
@@ -67,13 +70,46 @@ class _ComboOkCancelFocusMixin:
         return super().focusNextPrevChild(next)
 
 
+class PolygonLayerSelectionDialog(QDialog):
+    """単一フィーチャーのポリゴンレイヤーを選ぶ。"""
+
+    def __init__(self, layers, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ポリゴンを指定する")
+        layout = QVBoxLayout(self)
+        self.layerCombobox = None
+        layout.addWidget(QLabel(
+            "選択可能なレイヤーには一つのポリゴンがあることが条件です。\n"
+            "※ 行政区画などを対象にした機能です。"
+        ))
+        if layers:
+            layout.addWidget(QLabel("ポリゴンレイヤー:"))
+            self.layerCombobox = QComboBox()
+            for layer, _geometry in layers:
+                self.layerCombobox.addItem(layer.name())
+            layout.addWidget(self.layerCombobox)
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+        else:
+            layout.addWidget(QLabel("選択できるレイヤーはありません。"))
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_index(self):
+        return self.layerCombobox.currentIndex()
+
+
 class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
     """
     DEM取得元を選択して取得するダイアログ。
 
     取得元の一覧・出典の説明・対象地域の判定・取得処理は dem_sources パッケージ側にあり、
     このダイアログは表示と選択だけを受け持つ。取得元を増やすときは dem_sources を参照。
-    表示範囲が対象地域に収まらない取得元は、一覧に出したうえで選べない状態にする。
+    取得範囲が対象地域に収まらない取得元は、一覧に出したうえで選べない状態にする。
     """
 
     # 詳細なDEMを選べば結果が良くなる、と受け取られないための常設の注意書き。
@@ -94,7 +130,10 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
 
         # モーダル表示中はキャンバスを動かせないため、範囲は開いた時点で確定させる
         self._canvas_extent = iface.mapCanvas().extent()
-        self._extent = self._canvas_extent_wgs84()
+        self._display_extent = self._canvas_extent_wgs84()
+        self._extent = self._display_extent
+        self._polygon_shape = None
+        self._active_shape_index = 0
         extent_tuple = (
             self._extent.xMinimum(), self._extent.yMinimum(),
             self._extent.xMaximum(), self._extent.yMaximum(),
@@ -138,7 +177,7 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         self.extentLabel.setWordWrap(True)
         layout.addWidget(self.extentLabel)
 
-        # オプション：範囲の形。取得は表示範囲の四角で行い、円のときは外側を解析の対象外にする。
+        # オプション：範囲の形。円は表示範囲、ポリゴンはその外接矩形で取得し、形の外側を対象外にする。
         # 円は地図の表示範囲の中心（十字）を基準に、表示範囲に内接させる（横長・縦長なら楕円になる。形は取得範囲に任せる）。
         # 既定はいつも方形（前回の選択は残さない）
         shape_row = QHBoxLayout()
@@ -147,7 +186,7 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         self.shapeCombobox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         for _, label in self.SHAPES:
             self.shapeCombobox.addItem(label)
-        self.shapeCombobox.currentIndexChanged.connect(self._update_extent_label)
+        self.shapeCombobox.currentIndexChanged.connect(self._on_shape_changed)
         shape_row.addWidget(self.shapeCombobox, 1)
         layout.addLayout(shape_row)
         self._update_extent_label()
@@ -178,10 +217,78 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
     # 範囲の形の選択肢 (キー, 表示)
     SHAPES = (
         ("rect", "表示範囲"),
+        ("polygon", "ポリゴンを指定する"),
         ("round", "円（表示範囲に内接。横長・縦長なら楕円）"),
     )
     SHAPE_NAMES = {"round": "円"}
     SHAPE_POINTS = 180  # 円を多角形にするときの頂点の数
+
+    @staticmethod
+    def _available_polygon_layers():
+        project = QgsProject.instance()
+        layers = sorted(project.mapLayers().values(), key=lambda layer: layer.name().casefold())
+        available = []
+        for layer in layers:
+            if not isinstance(layer, QgsVectorLayer) or not layer.isValid() or not layer.crs().isValid():
+                continue
+            if QgsWkbTypes.geometryType(layer.wkbType()) != QgsWkbTypes.GeometryType.PolygonGeometry:
+                continue
+            features = list(layer.getFeatures(QgsFeatureRequest().setLimit(2)))
+            if len(features) != 1:
+                continue
+            geometry = features[0].geometry()
+            if geometry.isNull() or geometry.isEmpty() or not geometry.isGeosValid():
+                continue
+            try:
+                transform = QgsCoordinateTransform(
+                    layer.crs(), QgsCoordinateReferenceSystem("EPSG:4326"), project
+                )
+                geometry.transform(transform)
+            except QgsCsException:
+                continue
+            available.append((layer, geometry))
+        return available
+
+    def _on_shape_changed(self, index):
+        shape_key = self.SHAPES[index][0]
+        if shape_key == "polygon":
+            layers = self._available_polygon_layers()
+            picker = PolygonLayerSelectionDialog(layers, self)
+            if picker.exec() != QDialog.DialogCode.Accepted:
+                self.shapeCombobox.blockSignals(True)
+                self.shapeCombobox.setCurrentIndex(self._active_shape_index)
+                self.shapeCombobox.blockSignals(False)
+                return
+            layer, geometry = layers[picker.selected_index()]
+            self._polygon_shape = {
+                "label": f"ポリゴン「{layer.name()}」",
+                "wkt": geometry.asWkt(),
+            }
+            self._extent = geometry.boundingBox()
+            self.shapeCombobox.setItemText(index, f"ポリゴンを指定する（{layer.name()}）")
+        else:
+            self._polygon_shape = None
+            self._extent = self._display_extent
+            self.shapeCombobox.setItemText(1, self.SHAPES[1][1])
+        self._active_shape_index = index
+        self._extent_tuple = (
+            self._extent.xMinimum(), self._extent.yMinimum(),
+            self._extent.xMaximum(), self._extent.yMaximum(),
+        )
+        self._problems = [source.coverage_problem(self._extent_tuple) for source in self._sources]
+        self.sourceCombobox.blockSignals(True)
+        for i, (source, problem) in enumerate(zip(self._sources, self._problems)):
+            self.sourceCombobox.setItemText(
+                i, source.label if problem is None else f"{source.label}（{problem}）"
+            )
+            self.sourceCombobox.model().item(i).setEnabled(problem is None)
+        if self._problems[self.sourceCombobox.currentIndex()] is not None:
+            self.sourceCombobox.setCurrentIndex(
+                next(i for i, problem in enumerate(self._problems) if problem is None)
+            )
+        self.sourceCombobox.blockSignals(False)
+        self._update_info_label()
+        self._update_extent_label()
 
     def _update_info_label(self):
         source = self.get_selected_source()
@@ -215,15 +322,22 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
 
     def _update_extent_label(self):
         extent = self._extent
+        shape_key = self.SHAPES[self.shapeCombobox.currentIndex()][0] if hasattr(self, "shapeCombobox") else "rect"
+        range_name = (
+            f"取得・解析範囲（{self._polygon_shape['label']}）:"
+            if shape_key == "polygon" and self._polygon_shape is not None
+            else "取得範囲（現在のQGIS地図表示範囲）:"
+        )
         lines = [
-            "取得範囲（現在のQGIS地図表示範囲）:",
+            range_name,
             f"経度 {extent.xMinimum():.5f} 〜 {extent.xMaximum():.5f}",
             f"緯度 {extent.yMinimum():.5f} 〜 {extent.yMaximum():.5f}",
         ]
         if any(problem is not None for problem in self._problems):
-            lines.append("※ 表示範囲がデータの対象地域に収まらない取得元は選べません。")
-        shape_key = self.SHAPES[self.shapeCombobox.currentIndex()][0] if hasattr(self, "shapeCombobox") else "rect"
-        if shape_key != "rect":
+            lines.append("※ 取得範囲がデータの対象地域に収まらない取得元は選べません。")
+        if shape_key == "polygon":
+            lines.append("※ ポリゴンの外接矩形でDEMを取得し、ポリゴン外を解析の対象外（NoData）にします。")
+        elif shape_key == "round":
             name = self.SHAPE_NAMES[shape_key]
             lines.append(
                 f"※ DEMは表示範囲の方形で取得し、地図の中心を基準に表示範囲に内接する{name}"
@@ -243,7 +357,7 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         return transform.transformBoundingBox(canvas.extent())
 
     def get_extent_wgs84(self):
-        """ダイアログを開いた時点の表示範囲（WGS84、QgsRectangle）"""
+        """表示範囲または選択したポリゴンの外接矩形（WGS84、QgsRectangle）"""
         return self._extent
 
     def get_selected_source(self):
@@ -251,12 +365,14 @@ class DemBrowserDialog(_ComboOkCancelFocusMixin, QDialog):
         return self._sources[self.sourceCombobox.currentIndex()]
 
     def get_shape(self):
-        """選んだ範囲の形。方形なら None、円なら {"label": 形の名前, "ring": [(経度, 緯度), ...]}。
+        """選んだ範囲の形。方形なら None、円なら ring、ポリゴンなら WGS84 の wkt を返す。
         円は開いた時点の地図の表示範囲（キャンバスの座標系）に内接させて作り（縦横の比で円にも楕円にもなる）、
         経緯度に変換する"""
         shape_key = self.SHAPES[self.shapeCombobox.currentIndex()][0]
         if shape_key == "rect":
             return None
+        if shape_key == "polygon":
+            return self._polygon_shape.copy()
         canvas = iface.mapCanvas()
         transform = QgsCoordinateTransform(
             canvas.mapSettings().destinationCrs(), QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance()

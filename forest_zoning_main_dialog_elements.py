@@ -6,9 +6,13 @@ import os
 import re
 import shutil
 import gc
+import sqlite3
+import sys
+import tempfile
 import zipfile
 
 # QGIS-API
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import (
     QCoreApplication, QEvent, QEventLoop, QFileSystemWatcher, QObject, QPoint, QTimer, QUrl, Qt,
 )
@@ -28,15 +32,18 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.utils import iface
 from qgis.core import (
-    QgsCoordinateTransform, QgsCsException, QgsDefaultValue, QgsFillSymbol, QgsLayerTreeGroup, QgsLineSymbol,
-    QgsProject, QgsRasterLayer, QgsRectangle, QgsRuleBasedRenderer, QgsSingleSymbolRenderer, QgsVectorLayer,
+    Qgis, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException, QgsDefaultValue, QgsFillSymbol,
+    QgsGeometry, QgsLayerTreeGroup, QgsLinePatternFillSymbolLayer, QgsLineSymbol, QgsPointXY, QgsProject,
+    QgsRasterLayer, QgsRectangle, QgsRuleBasedRenderer, QgsSingleSymbolRenderer, QgsVectorLayer,
 )
+from qgis.gui import QgsRubberBand
 
 from .progress_dialog import run_with_progress
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog, DemResolutionDialog
 from .dem_loader import GSITileDEMLoader
 from . import dem_gaps
 from .settings_manager import OutputLayerStyleManager, ShcMethodManager
+from .work_system_defaults import WorkSystemDefaultsManager
 from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZoningMainDialogArchive
 from . import saga_check
 from . import processes
@@ -46,7 +53,7 @@ from . import utils
 from .processes.raster_styler import apply_output_blend_mode
 from .constants import (
     COSTCSV_TEMPLATE_FILE,
-    COSTCSV_TEMPLATE_NAME,
+    DIR_AGGREGATE,
     DIR_DATA,
     DIR_YOUSO,
     INPUT_DEM,
@@ -61,12 +68,18 @@ from .constants import (
     OUTPUT_SHC,
     OUTPUT_SLOPE,
     OUTPUT_SAVEAREA,
+    OUTPUT_PROFIT,
+    OUTPUT_RISK,
+    OUTPUT_PARAMS_JSON,
+    OUTPUT_ZONING,
+    OUTPUT_ZONING_THRESHOLDS_JSON,
+    OUTPUT_AGGREGATE,
 )
 from . import zoningkit_fetcher
 from . import fgd_fetcher
 from .fgd_login_dialog import FgdLoginDialog
 from .forest_zoning_main_dialog_costcsv_editor import (
-    CostCsvEditorWidget, _file_sha256, costcsv_sidecar_path, read_costcsv,
+    CostCsvEditorWidget, _file_sha256, costcsv_sidecar_path, read_costcsv, read_costcsv_xlsx,
 )
 from .siteidx_map_dialog import SiteIdxMapDialog
 
@@ -97,6 +110,31 @@ ROAD_NETWORK_WIDTH_MM = "0.4"
 ROAD_EDGE_TYPE = "真幅道路"   # 取得した道路縁の種類（type）。取得のときにこれだけに絞っている
 ROAD_NETWORK_TYPE = "路網"    # 描き足した線の種類（種類の欄があれば、新しく描いた線に自動で入れる）
 BUILDING_FILL_COLOR = "244,139,41,255"
+EXTENT_PREVIEW_MESH_SPACING_PX = 20
+
+
+def _extent_preview_symbol():
+    """地図の縮尺によらず20px間隔で見える、薄い斜交網と対象範囲の枠線。"""
+    symbol = QgsFillSymbol.createSimple({
+        "style": "no",
+        "outline_color": "25,85,190,230",
+        "outline_style": "solid",
+        "outline_width": "2",
+        "outline_width_unit": "Pixel",
+    })
+    # 線模様の既定角度が45°なので、回転0°と90°で菱形の網目になる。
+    for angle in (0, 90):
+        mesh = QgsLinePatternFillSymbolLayer()
+        mesh.setAngle(angle)
+        mesh.setDistance(EXTENT_PREVIEW_MESH_SPACING_PX)
+        mesh.setDistanceUnit(Qgis.RenderUnit.Pixels)
+        mesh.setSubSymbol(QgsLineSymbol.createSimple({
+            "line_color": "25,85,190,120",
+            "line_width": "0.7",
+            "line_width_unit": "Pixel",
+        }))
+        symbol.appendSymbolLayer(mesh)
+    return symbol
 
 
 class _AlignRightToPathField(QObject):
@@ -127,7 +165,11 @@ class ForestZoningMainDialogElements:
 
     def __init__(self, main):
         self.main = main
+        self._extent_preview = None
+        self._extent_preview_geometry = None
         self._calc_checkbox_was_ready = {}
+        self._elements_run_output_dir = None
+        self._unproduced_elements = set()
         # 道路・建物の編集の状態 {種類: {"editing", "committed", "prev_checked", "tooltip"}}
         self._rb_edit = {}
         # 「編集」ボタンで一時的に「道路・建物」を表示したか（編集モードを終えたら片付ける）
@@ -151,6 +193,7 @@ class ForestZoningMainDialogElements:
         self._input_paths = {}
         for key, filewidget in self.input_filewidgets().items():
             filewidget.fileChanged.connect(lambda _path, k=key: self._on_input_file_changed(k))
+        self.main.elementsDemFileWidget.fileChanged.connect(self._sync_extent_preview_with_dem)
         self._button_row_alignment = _AlignRightToPathField(
             self.main.elementsDemFileWidget, self.main.horizontalLayout
         )
@@ -186,6 +229,7 @@ class ForestZoningMainDialogElements:
             on_export=self.handle_costcsv_export,
             on_open_template=self.open_costcsv_template,
             on_import=self.import_costcsv,
+            on_load_default=self.show_selected_work_system_default,
         )
         self.main.costCsvGroupBoxLayout.addWidget(self.costcsv_editor)
         # 表示と計算に使うCSVを最後に合わせたとき（反映・読み込み）のCSVの中身の目印。未反映か相違かの見分けに使う
@@ -228,18 +272,35 @@ class ForestZoningMainDialogElements:
             box.exec()
 
     def open_costcsv_template(self):
-        """原版の作業システムExcelを DATA/SAGYO-SYSTEM_CSV に置き、既定のアプリで開く。
-        すでに置いてある場合は、編集途中の内容を消さないようそのファイルを開く"""
+        """選択中のExcelの作業用コピーを開く。保存済みの原本は直接編集しない。"""
         if not self.main.has_workspace():
             QMessageBox.information(self.main, "エラー", self._no_workspace_message(
                 "先にQGISプロジェクトを保存してください（Excelを作業フォルダに置きます）。",
                 "作業を開始した後でExcelを開けます。",
             ))
             return
-        target = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME)
-        if not os.path.isfile(target):
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            shutil.copyfile(os.path.join(os.path.dirname(__file__), COSTCSV_TEMPLATE_FILE), target)
+        manager = WorkSystemDefaultsManager()
+        custom_paths = manager.custom_paths() if manager.selected_source() == manager.CUSTOM else None
+        source = custom_paths[1] if custom_paths else os.path.join(
+            os.path.dirname(__file__), COSTCSV_TEMPLATE_FILE
+        )
+        target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        source_key = (manager.selected_source(), source, target_dir)
+        target = getattr(self, "_excel_path", None)
+        if source_key != getattr(self, "_excel_source_key", None) or not target or not os.path.isfile(target):
+            os.makedirs(target_dir, exist_ok=True)
+            fd, target = tempfile.mkstemp(
+                prefix="集材作業効率_標準_" if not custom_paths else "集材作業効率_独自_",
+                suffix=".xlsx", dir=target_dir,
+            )
+            os.close(fd)
+            try:
+                shutil.copyfile(source, target)
+            except OSError as e:
+                os.remove(target)
+                QMessageBox.warning(self.main, "Excelを開けません", str(e))
+                return
+        self._excel_source_key = source_key
         self._watch_costcsv_excel(target)
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
             QMessageBox.information(
@@ -271,6 +332,7 @@ class ForestZoningMainDialogElements:
         self._excel_watcher.addPath(path)
         self._excel_path = path
         self._excel_mtime = os.path.getmtime(path)
+        self._excel_loaded_sha = None
         self._excel_retries = 0
 
     def _on_costcsv_excel_changed(self, _path):
@@ -280,9 +342,8 @@ class ForestZoningMainDialogElements:
     def _load_costcsv_excel(self):
         path = self._excel_path
         # 別のプロジェクトに切り替わっていたら、前のプロジェクトのExcelは読まない
-        if not self.main.has_workspace() or path != utils.get_workspace_dir(
-            DIR_DATA, *INPUT_COSTCSV["PATH"], COSTCSV_TEMPLATE_NAME
-        ):
+        target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        if not self.main.has_workspace() or not utils.is_under_dir(os.path.abspath(path), target_dir):
             self._excel_watcher.removePaths(self._excel_watcher.files() or [path])
             return
         if not (os.path.isfile(path) and zipfile.is_zipfile(path)):
@@ -299,7 +360,9 @@ class ForestZoningMainDialogElements:
         self._excel_mtime = mtime
         try:
             self.costcsv_editor.load_from_xlsx(path)
+            self._excel_loaded_sha = _file_sha256(path)
         except ValueError as e:
+            self._excel_loaded_sha = None
             QMessageBox.information(self.main, "Excelの読み込み", f"保存したExcelを表示に読み込めませんでした。\n\n{e}")
 
     @staticmethod
@@ -330,6 +393,15 @@ class ForestZoningMainDialogElements:
                 "作業を開始した後で反映できます。",
             ))
             return
+        source_xlsx_path = editor_widget.source_xlsx_path
+        can_save_default = bool(source_xlsx_path and source_xlsx_path == getattr(self, "_excel_path", None)
+                                and os.path.isfile(source_xlsx_path)
+                                and getattr(self, "_excel_loaded_sha", None) == _file_sha256(source_xlsx_path))
+        if can_save_default:
+            try:
+                can_save_default = editor_widget.matches_table(read_costcsv_xlsx(source_xlsx_path))
+            except (OSError, ValueError):
+                can_save_default = False
         target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
         output_path = os.path.join(target_dir, "costcsv.csv")
         # 1種類1ファイルにそろえる（Excel など CSV 以外は残す）
@@ -359,9 +431,45 @@ class ForestZoningMainDialogElements:
         self._set_input_path("costcsv", output_path)
         # 同じ名前（costcsv.csv）に書き直したときは欄が変わらず知らせが来ないので、ここで比べ直す
         self.update_costcsv_sync_notice()
-        QMessageBox.information(
-            self.main, "完了", f"作業システムCSVを書き出しました。\n{output_path}"
-        )
+        box = QMessageBox(self.main)
+        box.setWindowTitle("完了")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"作業システムCSVを書き出しました。\n{output_path}")
+        save_default = None
+        if can_save_default:
+            save_default = QCheckBox("この作業システムを常に使用する")
+            save_default.setToolTip("ExcelとCSVを既定値として保存します。解析には毎回「CSVとして反映する」で設定します")
+            box.setCheckBox(save_default)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if save_default is not None and save_default.isChecked():
+            try:
+                WorkSystemDefaultsManager().save_custom(output_path, source_xlsx_path)
+            except (OSError, ValueError) as e:
+                QMessageBox.warning(self.main, "独自設定を保存できません", str(e))
+            else:
+                self.main.settings.refresh_work_system_source_ui()
+
+    def show_selected_work_system_default(self):
+        """既定値を表に表示する。解析用CSV欄は変更しない。"""
+        manager = WorkSystemDefaultsManager()
+        custom_paths = manager.custom_paths() if manager.selected_source() == manager.CUSTOM else None
+        self.costcsv_editor.set_default_source(bool(custom_paths))
+        if custom_paths:
+            try:
+                self.costcsv_editor.load_from_csv(custom_paths[0], persist=False)
+                self._costcsv_synced_sha = None
+                self.update_costcsv_sync_notice()
+                return
+            except (OSError, ValueError):
+                manager.select_source(manager.BUILTIN)
+                self.costcsv_editor.set_default_source(False)
+                settings_ui = getattr(self.main, "settings", None)
+                if settings_ui is not None:
+                    settings_ui.refresh_work_system_source_ui()
+        self.costcsv_editor.show_startup_state()
+        self._costcsv_synced_sha = None
+        self.update_costcsv_sync_notice()
 
     def refresh_elements_ui(self):
         self.update_elements_calculate_checkboxes()
@@ -370,7 +478,11 @@ class ForestZoningMainDialogElements:
         self._refresh_rb_edit_buttons()
         self._refresh_siteidx_map_button()
         other_errors = self.get_elements_error_texts()
-        self.main.elementsErrorLabel.setText("\n".join(other_errors))
+        unfinished_notice = self._unfinished_elements_notice()
+        self.main.elementsErrorLabel.setText("\n".join(other_errors + ([unfinished_notice] if unfinished_notice else [])))
+        self.main.elementsErrorLabel.setStyleSheet(
+            "color:#ff0000;" if other_errors else "color:#b35c00;"
+        )
         self.update_costcsv_sync_notice()
         missing_inputs = self.get_missing_mandatory_inputs()
         self.main.elementsRunPushButton.setEnabled(
@@ -797,6 +909,7 @@ class ForestZoningMainDialogElements:
         if answer != QMessageBox.StandardButton.Ok:
             self.main.restore_initialized_layers(detached)
             return
+        self._reset_elements_run_notice()
         self.main.discard_initialized_layers(detached)
         self._share_zone_siteindex(data_dir)
         self.main.use_external_workspace(workspace_root)
@@ -919,7 +1032,7 @@ class ForestZoningMainDialogElements:
                     self._reflect_costcsv_to_editor(path)
                 elif not path and self.main.is_input_import_suppressed():
                     # 作業を切り替えてCSVが無くなったら、前の作業の表を出したままにしない
-                    self.costcsv_editor.show_startup_state()
+                    self.show_selected_work_system_default()
             return
         input_def = morizon_data.INPUT_DEFS[key]
         target_dir = utils.get_workspace_dir(DIR_DATA, *input_def["PATH"])
@@ -963,6 +1076,65 @@ class ForestZoningMainDialogElements:
         if key == "costcsv":
             self._reflect_costcsv_to_editor(self._input_paths[key])
 
+    def _previous_costcsv_path(self):
+        """現在の作業で使っていた、または作業フォルダに残る有効なCSVを探す。"""
+        candidates = [self.main.elementsCostCsvFileWidget.filePath()]
+        data_dir = utils.get_workspace_dir(DIR_DATA)
+        if data_dir and os.path.isdir(data_dir):
+            candidates.extend(morizon_data.find_inputs(data_dir).get("costcsv", []))
+        for path in candidates:
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                read_costcsv(path)
+            except (OSError, ValueError):
+                continue
+            return path
+        return None
+
+    def _use_previous_costcsv(self, saved_csv, saved_sidecar):
+        """退避した前回CSVを今回の作業フォルダへ移し、解析用入力として設定する。"""
+        target_dir = utils.get_workspace_dir(DIR_DATA, *INPUT_COSTCSV["PATH"])
+        os.makedirs(target_dir, exist_ok=True)
+        target_csv = os.path.join(target_dir, "costcsv.csv")
+        target_sidecar = costcsv_sidecar_path(target_csv)
+        temporary_csv = target_csv + ".part"
+        temporary_sidecar = target_sidecar + ".part"
+        try:
+            with open(temporary_csv, "wb") as f:
+                f.write(saved_csv)
+            if saved_sidecar is not None:
+                with open(temporary_sidecar, "wb") as f:
+                    f.write(saved_sidecar)
+            os.replace(temporary_csv, target_csv)
+            if saved_sidecar is not None:
+                os.replace(temporary_sidecar, target_sidecar)
+            elif os.path.exists(target_sidecar):
+                os.remove(target_sidecar)
+        finally:
+            for path in (temporary_csv, temporary_sidecar):
+                if os.path.exists(path):
+                    os.remove(path)
+        self._set_input_path("costcsv", target_csv)
+
+    def _ask_use_previous_costcsv(self):
+        """自動取得が終わったら、作業システム設定の直前に前回CSVの使用を選んでもらう。"""
+        saved = getattr(self, "_pending_previous_costcsv", None)
+        if saved is None:
+            return
+        answer = QMessageBox.question(
+            self.main, "作業システムCSV",
+            "前回の作業システムCSVを使用しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                self._use_previous_costcsv(*saved)
+            except OSError as e:
+                QMessageBox.warning(self.main, "前回のCSVを使用できません", str(e))
+        self._pending_previous_costcsv = None
+
     def start_from_dem_browser(self):
         """
         「表示範囲から開始する」ボタンの処理
@@ -985,6 +1157,7 @@ class ForestZoningMainDialogElements:
         external = utils.get_external_workspace()
         switch_to_internal = not utils.is_internal_workspace()
         discard = self.main.archive.has_previous_analysis()
+        previous_csv = self._previous_costcsv_path()
         notes = []
         if external:
             notes.append(f"作業フォルダを外部（{os.path.basename(external) or external}）からプロジェクト内に切り替えます。")
@@ -1016,16 +1189,38 @@ class ForestZoningMainDialogElements:
                 return
             source.tile_sources = tile_sources
 
+        # 前回のCSVも破棄対象。小さなCSVと表示設定だけを、後で選べるよう削除前に保持する。
+        self._pending_previous_costcsv = None
+        if previous_csv:
+            try:
+                with open(previous_csv, "rb") as f:
+                    saved_csv = f.read()
+                saved_sidecar = None
+                sidecar = costcsv_sidecar_path(previous_csv)
+                if os.path.isfile(sidecar):
+                    with open(sidecar, "rb") as f:
+                        saved_sidecar = f.read()
+                self._pending_previous_costcsv = (saved_csv, saved_sidecar)
+            except OSError as e:
+                QMessageBox.warning(self.main, "前回のCSVを使用できません", str(e))
+                self.main.restore_initialized_layers(detached)
+                return
+
         # ここから実行（確かめた内容）
+        self._reset_elements_run_notice()
         self.main.discard_initialized_layers(detached)
         if switch_to_internal:
-            self.main.use_project_workspace(refill_inputs=True)
+            self.main.use_project_workspace(refill_inputs=True, load_costcsv=False)
         if discard:
             self.main.archive.discard_previous_analysis()
+        # 選択されなかったCSVは解析用として自動設定しない。
+        self._set_input_path("costcsv", "")
+        self.show_selected_work_system_default()
         # DEMブラウザで指定した可視範囲は、最終成果物の表示・解析範囲として保持する。
         # DEMや道路などの途中データは周辺情報を失わないよう、ここでは切り捨てない。
         self._pending_extent_wgs84 = extent_wgs84
         self._pending_final_extent_wgs84 = extent_wgs84
+        self._show_extent_preview(extent_wgs84, shape)
 
         # データの実体は必ずプロジェクトフォルダ配下に保存する（ユーザーの保存場所を変えない）。
         # 全角パスでも構わない。ASCII安全な別名への変換は、実際にSAGA/GRASS等へ渡す直前
@@ -1041,9 +1236,74 @@ class ForestZoningMainDialogElements:
             output_path,
             shape=shape,
         )
-        result = self._run_fetch(thread, "DEMの取得に失敗しました。", show_set_progress=False)
-        if result is not None:
-            self.set_dem_filepath(result)
+        try:
+            result = self._run_fetch(thread, "DEMの取得に失敗しました。", show_set_progress=False)
+            if result is not None:
+                self.set_dem_filepath(result)
+            else:
+                self.forget_dem_browser_state()
+        finally:
+            try:
+                self._ask_use_previous_costcsv()
+            finally:
+                self._pending_previous_costcsv = None
+
+    def _show_extent_preview(self, extent_wgs84, shape):
+        """確定した解析範囲を、プロジェクトに保存しない網掛けとして地図に重ねる。"""
+        self.clear_extent_preview()
+        if shape is None:
+            geometry = QgsGeometry.fromRect(extent_wgs84)
+        elif "wkt" in shape:
+            geometry = QgsGeometry.fromWkt(shape["wkt"])
+        else:
+            ring = [QgsPointXY(lon, lat) for lon, lat in shape["ring"]]
+            geometry = QgsGeometry.fromPolygonXY([ring + [ring[0]]])
+        self._extent_preview_geometry = geometry
+        canvas = iface.mapCanvas()
+        canvas.destinationCrsChanged.connect(self._redraw_extent_preview)
+        self._redraw_extent_preview()
+
+    def _redraw_extent_preview(self, *args):
+        del args
+        geometry = self._extent_preview_geometry
+        if geometry is None:
+            return
+        canvas = iface.mapCanvas()
+        if self._extent_preview is not None:
+            canvas.scene().removeItem(self._extent_preview)
+            sip.delete(self._extent_preview)
+            self._extent_preview = None
+        projected = QgsGeometry(geometry)
+        try:
+            projected.transform(QgsCoordinateTransform(
+                QgsCoordinateReferenceSystem("EPSG:4326"),
+                canvas.mapSettings().destinationCrs(), QgsProject.instance(),
+            ))
+        except QgsCsException:
+            return
+        band = QgsRubberBand(canvas, Qgis.GeometryType.Polygon)
+        band.setSymbol(_extent_preview_symbol())
+        band.setToGeometry(projected)
+        self._extent_preview = band
+
+    def clear_extent_preview(self):
+        """解析開始・範囲の破棄・プラグイン終了時にキャンバスから消す。"""
+        if self._extent_preview_geometry is not None:
+            try:
+                iface.mapCanvas().destinationCrsChanged.disconnect(self._redraw_extent_preview)
+            except (TypeError, RuntimeError):
+                pass
+        self._extent_preview_geometry = None
+        if self._extent_preview is not None:
+            canvas = iface.mapCanvas()
+            canvas.scene().removeItem(self._extent_preview)
+            sip.delete(self._extent_preview)
+            self._extent_preview = None
+
+    def _sync_extent_preview_with_dem(self, *args):
+        del args
+        if self._extent_preview is not None and not self._is_fetched_dem_set():
+            self.forget_dem_browser_state()
 
     def _run_fetch(self, thread, failure_message, show_set_progress=False):
         """取得の処理スレッドを進捗ダイアログ付きで実行し、成功なら結果の辞書、失敗なら None を返す（失敗は知らせる）。
@@ -1198,8 +1458,8 @@ class ForestZoningMainDialogElements:
         # ASCII安全な別名への変換は、実際にSAGA/GRASS等へ渡す直前
         # （processes/elements.pyのProcessingThread.run）でだけ行う
         dem_path = result["path"]
-        self.main.elementsDemFileWidget.setFilePath(dem_path)
         self._dem_browser_dem_path = dem_path
+        self.main.elementsDemFileWidget.setFilePath(dem_path)
         QMessageBox.information(
             self.main, "完了",
             f"DEMを取得しプロジェクトフォルダに保存しました。\n{result['info']}\n"
@@ -1280,9 +1540,7 @@ class ForestZoningMainDialogElements:
                         os.remove(path)
                     except OSError:
                         pass
-        self._dem_browser_dem_path = None
-        self._pending_extent_wgs84 = None
-        self._pending_final_extent_wgs84 = None
+        self.forget_dem_browser_state()
         self.refresh_elements_ui()
 
     def set_siteindex_filepaths(self, result: dict):
@@ -1905,7 +2163,7 @@ class ForestZoningMainDialogElements:
                 )
         self.reset_elements_inputs()
         # 作業システムCSVも空にしたので、作業システム設定の表示も開いたときの状態に戻す（前の作業の表を残さない）
-        self.costcsv_editor.show_startup_state()
+        self.show_selected_work_system_default()
         ShcMethodManager().store_use_saga(False)
         self.main.settings.update_shc_method_button()
         self.main.use_no_workspace(persist=True)
@@ -1930,6 +2188,7 @@ class ForestZoningMainDialogElements:
 
     def reset_elements_inputs(self):
         """要素計算タブの入力ファイル・チェックボックスを初期状態に戻す（確認なし）"""
+        self._reset_elements_run_notice()
         for filewidget in (
             self.main.elementsDemFileWidget,
             self.main.elementsNppFileWidget,
@@ -1954,6 +2213,7 @@ class ForestZoningMainDialogElements:
 
     def forget_dem_browser_state(self):
         """DEMブラウザで取得したときの範囲などの記憶を消す（入力を消したとき・プロジェクトを切り替えたとき）"""
+        self.clear_extent_preview()
         self._dem_browser_dem_path = None
         self._pending_extent_wgs84 = None
         self._pending_final_extent_wgs84 = None
@@ -2008,6 +2268,147 @@ class ForestZoningMainDialogElements:
                 names.add(output_def["DISPLAY_NAME"])
         return names
 
+    def _element_output_definitions(self):
+        siteidx_outputs = [OUTPUT_SITEIDX_SUGI, OUTPUT_SITEIDX_HINOKI, OUTPUT_SITEIDX_KARAMATSU]
+        if self.siteidx_map_path():
+            siteidx_outputs.append(OUTPUT_SITEIDX_DOKUJI)
+        return {
+            "siteidx": siteidx_outputs,
+            "cost": [OUTPUT_COST],
+            "distance": [OUTPUT_DISTANCE],
+            "shc": [OUTPUT_SHC],
+            "slope": [OUTPUT_SLOPE],
+            "savearea": [OUTPUT_SAVEAREA],
+        }
+
+    @staticmethod
+    def _output_artifacts(directory, stems):
+        """プラグインが作る成果物と、そのラスタ・スタイルの付随ファイル。"""
+        if not directory or not os.path.isdir(directory):
+            return []
+        return [
+            os.path.join(directory, name)
+            for name in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, name))
+            and any(
+                name.startswith(stem + ".")
+                or name.startswith(stem + "_raw.")
+                or name.startswith(stem + "_score.")
+                for stem in stems
+            )
+        ]
+
+    @staticmethod
+    def _remove_output_artifacts(paths):
+        failed = []
+        for path in sorted(set(paths)):
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+            except OSError as e:
+                failed.append(f"{path}：{e}")
+        return failed
+
+    def _selected_element_artifacts(self, selected):
+        outputs = self._element_output_definitions()
+        # 独自地位マップを今回外した場合も、前回の成果物を残さない。
+        if selected["siteidx"] and OUTPUT_SITEIDX_DOKUJI not in outputs["siteidx"]:
+            outputs["siteidx"].append(OUTPUT_SITEIDX_DOKUJI)
+        stems = [output["FILE_NAME"] for key, definitions in outputs.items()
+                 if selected[key] for output in definitions]
+        return self._output_artifacts(self.main.elementsOutputDirFileWidget.filePath(), stems)
+
+    def _downstream_artifacts(self, stages=None):
+        stages = set(stages or (utils.STAGE_SCORING, utils.STAGE_ZONING, utils.STAGE_AGGREGATE))
+        scoring_dir = self.main.scoringOutputDirFileWidget.filePath()
+        zoning_dir = self.main.zoningOutputDirFileWidget.filePath()
+        aggregate_path = self.main.aggregateOutputDirFileWidget.filePath()
+        aggregate_dir = os.path.dirname(aggregate_path) if aggregate_path else utils.get_workspace_dir(DIR_AGGREGATE)
+        aggregate_stems = {OUTPUT_AGGREGATE["FILE_NAME"]}
+        if aggregate_path:
+            aggregate_stems.add(os.path.splitext(os.path.basename(aggregate_path))[0])
+        return sorted(set(
+            (self._output_artifacts(scoring_dir, (
+                OUTPUT_PROFIT["FILE_NAME"], OUTPUT_RISK["FILE_NAME"], OUTPUT_PARAMS_JSON["FILE_NAME"],
+            )) if utils.STAGE_SCORING in stages else [])
+            + (self._output_artifacts(zoning_dir, (
+                OUTPUT_ZONING["FILE_NAME"], OUTPUT_ZONING_THRESHOLDS_JSON["FILE_NAME"],
+            )) if utils.STAGE_ZONING in stages else [])
+            + ((self._output_artifacts(aggregate_dir, aggregate_stems)
+                + self._output_artifacts(utils.get_workspace_dir(DIR_AGGREGATE), ("species_mesh",)))
+               if utils.STAGE_AGGREGATE in stages else [])
+        ))
+
+    def _discard_downstream_results(self, stages, files):
+        """後続工程のレイヤー・描画用DB・ファイルを破棄する。"""
+        failed = []
+        if utils.STAGE_AGGREGATE in stages:
+            self.main.aggregate.remove_species_mesh(delete_file=False)
+        for stage in stages:
+            utils.remove_output_layers(stage)
+        if utils.STAGE_AGGREGATE in stages:
+            aggregate_db = layer_db.db_file(utils.get_morizon_layer_db_dir(), layer_db.KIND_AGGREGATE)
+            if aggregate_db:
+                try:
+                    layer_db.clear(aggregate_db, layer_db.KIND_AGGREGATE)
+                except (OSError, RuntimeError, sqlite3.Error) as e:
+                    failed.append(f"{aggregate_db}：{e}")
+        return failed + self._remove_output_artifacts(files)
+
+    def _reset_elements_run_notice(self):
+        self._elements_run_output_dir = None
+        self._unproduced_elements.clear()
+
+    def _finished_element_outputs(self, selected=None, produced=None):
+        """各要素の必要なGeoTIFFが書き出されているかを返す。"""
+        output_dir = self.main.elementsOutputDirFileWidget.filePath()
+        produced_names = set(produced or ())
+        return {
+            key: all(
+                bool(output_dir)
+                and os.path.isfile(os.path.join(output_dir, output["FILE_NAME"] + ".tif"))
+                and (not selected or not selected[key] or output["DISPLAY_NAME"] in produced_names)
+                for output in outputs
+            )
+            for key, outputs in self._element_output_definitions().items()
+        }
+
+    def _unfinished_elements_notice(self):
+        """一度実行した作業だけ、書き出されていない要素を知らせる。"""
+        if not self.main.has_workspace():
+            return ""
+        output_dir = self.main.elementsOutputDirFileWidget.filePath()
+        if not output_dir:
+            return ""
+        outputs = self._element_output_definitions()
+        if self._elements_run_output_dir != output_dir:
+            if not any(
+                os.path.isfile(os.path.join(output_dir, output["FILE_NAME"] + ".tif"))
+                for definitions in outputs.values() for output in definitions
+            ):
+                return ""
+            # 既存の結果を読み込んだ作業でも、以後の画面更新で表示を続ける。
+            self._elements_run_output_dir = output_dir
+        finished = self._finished_element_outputs()
+        for key in self._unproduced_elements:
+            finished[key] = False
+        names = {
+            "siteidx": "地位", "cost": "集材作業効率", "distance": "地利",
+            "shc": "地形の複雑さ", "slope": "傾斜", "savearea": "保全対象を含む流域",
+        }
+        missing = [names[key] for key in outputs if not finished[key]]
+        return "解析していない要素があります：" + "／".join(missing) if missing else ""
+
+    def _update_element_checks_after_run(self, selected, checkboxes, produced):
+        """完了済みの要素を外し、入力がそろう未完了の要素を次回の選択へ戻す。"""
+        finished = self._finished_element_outputs(selected, produced)
+        for key in self._unproduced_elements:
+            finished[key] = False
+        # 全要素の書き出しがそろったら従来の初期状態（選択可能なものはチェック済み）に戻す。
+        all_finished = all(finished.values())
+        for key, checkbox in checkboxes.items():
+            checkbox.setChecked(checkbox.isEnabled() and (all_finished or not finished[key]))
+
     def run_elements(self):
         # 道路・建物の保存した編集で、まだ shp に書き出していないものがあれば、計算の前に書き出す
         self._flush_pending_rb()
@@ -2019,6 +2420,18 @@ class ForestZoningMainDialogElements:
             return
         self.main.hide()
 
+        target_element_checkboxes = {
+            "siteidx": self.main.elementsSiteIdxCheckbox,
+            "cost": self.main.elementsCostCheckbox,
+            "distance": self.main.elementsDistanceCheckbox,
+            "shc": self.main.elementsShcCheckbox,
+            "slope": self.main.elementsSlopeCheckbox,
+            "savearea": self.main.elementsSaveareaCheckbox,
+        }
+        target_elements_dict = {
+            key: checkbox.isChecked() for key, checkbox in target_element_checkboxes.items()
+        }
+
         # 計算する要素のレイヤーを片付ける（指している場所に関係なく。ファイルを上書きするかどうかとは別の話）
         # 片付けたレイヤーは削除せずに取り外して持っておき、上書きをキャンセルしたら元の位置に戻す。
         # 実行するなら、ファイルの掴みを解放するため、ここで削除する
@@ -2026,12 +2439,22 @@ class ForestZoningMainDialogElements:
         detached = utils.detach_output_layers(utils.STAGE_ELEMENTS, self.selected_element_names())
 
         existing_filenames = self.elements_get_existing_filenames()
-        if len(existing_filenames) > 0:
+        old_element_files = self._selected_element_artifacts(target_elements_dict)
+        downstream_files = self._downstream_artifacts()
+        downstream_stages = (utils.STAGE_SCORING, utils.STAGE_ZONING, utils.STAGE_AGGREGATE)
+        has_downstream = bool(downstream_files) or any(utils.output_layers(stage) for stage in downstream_stages)
+        if old_element_files or has_downstream:
+            message = "新しい解析を開始すると、選択した要素の古い結果を破棄します。"
+            if has_downstream:
+                message += "\n後続の解析結果（スコアリング・ゾーニング図・ゾーン統計量）も破棄します。"
+            if existing_filenames:
+                message += "\n\n既存のファイル：\n" + "\n".join(existing_filenames)
+            message += "\n\n実行しますか？"
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
-                "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
-                QMessageBox.StandardButton.Yes,
+                "解析結果の破棄確認",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             ):
                 utils.restore_detached_layers(detached)
@@ -2040,6 +2463,17 @@ class ForestZoningMainDialogElements:
                 self.main.show()
                 return
         utils.discard_detached_layers(detached)
+        failed_deletions = self._discard_downstream_results(downstream_stages, downstream_files)
+        failed_deletions += self._remove_output_artifacts(old_element_files)
+        if failed_deletions:
+            QMessageBox.warning(
+                self.main, "解析結果を破棄できません",
+                "次のファイルを削除できなかったため、解析を開始しません。\n" + "\n".join(failed_deletions),
+            )
+            self.refresh_elements_ui()
+            self.main.show()
+            return
+        self.clear_extent_preview()
 
         input_files_dict = {
             "dem": self.main.elementsDemFileWidget.filePath(),
@@ -2052,15 +2486,6 @@ class ForestZoningMainDialogElements:
             "siteidx_map": self.siteidx_map_path(),
         }
 
-        target_elements_dict = {
-            "siteidx": self.main.elementsSiteIdxCheckbox.isChecked(),
-            "cost": self.main.elementsCostCheckbox.isChecked(),
-            "distance": self.main.elementsDistanceCheckbox.isChecked(),
-            "shc": self.main.elementsShcCheckbox.isChecked(),
-            "slope": self.main.elementsSlopeCheckbox.isChecked(),
-            "savearea": self.main.elementsSaveareaCheckbox.isChecked(),
-        }
-
         # UIをブロックしないように別スレッドで処理を動かす
         thread = processes.elements.ProcessingThread(
             input_files_dict,
@@ -2068,14 +2493,31 @@ class ForestZoningMainDialogElements:
             self.main.elementsOutputDirFileWidget.filePath(),
             final_extent_wgs84=self._get_final_extent_for_current_dem(),
         )
+        self._elements_run_output_dir = self.main.elementsOutputDirFileWidget.filePath()
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
         # 詳細行には、工程の中の段階名と進み具合（%）を出す。行は出したままにして、窓の高さを変えない
         outcome = run_with_progress(thread, show_detail=True, keep_detail_line=True)
+        # レイヤー追加で結果辞書は空になるため、今回作成した要素名を先に保持する。
+        produced_names = set(outcome.get("result", {}))
         if "result" in outcome:
             self.add_elements_layer_to_project(outcome["result"])
-            # やり直しのときに残っている後の工程（スコアリング・ゾーニング図・ゾーン統計量）は OFF にして閉じる
-            utils.hide_output_stages((utils.STAGE_SCORING, utils.STAGE_ZONING, utils.STAGE_AGGREGATE))
+        # 計算が失敗・中断して途中ファイルだけが残った要素は、再起動後も完了扱いにしない。
+        unproduced_stems = [
+            output["FILE_NAME"]
+            for key, outputs in self._element_output_definitions().items()
+            if target_elements_dict[key]
+            for output in outputs
+            if output["DISPLAY_NAME"] not in produced_names
+        ]
+        failed_partial_files = self._remove_output_artifacts(self._output_artifacts(
+            self.main.elementsOutputDirFileWidget.filePath(), unproduced_stems,
+        ))
+        if failed_partial_files:
+            QMessageBox.warning(
+                self.main, "途中ファイルを破棄できません",
+                "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files),
+            )
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:
@@ -2111,6 +2553,23 @@ class ForestZoningMainDialogElements:
                     icon=QMessageBox.Icon.Information,
                 )
             QMessageBox.information(self.main, "終了", "処理が終了しました。")
+
+        # 今回選んだ要素で書き出されなかったものは、前のファイルが残っていても未完了とする。
+        finished_this_run = self._finished_element_outputs(target_elements_dict, produced_names)
+        self._unproduced_elements.difference_update(
+            key for key, chosen in target_elements_dict.items() if chosen
+        )
+        self._unproduced_elements.update(
+            key for key, chosen in target_elements_dict.items() if chosen and not finished_this_run[key]
+        )
+        # 正常終了したら、選択可能で未完了の要素だけを次回の対象にする。
+        # 中断・エラー時は、利用者の選択をそのまま残す。
+        if "result" in outcome and "error" not in outcome and not thread.abort_flag:
+            self._update_element_checks_after_run(
+                target_elements_dict, target_element_checkboxes, produced_names
+            )
+
+        self.refresh_elements_ui()
 
         self.main.show()
 
@@ -2151,6 +2610,13 @@ class ForestZoningMainDialogElements:
             return
 
         progress_dialog = QProgressDialog("出力レイヤーを追加します...", None, 0, len(layer_items))
+        if sys.platform == "darwin":
+            # 親を持たない進捗窓を、全画面のQGISと同じスペースに表示する。
+            progress_dialog.setWindowFlags(
+                Qt.WindowType.Window
+                | Qt.WindowType.CustomizeWindowHint
+                | Qt.WindowType.WindowTitleHint
+            )
         progress_dialog.setWindowTitle("レイヤー追加中...")
         progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress_dialog.setCancelButton(None)

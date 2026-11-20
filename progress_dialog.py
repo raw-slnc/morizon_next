@@ -16,6 +16,7 @@
 """
 
 import os
+import sys
 from datetime import datetime
 
 # QGIS-API
@@ -66,6 +67,13 @@ class _StatusLine(QLabel):
 class ProgressDialog(QDialog):
     def __init__(self, set_abort_flag_callback):
         super().__init__()
+        if sys.platform == "darwin":
+            # 親を持たない進捗窓も、全画面のQGISと同じスペースに表示する。
+            self.setWindowFlags(
+                Qt.WindowType.Window
+                | Qt.WindowType.CustomizeWindowHint
+                | Qt.WindowType.WindowTitleHint
+            )
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self

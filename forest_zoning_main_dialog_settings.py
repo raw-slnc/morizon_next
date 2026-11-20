@@ -7,12 +7,13 @@ import json
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QGridLayout, QLabel, QMessageBox, QSpinBox,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
+    QRadioButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import saga_check
 from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
+from .work_system_defaults import WorkSystemDefaultsManager
 
 
 class ForestZoningMainDialogSettings:
@@ -26,7 +27,6 @@ class ForestZoningMainDialogSettings:
         self._move_morizon_next_settings_to_main_tab()
         self._restore_settings_details_description_spacing()
         self.init_ui()
-        self._finalize_morizon_next_settings_tab()
 
     def _restore_settings_details_description_spacing(self):
         """解析パラメータの入力欄と説明文の間に、元画面と同じ1行分の余白を置く。"""
@@ -62,30 +62,53 @@ class ForestZoningMainDialogSettings:
         self.main.tabWidget.insertTab(
             settings_index + 1, morizon_next_page, "Next設定")
 
-    def _finalize_morizon_next_settings_tab(self):
-        """Morizon Next 設定の2グループをメインタブの上端へそろえる。"""
-        page = getattr(self.main, "morizonNextSettingsTab", None)
-        if page is None:
+    def _init_work_system_source_ui(self):
+        """Next設定の2カラムの下に、全幅の既定作業システムの選択を置く。"""
+        group = QGroupBox("作業システムの既定値")
+        group.setObjectName("workSystemDefaultsGroupBox")
+        group_layout = QVBoxLayout(group)
+        self.work_system_builtin_radio = QRadioButton("プラグイン標準のCSV設定・Excel")
+        self.work_system_custom_radio = QRadioButton("保存した独自のCSV設定・Excel")
+        radio_row = QHBoxLayout()
+        radio_row.addWidget(self.work_system_builtin_radio)
+        radio_row.addWidget(self.work_system_custom_radio)
+        radio_row.addStretch(1)
+        group_layout.addLayout(radio_row)
+        self.work_system_note = QLabel("解析用CSVは「CSVとして反映する」を押したときに設定されます。")
+        self.work_system_note.setWordWrap(True)
+        group_layout.addWidget(self.work_system_note)
+        self.main.morizonNextSettingsTab.layout().insertWidget(1, group)
+        self.work_system_builtin_radio.toggled.connect(
+            lambda checked: self._select_work_system_source(WorkSystemDefaultsManager.BUILTIN) if checked else None
+        )
+        self.work_system_custom_radio.toggled.connect(
+            lambda checked: self._select_work_system_source(WorkSystemDefaultsManager.CUSTOM) if checked else None
+        )
+        self.refresh_work_system_source_ui()
+
+    def refresh_work_system_source_ui(self):
+        manager = WorkSystemDefaultsManager()
+        has_custom = manager.custom_paths() is not None
+        source = manager.selected_source()
+        self.work_system_custom_radio.setEnabled(has_custom)
+        self.work_system_custom_radio.setToolTip(
+            "最後に保存した独自設定を表示します" if has_custom else "独自設定はまだ保存されていません"
+        )
+        for radio in (self.work_system_builtin_radio, self.work_system_custom_radio):
+            radio.blockSignals(True)
+        self.work_system_builtin_radio.setChecked(source == manager.BUILTIN)
+        self.work_system_custom_radio.setChecked(source == manager.CUSTOM)
+        for radio in (self.work_system_builtin_radio, self.work_system_custom_radio):
+            radio.blockSignals(False)
+
+    def _select_work_system_source(self, source):
+        try:
+            WorkSystemDefaultsManager().select_source(source)
+        except ValueError as e:
+            QMessageBox.warning(self.widget, "作業システム", str(e))
+            self.refresh_work_system_source_ui()
             return
-
-        for name in (
-            "morizonNextSettingsGroupBox",
-            "fgdCredentialsGroupBox",
-            "shcMethodGroupBox",
-        ):
-            child = getattr(self.widget, name, None)
-            if child is None:
-                continue
-            policy = child.sizePolicy()
-            policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)
-            child.setSizePolicy(policy)
-
-        mnx_layout = getattr(self.widget, "horizontalLayout_mnx", None)
-        if mnx_layout is not None:
-            for name in ("fgdCredentialsGroupBox", "shcMethodGroupBox"):
-                child = getattr(self.widget, name, None)
-                if child is not None:
-                    mnx_layout.setAlignment(child, Qt.AlignmentFlag.AlignTop)
+        self.main.elements.show_selected_work_system_default()
 
     def _init_aggregate_risk_threshold_ui(self):
         """スコア設定の表の下に「災害リスク高の基準」を足す。事業者が合意の出発点にする基準で、
@@ -108,6 +131,8 @@ class ForestZoningMainDialogSettings:
 
     def init_ui(self):
         self._init_aggregate_risk_threshold_ui()
+        self._init_work_system_source_ui()
+        self.main.elements.show_selected_work_system_default()
         self.widget.storeSettingsPushButton.clicked.connect(self.store_settings)
         self.widget.abortSettingsPushButton.clicked.connect(
             self.set_values_from_stored_settings)

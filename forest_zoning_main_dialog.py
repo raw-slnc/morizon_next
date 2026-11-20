@@ -3,6 +3,7 @@
 # Licensed under the GNU General Public License v3. See LICENSE and NOTICE.
 
 import os
+import sys
 
 from qgis.PyQt import uic
 from contextlib import contextmanager
@@ -48,6 +49,17 @@ class ForestZoningMainDialog(QDialog):
         flags = self.windowFlags()
         flags &= ~Qt.WindowType.WindowType_Mask
         flags |= Qt.WindowType.Window | Qt.WindowType.WindowMinimizeButtonHint
+        if sys.platform == "darwin":
+            # Macでは全画面のQGISと同じスペースに表示するため、
+            # 全画面ボタンを含まない補助ウィンドウのフラグを一から指定する。
+            flags = (
+                Qt.WindowType.Window
+                | Qt.WindowType.CustomizeWindowHint
+                | Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowSystemMenuHint
+                | Qt.WindowType.WindowMinMaxButtonsHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
         self.setWindowFlags(flags)
 
         self.ui = uic.loadUi(
@@ -238,19 +250,21 @@ class ForestZoningMainDialog(QDialog):
     def is_input_import_suppressed(self) -> bool:
         return self._input_import_suppressed > 0
 
-    def set_inputs_from_data_dir(self, data_dir):
+    def set_inputs_from_data_dir(self, data_dir, load_costcsv=True):
         """作業フォルダの DATA にあるデータで入力欄を埋める（無い入力は空欄）"""
         found = morizon_data.find_inputs(data_dir) if data_dir and os.path.isdir(data_dir) else {}
         with self.suppress_input_import():
             for key, filewidget in self.elements.input_filewidgets().items():
                 candidates = found.get(key) or []
+                if key == "costcsv" and not load_costcsv:
+                    candidates = []
                 filewidget.setFilePath(candidates[0] if candidates else "")
             dem = found.get("dem") or []
             self.aggregateDemFileWidget.setFilePath(dem[0] if dem else "")
         self.elements.forget_dem_browser_state()
         return found
 
-    def use_project_workspace(self, refill_inputs=True, persist=True):
+    def use_project_workspace(self, refill_inputs=True, persist=True, load_costcsv=True):
         """作業フォルダをプロジェクト内（<プロジェクト>/morizon_next）にする。
         refill_inputs なら入力欄を morizon_next/DATA のデータで埋め直す。persist ならプロジェクトにも書き込む"""
         utils.set_workspace(utils.WORKSPACE_INTERNAL)
@@ -259,7 +273,8 @@ class ForestZoningMainDialog(QDialog):
         if refill_inputs:
             project_saved = QgsProject.instance().homePath() != ""
             self.set_inputs_from_data_dir(
-                utils.get_morizon_managed_dir(DIR_DATA) if project_saved else None
+                utils.get_morizon_managed_dir(DIR_DATA) if project_saved else None,
+                load_costcsv=load_costcsv,
             )
         self._after_workspace_changed()
 
@@ -385,6 +400,7 @@ class ForestZoningMainDialog(QDialog):
     # 画面を開いていないときは、次に画面を表示したときに行う
 
     def on_project_read(self):
+        self.elements.forget_dem_browser_state()
         if self.isVisible():
             self.restore_project_workspace()
         else:

@@ -40,6 +40,7 @@ MASK_VALID = 0          # 選んだ解像度の値
 MASK_FILLED_5A = 1      # 陸の欠けをDEM5Aで埋めた
 MASK_FILLED_10B = 2     # 陸の欠けをDEM10Bで埋めた
 MASK_INTERPOLATED = 3   # 周囲の値から補間した
+MASK_FILLED_1A = 4      # 陸の欠けをDEM1Aで埋めた（VIRTUAL SHIZUOKA の欠けを補ったとき）
 MASK_SEA = 10           # 海（DEMはNoData）
 MASK_WATER = 11         # 湖・川などの水面（DEMはNoData）
 MASK_NODATA = 255       # 範囲外（座標変換で生じた範囲外と、DEMブラウザで円を選んだときの外側）
@@ -486,8 +487,8 @@ def _exclude_water(dem_path, cancel_cb, progress):
     return result
 
 
-def exclude_outside_shape(dem_path, ring_wgs84):
-    """保存したDEMのうち、経緯度の多角形 ring_wgs84（[(経度, 緯度), ...]、DEMブラウザで選んだ円。表示範囲により楕円）の外側を
+def exclude_outside_shape(dem_path, shape_wgs84):
+    """保存したDEMのうち、経緯度の円の ring またはポリゴンの WKT の外側を
     NoData にし、マスク（mask_path_for）でも範囲外（MASK_NODATA）にする。マスクが無ければ作る。
     戻り値は {"outside_px": 対象外にした値のある画素数, "total_px": 値のある画素数,
     "mask_path": マスクのパス（書けなければ None）, "mask_write_failed": マスクを書けなかったか}"""
@@ -503,15 +504,20 @@ def exclude_outside_shape(dem_path, ring_wgs84):
     wgs84.ImportFromEPSG(4326)
     for srs in (local, wgs84):
         srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    ring = ogr.Geometry(ogr.wkbLinearRing)
-    for lon, lat in list(ring_wgs84) + [ring_wgs84[0]]:
-        ring.AddPoint_2D(lon, lat)
-    polygon = ogr.Geometry(ogr.wkbPolygon)
-    polygon.AddGeometry(ring)
+    if isinstance(shape_wgs84, str):
+        polygon = ogr.CreateGeometryFromWkt(shape_wgs84)
+        if polygon is None:
+            raise ValueError("ポリゴンの形を読み取れません。")
+    else:
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        for lon, lat in list(shape_wgs84) + [shape_wgs84[0]]:
+            ring.AddPoint_2D(lon, lat)
+        polygon = ogr.Geometry(ogr.wkbPolygon)
+        polygon.AddGeometry(ring)
     polygon.AssignSpatialReference(wgs84)
     polygon.TransformTo(local)
     vds = _memory_vector_datasource()
-    layer = vds.CreateLayer("shape", srs=local, geom_type=ogr.wkbPolygon)
+    layer = vds.CreateLayer("shape", srs=local, geom_type=polygon.GetGeometryType())
     feature = ogr.Feature(layer.GetLayerDefn())
     feature.SetGeometry(polygon)
     layer.CreateFeature(feature)
@@ -606,12 +612,13 @@ def summarize_mask(mask):
     inside = mask != MASK_NODATA
     total = max(int(inside.sum()), 1)
     count = {value: int((mask == value).sum()) for value in (
-        MASK_FILLED_5A, MASK_FILLED_10B, MASK_INTERPOLATED, MASK_SEA, MASK_WATER)}
+        MASK_FILLED_1A, MASK_FILLED_5A, MASK_FILLED_10B, MASK_INTERPOLATED, MASK_SEA, MASK_WATER)}
     land = total - count[MASK_SEA] - count[MASK_WATER]
     filled = count[MASK_FILLED_5A] + count[MASK_FILLED_10B]
     return {
         "sea": count[MASK_SEA] / total,
         "water": count[MASK_WATER] / total,
+        "filled_1a": count[MASK_FILLED_1A] / total,
         "filled_5a": count[MASK_FILLED_5A] / total,
         "filled_10b": count[MASK_FILLED_10B] / total,
         "interpolated_px": count[MASK_INTERPOLATED],

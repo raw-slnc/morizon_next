@@ -794,12 +794,29 @@ class ForestZoningMainDialogScoring:
         detached = utils.detach_output_layers(utils.STAGE_SCORING, axis_names)
 
         existing_filenames = self.scoring_get_existing_filenames()
-        if len(existing_filenames) > 0:
+        score_stems = [OUTPUT_PARAMS_JSON["FILE_NAME"]]
+        if OUTPUT_PROFIT["DISPLAY_NAME"] in axis_names:
+            score_stems.append(OUTPUT_PROFIT["FILE_NAME"])
+        if OUTPUT_RISK["DISPLAY_NAME"] in axis_names:
+            score_stems.append(OUTPUT_RISK["FILE_NAME"])
+        old_score_files = self.main.elements._output_artifacts(
+            self.main.scoringOutputDirFileWidget.filePath(), score_stems,
+        )
+        downstream_stages = (utils.STAGE_ZONING, utils.STAGE_AGGREGATE)
+        downstream_files = self.main.elements._downstream_artifacts(downstream_stages)
+        has_downstream = bool(downstream_files) or any(utils.output_layers(stage) for stage in downstream_stages)
+        if old_score_files or has_downstream:
+            message = "新しい解析を開始すると、選択した軸の古い結果を破棄します。"
+            if has_downstream:
+                message += "\n後続の解析結果（ゾーニング図・ゾーン統計量）も破棄します。"
+            if existing_filenames:
+                message += "\n\n既存のファイル：\n" + "\n".join(existing_filenames)
+            message += "\n\n実行しますか？"
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
-                "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
-                QMessageBox.StandardButton.Yes,
+                "解析結果の破棄確認",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             ):
                 utils.restore_detached_layers(detached)
@@ -807,6 +824,15 @@ class ForestZoningMainDialogScoring:
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
         utils.discard_detached_layers(detached)
+        failed_deletions = self.main.elements._discard_downstream_results(downstream_stages, downstream_files)
+        failed_deletions += self.main.elements._remove_output_artifacts(old_score_files)
+        if failed_deletions:
+            QMessageBox.warning(
+                self.main, "解析結果を破棄できません",
+                "次のファイルを削除できなかったため、解析を開始しません。\n" + "\n".join(failed_deletions),
+            )
+            self.refresh_scoring_ui()
+            return
 
         input_layers_dict = {
             "siteidx": self.main.scoringSiteidxLayerCombobox.currentLayer(),
@@ -868,11 +894,23 @@ class ForestZoningMainDialogScoring:
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
         outcome = run_with_progress(thread)
+        produced_names = set(outcome.get("result", {}))
         if "result" in outcome:
             self.add_layers_to_project(outcome["result"])
             # 作った「スコアリング」グループを表示して凡例まで開き、ほかの工程は OFF にして閉じる
             # （前の工程の要素の収益性・災害リスクと、やり直しのときに残っている後の工程のゾーニング図・ゾーン統計量）
             utils.activate_output_stage(utils.STAGE_SCORING, utils.SCORING_OTHER_STAGES)
+        failed_stems = [
+            output["FILE_NAME"] for output in (OUTPUT_PROFIT, OUTPUT_RISK)
+            if output["DISPLAY_NAME"] in axis_names and output["DISPLAY_NAME"] not in produced_names
+        ]
+        if not produced_names:
+            failed_stems.append(OUTPUT_PARAMS_JSON["FILE_NAME"])
+        failed_partial_files = self.main.elements._remove_output_artifacts(
+            self.main.elements._output_artifacts(self.main.scoringOutputDirFileWidget.filePath(), failed_stems)
+        )
+        if failed_partial_files:
+            QMessageBox.warning(self.main, "途中ファイルを破棄できません", "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files))
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:

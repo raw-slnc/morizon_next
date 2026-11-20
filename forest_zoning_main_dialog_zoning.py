@@ -397,12 +397,25 @@ class ForestZoningMainDialogZoning:
         detached = utils.detach_output_layers(utils.STAGE_ZONING)
 
         existing_filenames = self.get_existing_filenames()
-        if len(existing_filenames) > 0:
+        old_zoning_files = self.main.elements._output_artifacts(
+            self.main.zoningOutputDirFileWidget.filePath(),
+            (OUTPUT_ZONING["FILE_NAME"], OUTPUT_ZONING_THRESHOLDS_JSON["FILE_NAME"]),
+        )
+        downstream_stages = (utils.STAGE_AGGREGATE,)
+        downstream_files = self.main.elements._downstream_artifacts(downstream_stages)
+        has_downstream = bool(downstream_files) or bool(utils.output_layers(utils.STAGE_AGGREGATE))
+        if old_zoning_files or has_downstream:
+            message = "新しい解析を開始すると、古いゾーニング図を破棄します。"
+            if has_downstream:
+                message += "\n後続のゾーン統計量も破棄します。"
+            if existing_filenames:
+                message += "\n\n既存のファイル：\n" + "\n".join(existing_filenames)
+            message += "\n\n実行しますか？"
             if QMessageBox.StandardButton.No == QMessageBox.question(
                 self.main,
-                "上書き確認",
-                "出力先フォルダに同名ファイルが存在します、上書きしますか？\n" + "\n".join(existing_filenames),
-                QMessageBox.StandardButton.Yes,
+                "解析結果の破棄確認",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             ):
                 utils.restore_detached_layers(detached)
@@ -410,6 +423,15 @@ class ForestZoningMainDialogZoning:
                 QMessageBox.information(self.main, "処理中断", "処理を中断しました。")
                 return
         utils.discard_detached_layers(detached)
+        failed_deletions = self.main.elements._discard_downstream_results(downstream_stages, downstream_files)
+        failed_deletions += self.main.elements._remove_output_artifacts(old_zoning_files)
+        if failed_deletions:
+            QMessageBox.warning(
+                self.main, "解析結果を破棄できません",
+                "次のファイルを削除できなかったため、解析を開始しません。\n" + "\n".join(failed_deletions),
+            )
+            self.refresh_zoning_ui()
+            return
 
         input_layers_dict = {
             "profit": self.main.zoningProfitLayerCombobox.currentLayer(),
@@ -427,8 +449,18 @@ class ForestZoningMainDialogZoning:
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
         outcome = run_with_progress(thread, abortable=False)
+        produced_names = set(outcome.get("result", {}))
         if "result" in outcome:
             self.add_layers_to_project(outcome["result"])
+        if OUTPUT_ZONING["DISPLAY_NAME"] not in produced_names:
+            failed_partial_files = self.main.elements._remove_output_artifacts(
+                self.main.elements._output_artifacts(
+                    self.main.zoningOutputDirFileWidget.filePath(),
+                    (OUTPUT_ZONING["FILE_NAME"], OUTPUT_ZONING_THRESHOLDS_JSON["FILE_NAME"]),
+                )
+            )
+            if failed_partial_files:
+                QMessageBox.warning(self.main, "途中ファイルを破棄できません", "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files))
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:

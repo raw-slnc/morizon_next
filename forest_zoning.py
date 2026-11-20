@@ -83,6 +83,7 @@ class ForestZoning:
         self._safe_disconnect(QgsProject.instance().homePathChanged, self.onProjectPathChanged)
         self._safe_disconnect(QgsProject.instance().fileNameChanged, self.onProjectPathChanged)
         if self.main_dialog is not None:
+            self.main_dialog.elements.clear_extent_preview()
             self.main_dialog.stop_layer_watch()
             self.main_dialog.close()
             self.main_dialog.deleteLater()

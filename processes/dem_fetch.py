@@ -53,7 +53,7 @@ class DemFetchThread(QThread):
 
     def __init__(self, source, extent, output_path: str, shape=None):
         """extent: WGS84経緯度の (lon_min, lat_min, lon_max, lat_max)
-        shape: DEMブラウザで円（表示範囲により楕円）を選んだとき {"label": 形の名前, "ring": [(経度, 緯度), ...]}。
+        shape: DEMブラウザで円を選んだときは ring、ポリゴンを選んだときは WGS84 の wkt を持つ辞書。
         取得は extent の四角で行い、保存後に形の外側を解析対象外（NoData）にする。四角なら None"""
         super().__init__()
         self.source = source
@@ -145,11 +145,13 @@ class DemFetchThread(QThread):
         result["warning"] = "\n".join(warnings)
 
     def _exclude_outside_shape(self, result, reporter):
-        """DEMブラウザで選んだ円（表示範囲により楕円）の外側を解析対象外にし、結果の知らせに書き足す"""
+        """DEMブラウザで選んだ形の外側を解析対象外にし、結果の知らせに書き足す"""
         label = self.shape["label"]
         reporter.start(1)
         reporter.message(f"{label}の外側を解析の対象外にしています")
-        outside = dem_gaps.exclude_outside_shape(result["path"], self.shape["ring"])
+        outside = dem_gaps.exclude_outside_shape(
+            result["path"], self.shape.get("wkt", self.shape.get("ring"))
+        )
         reporter.step()
         ratio = outside["outside_px"] / max(outside["total_px"], 1)
         result["info"] += f"  |  {label}の外を対象外 {ratio * 100:.1f}%"

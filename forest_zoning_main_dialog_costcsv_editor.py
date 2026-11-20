@@ -210,9 +210,12 @@ class CostCsvEditorWidget(QWidget):
     SETTINGS_DISABLED_CODES = "disabled_codes"
     SETTINGS_MARGIN = "margin"
 
-    def __init__(self, parent=None, on_export=None, on_open_template=None, on_import=None):
+    def __init__(self, parent=None, on_export=None, on_open_template=None,
+                 on_import=None, on_load_default=None):
         super().__init__(parent)
         self._on_export = on_export
+        self._on_load_default = on_load_default
+        self._custom_default_selected = False
         # 起伏量昇順(行0=0-100側)で保持する、60マス分の基準スコア(機材コード0-10)
         self._base_scores = [row[:] for row in DEFAULT_SCORES_ASCENDING]
         self._margin = 0.0
@@ -223,6 +226,7 @@ class CostCsvEditorWidget(QWidget):
         self._row_thresholds = list(DEFAULT_ROW_THRESHOLDS[self._axis_kind])
         self._col_thresholds = list(SLOPE_THRESHOLDS)
         self._showing_default = True
+        self.source_xlsx_path = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -317,7 +321,9 @@ class CostCsvEditorWidget(QWidget):
 
         button_row = QHBoxLayout()
         self.loadDefaultButton = QPushButton(DEFAULT_BUTTON_TEXTS[self._axis_kind])
-        self.loadDefaultButton.clicked.connect(lambda: self.load_defaults())
+        self.loadDefaultButton.clicked.connect(
+            lambda: self._on_load_default() if self._on_load_default else self.load_defaults()
+        )
         self.exportButton = QPushButton("CSVとして反映する")
         self.exportButton.setToolTip("表示中のパターンをCSVに書き出し、作業システムCSV欄に設定します")
         self.exportButton.clicked.connect(self._on_export_clicked)
@@ -340,10 +346,11 @@ class CostCsvEditorWidget(QWidget):
         self.interactiveButton = QPushButton("インタラクティブモード（準備中）")
         self.interactiveButton.setToolTip("準備中の機能です。押すと予定している内容を表示します")
         self.interactiveButton.clicked.connect(self._show_interactive_plan)
+        self.interactiveButton.hide()
         # 並びは、Excelで編集して反映する手順の順（開く → 反映する）
         for button in (self.openTemplateButton, self.exportButton, self.importButton,
                        self.loadDefaultButton, self.interactiveButton):
-            button_row.addWidget(button)
+            button_row.addWidget(button, stretch=1)
         layout.addLayout(button_row)
 
         self.load_defaults(persist=False)
@@ -360,6 +367,7 @@ class CostCsvEditorWidget(QWidget):
             DEFAULT_SOURCE_TEXTS[self._axis_kind], persist,
             row_thresholds=DEFAULT_ROW_THRESHOLDS[self._axis_kind], col_thresholds=SLOPE_THRESHOLDS,
         )
+        self.source_xlsx_path = None
         self._showing_default = True
         self._update_axis_label()
 
@@ -443,8 +451,10 @@ class CostCsvEditorWidget(QWidget):
     def load_from_xlsx(self, xlsx_path: str, persist=True):
         """原版のExcelひな形の内容を表示に反映する（load_from_csv と同じ扱い）。読めない場合は ValueError"""
         self._load_table(read_costcsv_xlsx(xlsx_path), xlsx_path, persist)
+        self.source_xlsx_path = xlsx_path
 
     def _load_table(self, table, path, persist):
+        self.source_xlsx_path = None
         merged_names = dict(DEFAULT_LEGEND)
         merged_names.update({code: name for code, name in table["names"].items() if name})
         file_name = os.path.basename(path)
@@ -458,12 +468,23 @@ class CostCsvEditorWidget(QWidget):
         """設定の「集材作業効率の計算処理」が変わったとき：縦軸の名前を合わせる。
         デフォルトを表示中なら、区切りもその計算処理のデフォルトにする（読み込んだ表の区切りは変えない）"""
         self._axis_kind = kind if kind in VERTICAL_AXIS_NAMES else "ruggedness"
-        self.loadDefaultButton.setText(DEFAULT_BUTTON_TEXTS[self._axis_kind])
+        self.set_default_source(self._custom_default_selected)
         if self._showing_default:
             self._row_thresholds = list(DEFAULT_ROW_THRESHOLDS[self._axis_kind])
             self.sourceLabel.setText(DEFAULT_SOURCE_TEXTS[self._axis_kind])
             self._redraw_panel()
         self._update_axis_label()
+
+    def set_default_source(self, custom: bool):
+        """既定値へ戻すボタンとExcelボタンの説明を、Next設定の選択に合わせる。"""
+        self._custom_default_selected = custom
+        self.loadDefaultButton.setText(
+            "独自の既定値に戻す" if custom else DEFAULT_BUTTON_TEXTS[self._axis_kind]
+        )
+        self.openTemplateButton.setToolTip(
+            "保存した独自Excelの作業用コピーを開きます" if custom else
+            "プラグイン同梱のExcelの作業用コピーを開きます。上書き保存後、表示を確認してCSVとして反映してください"
+        )
 
     def _update_axis_label(self):
         """パネルの説明（縦軸の名前）。表の縦軸の値が設定の計算処理と合っていないように見えたら書き添える
