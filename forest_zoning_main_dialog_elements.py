@@ -479,7 +479,9 @@ class ForestZoningMainDialogElements:
         self._refresh_siteidx_map_button()
         other_errors = self.get_elements_error_texts()
         unfinished_notice = self._unfinished_elements_notice()
-        self.main.elementsErrorLabel.setText("\n".join(other_errors + ([unfinished_notice] if unfinished_notice else [])))
+        self.main.elementsErrorLabel.setText(
+            "\n".join(other_errors + ([unfinished_notice] if unfinished_notice else []))
+        )
         self.main.elementsErrorLabel.setStyleSheet(
             "color:#ff0000;" if other_errors else "color:#b35c00;"
         )
@@ -491,8 +493,7 @@ class ForestZoningMainDialogElements:
 
     @staticmethod
     def _set_status_text(label, text, color, bold=False):
-        """入力行の右端の状態の表示。どの表示も3文字分の幅にそろえ（列の幅が変わらないように）、
-        2文字（任意）は前・間・後ろの空きを同じにして3文字分に割り付ける"""
+        """入力行の右端の状態を3文字分の幅で中央揃えにする。"""
         font = QFont(label.font())
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0)
         bold_font = QFont(font)
@@ -501,14 +502,9 @@ class ForestZoningMainDialogElements:
         width = QFontMetrics(bold_font).horizontalAdvance("設定済") + 2
         label.setFixedWidth(width)
         font.setBold(bold)
-        indent = 0
-        if len(text) == 2:
-            # 余りを3つに分け、字下げ（前）と文字の間隔（間）に同じだけ使う。後ろには残りの同じだけが空く
-            gap = (width - QFontMetrics(font).horizontalAdvance(text)) / 3
-            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, gap)
-            indent = round(gap)
         label.setFont(font)
-        label.setIndent(indent)
+        label.setIndent(0)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setText(text)
         label.setStyleSheet(f"color:{color};")
 
@@ -549,7 +545,7 @@ class ForestZoningMainDialogElements:
             if missing_inputs[key]:
                 self._set_status_text(label, "未設定", "#ff0000")
             elif not mandatory_files_dict[key]:
-                self._set_status_text(label, "任意", "#666666")
+                self._set_status_text(label, "任 意", "#666666")
             else:
                 self._set_status_text(label, "設定済", "#188038")
         # 道路・建物を編集している間は、その行に「編集中」と出す（要素のチェックが選べない理由が行でも分かるように）
@@ -2610,6 +2606,7 @@ class ForestZoningMainDialogElements:
             return
 
         progress_dialog = QProgressDialog("出力レイヤーを追加します...", None, 0, len(layer_items))
+        progress_dialog.setStyleSheet("font-size: 9pt;")
         if sys.platform == "darwin":
             # 親を持たない進捗窓を、全画面のQGISと同じスペースに表示する。
             progress_dialog.setWindowFlags(

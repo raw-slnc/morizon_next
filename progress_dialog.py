@@ -78,6 +78,7 @@ class ProgressDialog(QDialog):
         self.ui = uic.loadUi(
             os.path.join(os.path.dirname(__file__), "progress_dialog.ui"), self
         )
+        self.setStyleSheet("font-size: 9pt;")
         self._init_log_line()
         self.setWindowIcon(
             QIcon(os.path.join(os.path.dirname(__file__), "imgs", "icon.png"))

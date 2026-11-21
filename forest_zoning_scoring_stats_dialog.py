@@ -60,6 +60,7 @@ class ForestZoningScoringStatsDialog(QDialog):
             ),
             self,
         )
+        self.setStyleSheet("font-size: 9pt;")
 
         # カンマ区切りのための独自のQSpinBoxクラス
         self.range1CountSpinbox = QSeperatorSpinbox(self)

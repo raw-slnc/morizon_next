@@ -460,7 +460,10 @@ class ForestZoningMainDialogZoning:
                 )
             )
             if failed_partial_files:
-                QMessageBox.warning(self.main, "途中ファイルを破棄できません", "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files))
+                QMessageBox.warning(
+                    self.main, "途中ファイルを破棄できません",
+                    "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files),
+                )
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:

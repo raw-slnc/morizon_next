@@ -8,15 +8,15 @@ import sys
 from qgis.PyQt import uic
 from contextlib import contextmanager
 
-from qgis.PyQt.QtCore import Qt, QTimer, QUrl
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer, QUrl
 from qgis.PyQt.QtGui import QDesktopServices, QIcon, QKeySequence
 try:
     from qgis.PyQt.QtGui import QShortcut  # Qt6
 except ImportError:
     from qgis.PyQt.QtWidgets import QShortcut  # Qt5
 from qgis.PyQt.QtWidgets import (
-    QDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QTabWidget,
-    QVBoxLayout, QWidget,
+    QApplication, QDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import Qgis, QgsApplication, QgsMessageLog, QgsProject
@@ -75,6 +75,9 @@ class ForestZoningMainDialog(QDialog):
             os.path.join(os.path.dirname(__file__), "forest_zoning_settings_dialog.ui")
         )
         self.settingsTabLayout.addWidget(self.settings_widget)
+        # 色だけを指定した子部品は .ui の font を継承しないため、読み込み後にも指定する。
+        self.setStyleSheet("font-size: 9pt;")
+        QApplication.instance().installEventFilter(self)
         # 利用者のレイヤーを選ぶ選択欄は、候補をレイヤーパネルの並びで出す部品に差し替える
         # （QgsMapLayerComboBox は名前の順で、並べ方を変えられないため）
         for name in TREE_ORDER_COMBOS:
@@ -100,6 +103,17 @@ class ForestZoningMainDialog(QDialog):
         # 開いているプロジェクトがあれば、画面を表示したときに再開の分岐へ進む
         if QgsProject.instance().fileName():
             self._restore_pending = True
+
+    def eventFilter(self, obj, event):
+        # 確認画面などの別窓は親画面のフォント指定を引き継がないため、表示前に揃える。
+        if event.type() == QEvent.Type.Polish and isinstance(obj, QDialog) and obj is not self:
+            parent = obj.parentWidget()
+            while parent is not None:
+                if parent is self:
+                    obj.setStyleSheet(f"{obj.styleSheet()}; font-size: 9pt;")
+                    break
+                parent = parent.parentWidget()
+        return super().eventFilter(obj, event)
 
     # タブの切り替え（Ctrl+Tab／Ctrl+Shift+Tab）。Qt のタブはこのキーで切り替わるが、フォーカスのある部品が
     # キーを先に受け取ると届かない（レイヤーの選択欄で止まった）。画面全体のショートカットにして、どこからでも切り替える。

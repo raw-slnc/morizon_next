@@ -7,6 +7,11 @@
 <ui version="4.0">
  <class>SettingsWidget</class>
  <widget class="QWidget" name="SettingsWidget">
+  <property name="font">
+   <font>
+    <pointsize>9</pointsize>
+   </font>
+  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
