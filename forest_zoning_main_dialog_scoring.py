@@ -7,8 +7,8 @@ import json
 import gc
 
 # QGIS-API
-from qgis.PyQt.QtCore import QTimer
-from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QMessageBox, QPushButton
+from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtWidgets import QDialog, QDoubleSpinBox, QFileDialog, QLabel, QMessageBox, QPushButton
 from qgis.core import QgsLayerTreeGroup, QgsMapLayer, QgsMapLayerProxyModel, QgsProject
 from qgis.gui import QgsMapLayerComboBox
 from qgis.utils import iface
@@ -33,8 +33,11 @@ from .constants import (
     OUTPUT_COST,
     OUTPUT_DISTANCE,
     OUTPUT_SHC,
+    OUTPUT_SHC_CUSTOM,
     OUTPUT_SLOPE,
     OUTPUT_SAVEAREA,
+    OUTPUT_SAVEAREA_CUSTOM,
+    savearea_bonus_for_layer_name,
     OUTPUT_PARAMS_JSON,
     OUTPUT_PROFIT,
     OUTPUT_RISK,
@@ -117,6 +120,12 @@ class ForestZoningMainDialogScoring:
 
     def init_scoring_ui(self):
         self.main.scoringRunPushButton.clicked.connect(self.run_scoring)
+        # 等高線法の加点の表示。ほかの行でしきい値の欄が並ぶ位置（左の点と右端の点のあいだ。5〜11列目）の真ん中に置く。
+        # 点数の列（12列目）は広げない
+        self.savearea_bonus_label = QLabel("", self.main.scoringDisasterGroupbox)
+        self.savearea_bonus_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.savearea_bonus_label.hide()
+        self.main.gridLayout_7.addWidget(self.savearea_bonus_label, 3, 5, 1, 7)
         self.set_scoring_score_labels_from_settings()
         self.main.scoringSetLayersPushbutton.clicked.connect(
             self.set_scoring_layer_combobox
@@ -196,6 +205,10 @@ class ForestZoningMainDialogScoring:
         for obj in self.scoring_objs_dict.values():
             obj.combobox.layerChanged.connect(self.refresh_set_layers_button)
         self.main.scoringSaveareaLayerCombobox.layerChanged.connect(self.refresh_set_layers_button)
+        # 選択欄の合図の中で別の選択欄を動かさないよう、処理が一巡した後に連動させる
+        self.main.scoringShcLayerCombobox.layerChanged.connect(
+            lambda _layer: QTimer.singleShot(
+                0, lambda: self.sync_savearea_with_shc(self.main.scoringShcLayerCombobox.currentLayer())))
 
         # 列の操作で、その要素のスコアリングレイヤーを塗り直して表示する
         for obj in self.scoring_objs_dict.values():
@@ -271,6 +284,8 @@ class ForestZoningMainDialogScoring:
         # パラメタ読み込みボタン
         self.main.scoringReadParamsPushbutton.clicked.connect(self.readin_params_json)
 
+        self.init_element_display_indicator()
+
         # UIの変更を検知しUI全体を更新する
         for signal in (
             self.main.scoringSiteidxLayerCombobox.layerChanged,
@@ -309,6 +324,17 @@ class ForestZoningMainDialogScoring:
             layer = utils.find_morizon_layer_by_name(siteidx_name, allowed_extensions={".tif", ".tiff"})
             if layer is not None:
                 self.main.scoringSiteidxLayerCombobox.setLayer(layer)
+        shc_name = thresholds_dict.get("shc_layer")
+        if shc_name:
+            layer = utils.find_morizon_layer_by_name(shc_name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                self.main.scoringShcLayerCombobox.setLayer(layer)
+        # 保全対象を含む流域は、地形の複雑さに連動して切り替わるので、実行したときのものに、あとから戻す
+        savearea_name = thresholds_dict.get("savearea_layer")
+        if savearea_name:
+            layer = utils.find_morizon_layer_by_name(savearea_name, allowed_extensions={".tif", ".tiff"})
+            if layer is not None:
+                self.main.scoringSaveareaLayerCombobox.setLayer(layer)
         try:
             self.main.scoringSiteidxThreshold1Spinbox.setValue(
                 thresholds_dict.get("siteidx")[0]
@@ -410,6 +436,9 @@ class ForestZoningMainDialogScoring:
         ))
 
     def refresh_scoring_ui(self):
+        self.schedule_element_display_indicator()
+        # 保全対象を含む流域の選択（従来／等高線法）に合わせて、点数の表示を直す
+        self.set_scoring_score_labels_from_settings()
         # 候補の作り直しはしない（選択欄の合図の中から呼ばれるため。合わせ直しはメイン画面の refresh_all_tabs）
         self.refresh_set_layers_button()
 
@@ -459,8 +488,42 @@ class ForestZoningMainDialogScoring:
         # 表示するだけなので、統計値は見ずに、読めるレイヤーかだけを見る
         self.savearea_show_button.setEnabled(utils.is_usable_raster_layer(savearea_layer))
 
+    @staticmethod
+    def _shc_layer_names(name_suffix):
+        """地形の複雑さの選択欄に出す名前。従来の結果と等高線法の結果の両方（作業フォルダの Morizon Next 由来のもの）。
+        設定の「地形の複雑さに、等高線法の計算も加える」は、要素計算に等高線法の計算経路を足すもので、あるものを選べるかには関わらない。
+        設定がオフの PC でも、持ち込んだ等高線法の結果（保存ファイルの復元を含む）は選べる"""
+        return {OUTPUT_SHC["DISPLAY_NAME"] + name_suffix,
+                OUTPUT_SHC_CUSTOM["DISPLAY_NAME"] + name_suffix}
+
+    @staticmethod
+    def _savearea_layer_names(name_suffix):
+        """保全対象を含む流域の選択欄に出す名前。従来のものと、等高線法のもの（あるときだけ候補に出る）。
+        選択肢に出すだけで、地形の複雑さの選択との連動や、既定の切り替えはしない"""
+        return {OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix,
+                OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"] + name_suffix}
+
+    def sync_savearea_with_shc(self, shc_layer):
+        """地形の複雑さに等高線法のレイヤーを選んだときは、保全対象を含む流域も等高線法と組のものにし、
+        従来のレイヤーを選んだときは従来のものに戻す（組のレイヤーが無ければ、今の選択のまま）。
+        あとで利用者が別々に選び直すこともできる"""
+        if shc_layer is None:
+            return
+        name_suffix = "[スコアリング]"
+        if shc_layer.name() == OUTPUT_SHC_CUSTOM["DISPLAY_NAME"] + name_suffix:
+            target_name = OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"] + name_suffix
+        elif shc_layer.name() == OUTPUT_SHC["DISPLAY_NAME"] + name_suffix:
+            target_name = OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix
+        else:
+            return
+        target = utils.find_morizon_layer_by_name(target_name, allowed_extensions={".tif", ".tiff"})
+        combobox = self.main.scoringSaveareaLayerCombobox
+        if target is not None and combobox.currentLayer() is not target:
+            combobox.setLayer(target)
+
     def update_scoring_layer_scope(self):
         name_suffix = "[スコアリング]"
+        shc_names = self._shc_layer_names(name_suffix)
         combobox_allowed_names = (
             (
                 self.main.scoringSiteidxLayerCombobox,
@@ -485,18 +548,24 @@ class ForestZoningMainDialogScoring:
             ),
             (
                 self.main.scoringShcLayerCombobox,
-                {OUTPUT_SHC["DISPLAY_NAME"] + name_suffix},
+                shc_names,
             ),
             (
                 self.main.scoringSaveareaLayerCombobox,
-                {OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix},
+                self._savearea_layer_names(name_suffix),
             ),
         )
+        # 従来のものと等高線法のものが並ぶ選択欄は、何も選ばれていないときは従来のものを選ぶ
+        default_names = {
+            self.main.scoringShcLayerCombobox: OUTPUT_SHC["DISPLAY_NAME"] + name_suffix,
+            self.main.scoringSaveareaLayerCombobox: OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix,
+        }
         for combobox, allowed_names in combobox_allowed_names:
             utils.set_morizon_layer_scope(
                 combobox,
                 allowed_names=allowed_names,
                 allowed_extensions={".tif", ".tiff"},
+                default_name=default_names.get(combobox),
             )
 
     def set_scoring_raster_style(self, scoring_obj: ScoringObject):
@@ -531,6 +600,131 @@ class ForestZoningMainDialogScoring:
         if not spinbox.hasFocus():
             return
         scoring_obj.style_timer.start()
+
+    # 要素の行：(要素の名前, 行の名前の文字（ラベル）, その要素のスコアリングレイヤーの選択欄)。画面の並び順
+    ELEMENT_DISPLAY_ROWS = (
+        ("siteidx", "label_36", "scoringSiteidxLayerCombobox"),
+        ("cost", "label_37", "scoringCostLayerCombobox"),
+        ("distance", "label_38", "scoringDistanceLayerCombobox"),
+        ("shc", "label_24", "scoringShcLayerCombobox"),
+        ("slope", "label_25", "scoringSlopeLayerCombobox"),
+        ("savearea", "label_26", "scoringSaveareaLayerCombobox"),
+    )
+    # 地図に表示中の要素の名前の文字の装飾（画面の配色に合わせたリンクの色と下線）
+    ELEMENT_DISPLAYED_STYLE = "color: palette(link); text-decoration: underline;"
+
+    def init_element_display_indicator(self):
+        """要素の名前の文字で、何を地図に表示しているかを示し、名前を押しても表示を切り替えられるようにする。
+        ボタン行の左に、表示中の要素を文章で出す。表示の入り切りはレイヤーパネルでも行えるので、
+        レイヤーパネルの表示の変化も見て、まとめて1回（少し待ってから）合わせ直す"""
+        self._element_display_timer = QTimer(self.main)
+        self._element_display_timer.setSingleShot(True)
+        self._element_display_timer.setInterval(150)
+        self._element_display_timer.timeout.connect(self.update_element_display_indicator)
+
+        for key, label_name, _combobox_name in self.ELEMENT_DISPLAY_ROWS:
+            label = getattr(self.main, label_name)
+            label.setCursor(Qt.CursorShape.PointingHandCursor)
+            tooltip = label.toolTip()
+            label.setToolTip((tooltip + "\n" if tooltip else "") + "クリックすると、この要素を地図に表示します")
+            label.mousePressEvent = lambda event, key=key: self.on_element_label_pressed(key, event)
+
+        self.element_display_status_label = QLabel("", self.main)
+        self.main.horizontalLayout_10.insertWidget(0, self.element_display_status_label)
+
+        self._display_root = QgsProject.instance().layerTreeRoot()
+        self._display_root.visibilityChanged.connect(self.schedule_element_display_indicator)
+        self.update_element_display_indicator()
+
+    def stop_element_display_watch(self):
+        """プラグインを外すときに呼ぶ"""
+        self._element_display_timer.stop()
+        try:
+            self._display_root.visibilityChanged.disconnect(self.schedule_element_display_indicator)
+        except (TypeError, RuntimeError):
+            pass
+
+    def schedule_element_display_indicator(self, *_args):
+        # レイヤーの追加・削除の途中で選択欄に触れない（落ちるため）よう、処理が一巡した後にまとめて1回だけ行う
+        timer = getattr(self, "_element_display_timer", None)
+        if timer is not None and self.main.isVisible():
+            timer.start()
+
+    def flush_element_display_indicator(self):
+        """予約されている表示中の要素の更新があれば、今すぐ済ませる"""
+        timer = getattr(self, "_element_display_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+            self.update_element_display_indicator()
+
+    def displayed_element_keys(self):
+        """今、地図に表示されている要素（そのスコアリングレイヤーと親のグループのチェックがすべて入っている）"""
+        root = QgsProject.instance().layerTreeRoot()
+        keys = []
+        for key, _label_name, combobox_name in self.ELEMENT_DISPLAY_ROWS:
+            layer = getattr(self.main, combobox_name).currentLayer()
+            node = root.findLayer(layer.id()) if layer is not None else None
+            if node is None:
+                continue
+            shown = True
+            while node is not None:
+                if not node.itemVisibilityChecked():
+                    shown = False
+                    break
+                node = node.parent()
+            if shown:
+                keys.append(key)
+        return keys
+
+    def update_element_display_indicator(self):
+        displayed = self.displayed_element_keys()
+        names = []
+        for key, label_name, _combobox_name in self.ELEMENT_DISPLAY_ROWS:
+            label = getattr(self.main, label_name)
+            is_displayed = key in displayed
+            label.setStyleSheet(self.ELEMENT_DISPLAYED_STYLE if is_displayed else "")
+            if is_displayed:
+                names.append(label.text())
+        self.element_display_status_label.setText(
+            "、".join(names) + "を表示中" if names else "表示中の要素はありません")
+
+    def on_element_label_pressed(self, key, event):
+        """要素の名前を押したとき：その要素を地図に表示する（しきい値の欄を操作したときと同じ）"""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if key == "savearea":
+            layer = self.main.scoringSaveareaLayerCombobox.currentLayer()
+            if layer is not None:
+                self.show_layer_on_map(layer)
+        else:
+            scoring_obj = self.scoring_objs_dict.get(key)
+            if scoring_obj is not None and scoring_obj.combobox.currentLayer() is not None:
+                self.apply_row_operation(scoring_obj)
+        self.update_element_display_indicator()
+
+    def show_default_element(self, produced_names):
+        """要素計算が終わったとき、既定で「地位スコア」を地図に表示する（今回作った地位があるとき）。
+        選択欄を「既定のレイヤーを再読込する」ボタンと同じ既定のレイヤーに合わせ（地位は、カラマツ・ヒノキ・スギのうち
+        後に見つかるスギ優先）、地位の選択欄のレイヤーを表示する（欄と地図の表示を食い違わせないため）"""
+        suffix = "[スコアリング]"
+        outputs = (OUTPUT_SITEIDX_SUGI, OUTPUT_SITEIDX_HINOKI, OUTPUT_SITEIDX_KARAMATSU, OUTPUT_SITEIDX_DOKUJI)
+        produced_layer_names = {o["DISPLAY_NAME"] + suffix for o in outputs if o["DISPLAY_NAME"] in produced_names}
+        if not produced_layer_names:
+            return
+        self.set_scoring_layer_combobox()
+        layer = self.main.scoringSiteidxLayerCombobox.currentLayer()
+        if layer is None or layer.name() not in produced_layer_names:
+            # 既定の地位が今回の作成物でないときは、今回作った地位のうち最初のものを表示する
+            layer = None
+            for o in outputs:
+                if o["DISPLAY_NAME"] + suffix in produced_layer_names:
+                    layer = utils.find_morizon_layer_by_name(
+                        o["DISPLAY_NAME"] + suffix, allowed_extensions={".tif", ".tiff"})
+                    if layer is not None:
+                        break
+        if layer is not None:
+            self.show_layer_on_map(layer)
+        self.update_element_display_indicator()
 
     def apply_row_operation(self, scoring_obj: ScoringObject):
         """要素の列をユーザーが操作したとき：今のしきい値で塗り直し、そのスコアリングレイヤーを地図に表示する"""
@@ -672,10 +866,20 @@ class ForestZoningMainDialogScoring:
             for idx, score in enumerate(scores):
                 target_labels[idx].setText(str(score) + "点")
 
+        # 保全対象を含む流域に等高線法のレイヤーを選んでいるときは、加点を示す（災害リスクの計算で足される）
+        savearea_layer = self.main.scoringSaveareaLayerCombobox.currentLayer()
+        bonus = savearea_bonus_for_layer_name(savearea_layer.name() if savearea_layer else "")
+        if bonus:
+            contains_score = int(settings["scores_savearea"][1]) + bonus
+            self.main.scoringSaveareaScore2Label.setText(f"{contains_score}点")
+            self.savearea_bonus_label.setText(f"{{等高線法+{bonus}}}")
+        self.savearea_bonus_label.setVisible(bool(bonus))
+
     def get_scoring_error_texts(self):
         error_texts = []
         name_suffix = "[スコアリング]"
 
+        shc_names = self._shc_layer_names(name_suffix)
         for name, combobox, allowed_names in (
             (
                 "地位",
@@ -705,12 +909,12 @@ class ForestZoningMainDialogScoring:
             (
                 OUTPUT_SHC["DISPLAY_NAME"],
                 self.main.scoringShcLayerCombobox,
-                {OUTPUT_SHC["DISPLAY_NAME"] + name_suffix},
+                shc_names,
             ),
             (
                 OUTPUT_SAVEAREA["DISPLAY_NAME"],
                 self.main.scoringSaveareaLayerCombobox,
-                {OUTPUT_SAVEAREA["DISPLAY_NAME"] + name_suffix},
+                self._savearea_layer_names(name_suffix),
             ),  # nopep8
         ):
 
@@ -875,6 +1079,12 @@ class ForestZoningMainDialogScoring:
         params = dict(input_thresholds_dict)
         if siteidx_layer is not None:
             params["siteidx_layer"] = siteidx_layer.name()
+        shc_layer = self.main.scoringShcLayerCombobox.currentLayer()
+        if shc_layer is not None:
+            params["shc_layer"] = shc_layer.name()
+        savearea_layer = self.main.scoringSaveareaLayerCombobox.currentLayer()
+        if savearea_layer is not None:
+            params["savearea_layer"] = savearea_layer.name()
         # レイヤー名（日本語）は \u の形で書き、ファイルは ASCII だけにする。原版や他の派生版が、
         # 文字コードを指定せずに読んでも（Windows では cp932）読めるようにするため
         with open(params_filepath, "wt", encoding="utf-8") as file:
@@ -911,6 +1121,8 @@ class ForestZoningMainDialogScoring:
         )
         if failed_partial_files:
             QMessageBox.warning(self.main, "途中ファイルを破棄できません", "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files))
+        # 画面の合わせ直しを済ませてから知らせの窓を出す（窓が出ている間に動いて、OK を押せなくならないように）
+        self.main.settle_pending_updates()
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:

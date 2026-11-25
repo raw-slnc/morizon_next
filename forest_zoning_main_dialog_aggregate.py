@@ -546,6 +546,8 @@ class ForestZoningMainDialogAggregate:
             self.remove_species_mesh()
 
         self.main.show()
+        # 画面の合わせ直しを済ませてから知らせの窓を出す（窓が出ている間に動いて、OK を押せなくならないように）
+        self.main.settle_pending_updates()
 
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"集計を完了できませんでした。\n\n{outcome['error']}")

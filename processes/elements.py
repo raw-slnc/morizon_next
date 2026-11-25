@@ -6,6 +6,7 @@
 import os
 import shutil
 import tempfile
+import time
 
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 from qgis.core import QgsRasterLayer
@@ -13,25 +14,33 @@ from qgis.core import QgsRasterLayer
 from . import raster_writer
 from . import raster_styler
 from .processing_feedback import LogForwardingFeedback, set_stage
+from ..settings_manager import CustomShcManager
 from ..utils import (
-    get_tiff_info, is_resampling_needed, AsciiSafeProcessingTmpdir, get_ascii_safe_alias, remove_files,
-    move_output_layers_to_main_thread,
+    get_tiff_info, is_resampling_needed, get_morizon_log_dir, AsciiSafeProcessingTmpdir, get_ascii_safe_alias,
+    remove_files, move_output_layers_to_main_thread,
 )
 from ..constants import (
     OUTPUT_COST,
     OUTPUT_DISTANCE,
     OUTPUT_SAVEAREA,
+    OUTPUT_SAVEAREA_CUSTOM,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
     OUTPUT_SITEIDX_DOKUJI,
     OUTPUT_SITEIDX_SUGI,
     OUTPUT_SHC,
-    OUTPUT_SLOPE
+    OUTPUT_SHC_CUSTOM,
+    OUTPUT_SLOPE,
+    SAVEAREA_CONTOUR_BONUS,
 )
 
 
 # 取り込んだ地位指数マップを DEM のマス目にそろえるときの NoData の値
 SITEIDX_DOKUJI_NODATA = -9999.0
+
+# 処理時間の記録（毎回上書き。溜めない）。個人情報（パス・プロジェクト名など）は書かない
+ONETIME_LOG_DIR_NAME = "log"
+ONETIME_LOG_FILE_NAME = "onetimelog_except_private_data.log"
 
 
 class ProcessingThread(QThread):
@@ -51,6 +60,15 @@ class ProcessingThread(QThread):
         self.target_elements_dict = target_elements_dict
         self.output_dir = output_dir
         self.final_extent_wgs84 = final_extent_wgs84
+        # 処理時間の記録の置き場所。morizon_next/log/<プロジェクト名>（メインスレッドで決める）。未保存なら出力先の log
+        log_dir = get_morizon_log_dir() or (os.path.join(output_dir, ONETIME_LOG_DIR_NAME) if output_dir else "")
+        self._onetime_log_path = os.path.join(log_dir, ONETIME_LOG_FILE_NAME) if log_dir else ""
+        self._stage_marks = []
+        self._log_started = time.monotonic()
+        self._log_dem_info = "不明"
+        self._log_finished = False
+        self.custom_shc_enabled = CustomShcManager().load_enabled()
+        self.custom_shc_flow_model = CustomShcManager().load_flow_model()
         self.no_road_distance_created = False
         self.no_building_savearea_created = False
         self.no_overlap_savearea_created = False
@@ -98,6 +116,45 @@ class ProcessingThread(QThread):
             nodata=SITEIDX_DOKUJI_NODATA)
         return self._clip_final_output(output_filepath)
 
+    def _mark_stage(self, message):
+        """工程の始まりの時刻を控える（処理時間の記録用）。postMessage と同じスレッドで呼ばれる"""
+        if self._log_finished or message == '終了処理中':
+            return  # 終わりの書き出しの後は、上書きしない
+        self._stage_marks.append((time.monotonic(), message))
+        # 途中で異常終了しても、そこまでの時間が残るよう、工程の始まりごとに書く
+        self._write_onetime_log(self._log_started, "実行中（この表示のまま残っていれば、異常終了した可能性があります）",
+                                self._log_dem_info)
+
+    def _write_onetime_log(self, started, status, dem_info):
+        """工程ごとの所要時間を onetimelog_except_private_data.log に書く。実行のたびに上書きし、溜めない。
+        ファイルのパス・プロジェクト名などは書かない。書けなくても処理は止めない"""
+        if not self._onetime_log_path:
+            return
+        try:
+            ended = time.monotonic()
+            marks = [m for m in self._stage_marks if m[1] != '終了処理中']
+            lines = [
+                "MORIZON NEXT 要素計算の処理時間（毎回上書き。パス・プロジェクト名などは含みません）",
+                f"記録日時: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                f"結果: {status}",
+                f"DEM: {dem_info}",
+                "等高線法: " + (f"オン（流れの計算: {self.custom_shc_flow_model}）" if self.custom_shc_enabled else "オフ"),
+                "",
+                "工程ごとの所要時間",
+            ]
+            for index, (start, message) in enumerate(marks):
+                end = marks[index + 1][0] if index + 1 < len(marks) else ended
+                lines.append(f"  {end - start:8.1f} 秒  {message}")
+            lines.append(f"  {ended - started:8.1f} 秒  合計")
+            os.makedirs(os.path.dirname(self._onetime_log_path), exist_ok=True)
+            # 一時ファイルに書いてから置き換える（書いている途中に落ちても、半端なファイルを残さない）
+            temp_path = self._onetime_log_path + ".tmp"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            os.replace(temp_path, self._onetime_log_path)
+        except Exception:  # nosec B110 - 記録に失敗しても計算は続ける
+            pass
+
     def run(self):
         """
         「要素計算」処理を実行する
@@ -123,6 +180,12 @@ class ProcessingThread(QThread):
         self.feedback = LogForwardingFeedback(self.postLog.emit, self.postDetail.emit)
         # 次の工程に移ったら、前の工程の段階名を消す
         self.postMessage.connect(lambda _message: set_stage(self.feedback, None))
+        self._stage_marks = []
+        self.postMessage.connect(lambda message: self._mark_stage(message))
+        run_started = self._log_started = time.monotonic()
+        self._log_finished = False
+        run_status = "中断（または途中で終了）"
+        dem_info = "不明"
 
         input_aliases = []
         self.input_files_dict = {
@@ -131,11 +194,17 @@ class ProcessingThread(QThread):
         }
 
         try:
-            is_resampling = is_resampling_needed(
-                get_tiff_info(self.input_files_dict["dem"], feedback=self.feedback))
+            dem_tiff_info = get_tiff_info(self.input_files_dict["dem"], feedback=self.feedback)
+            is_resampling = is_resampling_needed(dem_tiff_info)
+            size = dem_tiff_info.get("size") or [0, 0]
+            dem_info = (f"{size[0]}×{size[1]} セル（{size[0] * size[1]:,} セル）、"
+                        f"{dem_tiff_info.get('resolution'):g} m、"
+                        + ("10 m にまとめ直した" if is_resampling else "まとめ直しなし"))
+            self._log_dem_info = dem_info
 
-            sum_of_processes = len(list(filter(
-                lambda val: val, self.target_elements_dict.values()))) + int(is_resampling)
+            sum_of_processes = (sum(self.target_elements_dict.values()) + int(is_resampling)
+                                + int(self.custom_shc_enabled and self.target_elements_dict["shc"])
+                                + int(self.custom_shc_enabled and self.target_elements_dict["savearea"]))
             self.processStarted.emit(sum_of_processes)
             progress_counter = 0
 
@@ -313,6 +382,32 @@ class ProcessingThread(QThread):
                     self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
                     return
 
+                if self.custom_shc_enabled:
+                    from .raster_writer import custom_shc
+                    self.postMessage.emit(f'{OUTPUT_SHC_CUSTOM["DISPLAY_NAME"]}を計算中')
+                    self.setAbortable.emit(sum_of_processes - progress_counter > 1)
+                    self.addProgress.emit(1)
+                    progress_counter += 1
+                    custom_path = custom_shc.generate(
+                        self.input_files_dict["dem"], self.output_dir,
+                        target_dem_filepath=dem_for_processes, feedback=self.feedback,
+                        flow_model=self.custom_shc_flow_model)
+                    custom_path = self._clip_final_output(custom_path)
+                    filename_stem = OUTPUT_SHC_CUSTOM["FILE_NAME"]
+                    raw_qml = raster_styler.shc.write_rawdata_qml(
+                        custom_path, self.output_dir, filename_stem)
+                    score_qml = raster_styler.shc.write_scoring_qml(
+                        custom_path, self.output_dir, filename_stem)
+                    raw_layer = QgsRasterLayer(custom_path, OUTPUT_SHC_CUSTOM["DISPLAY_NAME"])
+                    score_layer = QgsRasterLayer(
+                        custom_path, OUTPUT_SHC_CUSTOM["DISPLAY_NAME"] + "[スコアリング]")
+                    raw_layer.loadNamedStyle(raw_qml)
+                    score_layer.loadNamedStyle(score_qml)
+                    output_rlayers_dict[OUTPUT_SHC_CUSTOM["DISPLAY_NAME"]] = [raw_layer, score_layer]
+                    if self.abort_flag:
+                        self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
+                        return
+
             if self.target_elements_dict["slope"]:
                 self.postMessage.emit(f'{OUTPUT_SLOPE["DISPLAY_NAME"]}を計算中')
                 self.setAbortable.emit(sum_of_processes - progress_counter > 1)
@@ -372,13 +467,48 @@ class ProcessingThread(QThread):
                     savearea_scoring_qml_filepath)
                 output_rlayers_dict[OUTPUT_SAVEAREA["DISPLAY_NAME"]] = [
                     savearea_rawdata_rlayer, savearea_scoring_rlayer]
+
+                if self.custom_shc_enabled:
+                    if self.abort_flag:
+                        self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
+                        return
+                    # 等高線法の複雑さと組にする、流域のしきい値に10mに対する係数を掛けた保全対象を含む流域。従来のものは変えず、並べて作る
+                    self.postMessage.emit(f'{OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"]}を計算中')
+                    self.setAbortable.emit(sum_of_processes - progress_counter > 1)
+                    self.addProgress.emit(1)
+                    progress_counter += 1
+                    custom_savearea_filepath, _unused = raster_writer.savearea.generate(
+                        dem_for_processes,
+                        self.input_files_dict["building"],
+                        self.output_dir,
+                        feedback=self.feedback,
+                        area_scaled_threshold=True,
+                        output_file_name=OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"],
+                    )
+                    custom_savearea_filepath = self._clip_final_output(custom_savearea_filepath)
+                    custom_stem = OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"]
+                    custom_raw_qml = raster_styler.savearea.write_rawdata_qml(self.output_dir, custom_stem)
+                    custom_score_qml = raster_styler.savearea.write_scoring_qml(
+                        self.output_dir, custom_stem, bonus=SAVEAREA_CONTOUR_BONUS)
+                    custom_raw_layer = QgsRasterLayer(custom_savearea_filepath, OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"])
+                    custom_score_layer = QgsRasterLayer(
+                        custom_savearea_filepath, OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"] + "[スコアリング]")
+                    custom_raw_layer.loadNamedStyle(custom_raw_qml)
+                    custom_score_layer.loadNamedStyle(custom_score_qml)
+                    output_rlayers_dict[OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"]] = [custom_raw_layer, custom_score_layer]
         except Exception as e:
             # エラーはまとめてキャッチして呼び出し元に報告・処理を中断
+            run_status = "失敗"
             self.processFailed.emit(str(e))
             self.abort_flag = True
             self.processFinished.emit(move_output_layers_to_main_thread(output_rlayers_dict))
             return
+        else:
+            if not self.abort_flag:
+                run_status = "完了"
         finally:
+            self._write_onetime_log(run_started, run_status, dem_info)
+            self._log_finished = True
             ascii_tmpdir.restore()
             shutil.rmtree(intermediate_dir, ignore_errors=True)
             remove_files(input_aliases)

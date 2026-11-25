@@ -22,7 +22,7 @@ from .utils import (
 )
 
 
-def write_rawdata_qml(shc_filepath: str, output_dir: str) -> str:
+def write_rawdata_qml(shc_filepath: str, output_dir: str, filename_stem: str = OUTPUT_SHC["FILE_NAME"]) -> str:
     rlayer = QgsRasterLayer(shc_filepath, '')
     colors = list(map(hex_to_rgb, RAWDATA_COLORS_SHC))
     renderer = get_quantile_renderer(rlayer, colors)
@@ -36,12 +36,12 @@ def write_rawdata_qml(shc_filepath: str, output_dir: str) -> str:
         rlayer.saveNamedStyle(temp_qml.name)
         output_filepath = round_label_precision(temp_qml.name,
                                                 os.path.join(
-                                                    output_dir, OUTPUT_SHC["FILE_NAME"] + '_raw.qml'),
+                                                    output_dir, filename_stem + '_raw.qml'),
                                                 precision=4)
     return output_filepath
 
 
-def write_scoring_qml(shc_filepath: str, output_dir: str) -> str:
+def write_scoring_qml(shc_filepath: str, output_dir: str, filename_stem: str = OUTPUT_SHC["FILE_NAME"]) -> str:
     rlayer = QgsRasterLayer(shc_filepath, '')
     colors = list(map(hex_to_rgb, SCORING_COLORS_SHC))
     renderer = get_quantile_renderer(rlayer, colors)
@@ -60,6 +60,6 @@ def write_scoring_qml(shc_filepath: str, output_dir: str) -> str:
                                   precision=4)
             output_filepath = replace_colorramp_labels(temp_qml_value_rounded.name,
                                                        os.path.join(
-                                                           output_dir, OUTPUT_SHC["FILE_NAME"] + '_score.qml'),
+                                                           output_dir, filename_stem + '_score.qml'),
                                                        labels=get_colorramp_label_prefixes("shc"))
     return output_filepath

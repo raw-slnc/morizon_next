@@ -17,7 +17,8 @@ def generate(slope_rlayer: QgsRasterLayer,
              shc_rlayer: QgsRasterLayer,
              shc_thresholds: list,
              savearea_rlayer: QgsRasterLayer,
-             output_dir: str) -> str:
+             output_dir: str,
+             savearea_bonus: int = 0) -> str:
     """
     災害リスクラスターを生成する
 
@@ -45,7 +46,7 @@ def generate(slope_rlayer: QgsRasterLayer,
 
     expression = _make_expression(slope_entry.ref, slope_thresholds,
                                   shc_entry.ref, shc_thresholds,
-                                  savearea_entry.ref)
+                                  savearea_entry.ref, savearea_bonus)
 
     # 計算に失敗したとき前回の出力が残って使われないよう、先に削除しておく
     if os.path.exists(output_filepath):
@@ -64,7 +65,7 @@ def generate(slope_rlayer: QgsRasterLayer,
 
 def _make_expression(slope_name: str, slope_thresholds: tuple,
                      shc_name: str, shc_thresholds: tuple,
-                     savearea_name: str) -> str:
+                     savearea_name: str, savearea_bonus: int = 0) -> str:
     """
     災害リスクをラスター計算するためのExpressionを生成する
 
@@ -81,6 +82,8 @@ def _make_expression(slope_name: str, slope_thresholds: tuple,
     slope_scores = settings.get('scores_slope')
     shc_scores = settings.get('scores_shc')
     savearea_scores = settings.get('scores_savearea')
+    # 等高線法の保全対象を含む流域のときは、保全対象を含む流域の点に加点する
+    savearea_scores = [savearea_scores[0], int(savearea_scores[1]) + int(savearea_bonus)]
 
     expression = f"""
 {slope_scores[0]} * ({slope_name} <= {slope_thresholds[0]})

@@ -18,8 +18,13 @@ from ..processing_feedback import set_stage
 def generate(basis_dem_filepath: str,
              building_filepath: str,
              output_dir: str,
-             feedback=None):
+             feedback=None,
+             area_scaled_threshold: bool = False,
+             output_file_name: str = None):
     """
+    area_scaled_threshold：True のとき、流域のしきい値（セル数）に、10m に対するセルの細かさの係数を掛ける
+    （10m で500セル、1m で約1581セル）。等高線法の複雑さと組にする経路で使う。False（既定）は従来どおり500セル。
+    output_file_name：出力のファイル名（拡張子なし）。省略すると従来の保全対象を含む流域のファイル名。
     保全対象を含む流域ラスターを生成し、(出力のパス, 全域0になった理由) を返す。理由は、
     建物が無い "no_building"、建物はあるがどの流域とも重ならない "no_overlap"、どちらでもなければ空文字。
     building_filepathにフィーチャが1件も無い場合（対象範囲に建物が存在しない等）は、
@@ -30,10 +35,13 @@ def generate(basis_dem_filepath: str,
 
     temp_dir = tempfile.mkdtemp()
     try:
-        fixed_basin_vlayer = create_basin_polygon(
-            basis_dem_filepath, temp_dir, feedback=feedback
-        )
         basis_deminfo = get_tiff_info(basis_dem_filepath, feedback=feedback)
+        threshold = BASIN_THRESHOLD_CELLS
+        if area_scaled_threshold:
+            threshold = scaled_basin_threshold(basis_deminfo["resolution"])
+        fixed_basin_vlayer = create_basin_polygon(
+            basis_dem_filepath, temp_dir, feedback=feedback, threshold=threshold
+        )
         target_extent = ",".join(str(value) for value in basis_deminfo["extent"][:4])
 
         # すべての流域を焼きこんだラスター
@@ -58,7 +66,7 @@ def generate(basis_dem_filepath: str,
         _assert_raster_ready(basin_rasiterized_filepath, "流域ラスタ")
 
         output_filepath = os.path.join(
-            output_dir, OUTPUT_SAVEAREA['FILE_NAME'] + ".tif")
+            output_dir, (output_file_name or OUTPUT_SAVEAREA['FILE_NAME']) + ".tif")
         if no_building:
             return _generate_no_building_savearea(basin_rasiterized_filepath, output_filepath, feedback), "no_building"
 
@@ -177,7 +185,21 @@ def _generate_no_building_savearea(basin_rasterized_filepath: str, output_filepa
     return output_filepath
 
 
-def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
+# 流域とみなす最小の大きさ（セル数）。原版は10mのDEMで500セル
+BASIN_THRESHOLD_CELLS = 500
+BASIN_REFERENCE_CELL_M = 10.0
+
+
+def scaled_basin_threshold(cell_size_m: float) -> int:
+    """流域とみなす最小の大きさ（セル数）。10mのDEMを基準に、セルの細かさの係数を掛ける。
+    係数は (10÷セルの大きさ) の平方根。10mなら500セル（従来と同じ）、5mなら約707、2mなら約1118、1mなら約1581セル。
+    係数をそのまま掛ける（1mで5000セル）と、保全対象を含む流域が広すぎた（西伊豆の1mで面積の約31%。従来は約16%）ため、
+    従来に近い広がり（約23%）にとどめる。"""
+    cell = abs(float(cell_size_m)) or BASIN_REFERENCE_CELL_M
+    return max(1, round(BASIN_THRESHOLD_CELLS * (BASIN_REFERENCE_CELL_M / cell) ** 0.5))
+
+
+def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None, threshold=BASIN_THRESHOLD_CELLS):
     """DEMを利用して流域ポリゴンを生成する。必要ならジオメトリの修復を試みる。"""
     owns_temp_dir = temp_dir is None
     if temp_dir is None:
@@ -212,7 +234,7 @@ def create_basin_polygon(basis_dem_filepath, temp_dir=None, feedback=None):
             'spi': None,
             'stream': None,
             'tci': None,
-            'threshold': 500
+            'threshold': int(threshold)
         }, feedback=feedback)
         _assert_raster_ready(basin_filepath, "流域")
 

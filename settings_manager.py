@@ -288,6 +288,43 @@ class ShcMethodManager:
         qsettings.endGroup()
 
 
+class CustomShcManager:
+    """等高線法の複雑さの追加計算を使うか。既定は従来結果のみ。"""
+
+    SETTING_GROUP = '/MORIZON/custom_shc'
+    ENABLED_KEY = 'enabled'
+    FLOW_MODEL_KEY = 'flow_model'
+    FLOW_MODELS = ('mfd', 'dinf')
+    DEFAULT_FLOW_MODEL = 'mfd'
+
+    def load_enabled(self) -> bool:
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = qsettings.value(self.ENABLED_KEY, False, type=bool)
+        qsettings.endGroup()
+        return bool(value)
+
+    def store_enabled(self, enabled: bool):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.ENABLED_KEY, bool(enabled))
+        qsettings.endGroup()
+
+    def load_flow_model(self) -> str:
+        """沢の中心線と2ha流域の補正に使う流れの計算（どちらも同じ方式）。'mfd' か 'dinf'"""
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        value = str(qsettings.value(self.FLOW_MODEL_KEY, self.DEFAULT_FLOW_MODEL))
+        qsettings.endGroup()
+        return value if value in self.FLOW_MODELS else self.DEFAULT_FLOW_MODEL
+
+    def store_flow_model(self, flow_model: str):
+        qsettings = QSettings()
+        qsettings.beginGroup(self.SETTING_GROUP)
+        qsettings.setValue(self.FLOW_MODEL_KEY, flow_model if flow_model in self.FLOW_MODELS else self.DEFAULT_FLOW_MODEL)
+        qsettings.endGroup()
+
+
 class AggregateConiferManager:
     """
     ゾーン統計量タブの「針葉樹のフィーチャーだけで収益性を判定する」の設定と、選んだポリゴンレイヤー。

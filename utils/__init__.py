@@ -28,7 +28,7 @@ from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt import sip
 import processing
 
-from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED, DIR_LAYER
+from ..constants import PIXELS_THRESHOLD_RESAMPLING, MANAGED_DIR_NAME, OUTPUT_GROUP_NAME, DIR_SHARED, DIR_LAYER, DIR_LOG
 
 
 def _finite_float_or_none(value):
@@ -223,7 +223,8 @@ def _scope_marker():
 def set_morizon_layer_scope(combobox: QgsMapLayerComboBox,
                             allowed_names=None,
                             allowed_extensions=None,
-                            keep_current=True):
+                            keep_current=True,
+                            default_name=None):
     """QgsMapLayerComboBoxの候補をMORIZON管理フォルダ配下の成果物に限定する。
     候補が無ければ空にする(現在の選択がMORIZON管理フォルダ配下でないなら、選択を維持せず外す)。
 
@@ -246,6 +247,10 @@ def set_morizon_layer_scope(combobox: QgsMapLayerComboBox,
     keep_layer = None
     if keep_current and previous_layer is not None:
         keep_layer = next((layer for layer in allowed_layers if layer is previous_layer), None)
+    if keep_layer is None and default_name:
+        # 何も選ばれていない（または選んでいたレイヤーが無くなった）ときは、QGIS が並びの先頭を自動で選ぶ。
+        # 先頭が既定のものとは限らない（名前の並びでは、等高線法のものが先に来る）ので、既定のものを選ぶ
+        keep_layer = next((layer for layer in allowed_layers if layer.name() == default_name), None)
     # 候補を入れ直すと、選択が変わっていなくても「選択が変わった」の合図が出ることがある（Windows で確認）。
     # その合図で、しきい値の計算し直し（初期値に戻る）が走っていたため、入れ直しても選択が変わらなければ合図を出さない
     model = sip.cast(combobox.model(), QgsMapLayerProxyModel)
@@ -374,7 +379,7 @@ def _project_folder_name() -> str:
     if not name:
         return "untitled"
     # キャッシュ（shared）・描画用の DB（LAYER）のフォルダと重ならないようにする
-    return name + "_project" if name in (DIR_SHARED, DIR_LAYER) else name
+    return name + "_project" if name in (DIR_SHARED, DIR_LAYER, DIR_LOG) else name
 
 
 def get_morizon_root_dir(*subdirs) -> str:
@@ -395,6 +400,14 @@ def get_morizon_layer_db_dir() -> str:
     if not QgsProject.instance().homePath():
         return ""
     return get_morizon_root_dir(DIR_LAYER, _project_folder_name())
+
+
+def get_morizon_log_dir() -> str:
+    """処理時間の記録を置くフォルダ（<qgz のフォルダ>/morizon_next/log/<qgz のファイル名>）。作業フォルダの外。
+    プロジェクトが未保存なら空文字"""
+    if not QgsProject.instance().homePath():
+        return ""
+    return get_morizon_root_dir(DIR_LOG, _project_folder_name())
 
 
 def get_morizon_shared_dir(*subdirs) -> str:

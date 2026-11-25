@@ -14,9 +14,9 @@ from ...settings_manager import SettingsManager
 from .utils import output_blend_mode_value
 
 
-def write_rawdata_qml(output_dir: str) -> str:
+def write_rawdata_qml(output_dir: str, filename_stem: str = OUTPUT_SAVEAREA["FILE_NAME"]) -> str:
     output_filepath = os.path.join(output_dir,
-                                   OUTPUT_SAVEAREA["FILE_NAME"] + "_raw.qml")
+                                   filename_stem + "_raw.qml")
     with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write(f"""
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
@@ -68,12 +68,16 @@ def write_rawdata_qml(output_dir: str) -> str:
         return output_filepath
 
 
-def write_scoring_qml(output_dir: str) -> str:
+def write_scoring_qml(output_dir: str, filename_stem: str = OUTPUT_SAVEAREA["FILE_NAME"],
+                      bonus: int = 0) -> str:
     settings_manager = SettingsManager()
-    scores_savearea = settings_manager.get_setting("scores_savearea")
+    scores_savearea = list(settings_manager.get_setting("scores_savearea"))
+    if bonus:
+        # 等高線法の保全対象を含む流域は、災害リスクで加点される分を凡例にも反映する
+        scores_savearea[1] = int(scores_savearea[1]) + int(bonus)
 
     output_filepath = os.path.join(output_dir,
-                                   OUTPUT_SAVEAREA["FILE_NAME"] + "_score.qml")
+                                   filename_stem + "_score.qml")
     with open(output_filepath, mode="w", encoding="utf-8") as f:
         f.write(f"""
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>

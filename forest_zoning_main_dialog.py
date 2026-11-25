@@ -8,7 +8,7 @@ import sys
 from qgis.PyQt import uic
 from contextlib import contextmanager
 
-from qgis.PyQt.QtCore import QEvent, Qt, QTimer, QUrl
+from qgis.PyQt.QtCore import Qt, QTimer, QUrl
 from qgis.PyQt.QtGui import QDesktopServices, QIcon, QKeySequence
 try:
     from qgis.PyQt.QtGui import QShortcut  # Qt6
@@ -76,8 +76,9 @@ class ForestZoningMainDialog(QDialog):
         )
         self.settingsTabLayout.addWidget(self.settings_widget)
         # 色だけを指定した子部品は .ui の font を継承しないため、読み込み後にも指定する。
+        # スタイルシートは親子をたどって子ダイアログ（確認画面など）にも届く。QApplication 全体のイベント監視は
+        # 外し忘れや Polish 中の再入で QGIS ごと落ちるため使わない。
         self.setStyleSheet("font-size: 9pt;")
-        QApplication.instance().installEventFilter(self)
         # 利用者のレイヤーを選ぶ選択欄は、候補をレイヤーパネルの並びで出す部品に差し替える
         # （QgsMapLayerComboBox は名前の順で、並べ方を変えられないため）
         for name in TREE_ORDER_COMBOS:
@@ -103,17 +104,6 @@ class ForestZoningMainDialog(QDialog):
         # 開いているプロジェクトがあれば、画面を表示したときに再開の分岐へ進む
         if QgsProject.instance().fileName():
             self._restore_pending = True
-
-    def eventFilter(self, obj, event):
-        # 確認画面などの別窓は親画面のフォント指定を引き継がないため、表示前に揃える。
-        if event.type() == QEvent.Type.Polish and isinstance(obj, QDialog) and obj is not self:
-            parent = obj.parentWidget()
-            while parent is not None:
-                if parent is self:
-                    obj.setStyleSheet(f"{obj.styleSheet()}; font-size: 9pt;")
-                    break
-                parent = parent.parentWidget()
-        return super().eventFilter(obj, event)
 
     # タブの切り替え（Ctrl+Tab／Ctrl+Shift+Tab）。Qt のタブはこのキーで切り替わるが、フォーカスのある部品が
     # キーを先に受け取ると届かない（レイヤーの選択欄で止まった）。画面全体のショートカットにして、どこからでも切り替える。
@@ -491,6 +481,7 @@ class ForestZoningMainDialog(QDialog):
         """プラグインを外すときに呼ぶ（この画面は破棄されるので、知らせの受け先から外す）"""
         self._refresh_timer.stop()
         utils.set_outputs_changed_callback(None)
+        self.scoring.stop_element_display_watch()
         self.aggregate.stop_conifer_watch()
 
     def schedule_refresh_all_tabs(self):
@@ -498,6 +489,16 @@ class ForestZoningMainDialog(QDialog):
             self._refresh_timer.start()
         else:
             self._refresh_pending = True
+
+    def settle_pending_updates(self):
+        """完了などの知らせの窓を出す前に呼ぶ。レイヤーの追加で予約された画面の合わせ直し（全タブの更新、表示中の要素の更新）を
+        ここで済ませる。残したまま知らせの窓を出すと、窓が出ている間に動いて、OK を押せない時間ができる"""
+        QApplication.processEvents()
+        if self._refresh_timer.isActive():
+            self._refresh_timer.stop()
+            self.refresh_all_tabs()
+        self.scoring.flush_element_display_indicator()
+        QApplication.processEvents()
 
     def refresh_all_tabs(self):
         self._refresh_pending = False

@@ -22,7 +22,9 @@ from .constants import (
     OUTPUT_PROFIT,
     OUTPUT_RISK,
     OUTPUT_SAVEAREA,
+    OUTPUT_SAVEAREA_CUSTOM,
     OUTPUT_SHC,
+    OUTPUT_SHC_CUSTOM,
     OUTPUT_SITEIDX_HINOKI,
     OUTPUT_SITEIDX_KARAMATSU,
     OUTPUT_SITEIDX_DOKUJI,
@@ -93,12 +95,18 @@ def _element_table(directory, costcsv_path):
         (OUTPUT_SHC,
          lambda path: raster_styler.shc.write_rawdata_qml(path, directory),
          lambda path: raster_styler.shc.write_scoring_qml(path, directory)),
+        (OUTPUT_SHC_CUSTOM,
+         lambda path: raster_styler.shc.write_rawdata_qml(path, directory, OUTPUT_SHC_CUSTOM["FILE_NAME"]),
+         lambda path: raster_styler.shc.write_scoring_qml(path, directory, OUTPUT_SHC_CUSTOM["FILE_NAME"])),
         (OUTPUT_SLOPE,
          lambda path: raster_styler.slope.write_rawdata_qml(directory),
          lambda path: raster_styler.slope.write_scoring_qml(directory)),
         (OUTPUT_SAVEAREA,
          lambda path: raster_styler.savearea.write_rawdata_qml(directory),
          lambda path: raster_styler.savearea.write_scoring_qml(directory)),
+        (OUTPUT_SAVEAREA_CUSTOM,
+         lambda path: raster_styler.savearea.write_rawdata_qml(directory, OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"]),
+         lambda path: raster_styler.savearea.write_scoring_qml(directory, OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"])),
     ]
 
 

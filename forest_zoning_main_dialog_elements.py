@@ -42,7 +42,7 @@ from .progress_dialog import run_with_progress
 from .forest_zoning_dem_browser_dialog import DemBrowserDialog, DemResolutionDialog
 from .dem_loader import GSITileDEMLoader
 from . import dem_gaps
-from .settings_manager import OutputLayerStyleManager, ShcMethodManager
+from .settings_manager import OutputLayerStyleManager, ShcMethodManager, CustomShcManager
 from .work_system_defaults import WorkSystemDefaultsManager
 from .forest_zoning_main_dialog_archive import COMPANION_EXTENSIONS, ForestZoningMainDialogArchive
 from . import saga_check
@@ -66,8 +66,10 @@ from .constants import (
     OUTPUT_COST,
     OUTPUT_DISTANCE,
     OUTPUT_SHC,
+    OUTPUT_SHC_CUSTOM,
     OUTPUT_SLOPE,
     OUTPUT_SAVEAREA,
+    OUTPUT_SAVEAREA_CUSTOM,
     OUTPUT_PROFIT,
     OUTPUT_RISK,
     OUTPUT_PARAMS_JSON,
@@ -2240,10 +2242,12 @@ class ForestZoningMainDialogElements:
             append_filename_if_exist(OUTPUT_DISTANCE["FILE_NAME"])
         if self.main.elementsShcCheckbox.isChecked():
             append_filename_if_exist(OUTPUT_SHC["FILE_NAME"])
+            append_filename_if_exist(OUTPUT_SHC_CUSTOM["FILE_NAME"])
         if self.main.elementsSlopeCheckbox.isChecked():
             append_filename_if_exist(OUTPUT_SLOPE["FILE_NAME"])
         if self.main.elementsSaveareaCheckbox.isChecked():
             append_filename_if_exist(OUTPUT_SAVEAREA["FILE_NAME"])
+            append_filename_if_exist(OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"])
 
         return existing_filenames
 
@@ -2262,6 +2266,10 @@ class ForestZoningMainDialogElements:
         ):
             if checkbox.isChecked():
                 names.add(output_def["DISPLAY_NAME"])
+        if self.main.elementsShcCheckbox.isChecked():
+            names.add(OUTPUT_SHC_CUSTOM["DISPLAY_NAME"])
+        if self.main.elementsSaveareaCheckbox.isChecked():
+            names.add(OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"])
         return names
 
     def _element_output_definitions(self):
@@ -2272,9 +2280,11 @@ class ForestZoningMainDialogElements:
             "siteidx": siteidx_outputs,
             "cost": [OUTPUT_COST],
             "distance": [OUTPUT_DISTANCE],
-            "shc": [OUTPUT_SHC],
+            "shc": ([OUTPUT_SHC, OUTPUT_SHC_CUSTOM] if CustomShcManager().load_enabled()
+                    else [OUTPUT_SHC]),
             "slope": [OUTPUT_SLOPE],
-            "savearea": [OUTPUT_SAVEAREA],
+            "savearea": ([OUTPUT_SAVEAREA, OUTPUT_SAVEAREA_CUSTOM] if CustomShcManager().load_enabled()
+                         else [OUTPUT_SAVEAREA]),
         }
 
     @staticmethod
@@ -2312,6 +2322,10 @@ class ForestZoningMainDialogElements:
             outputs["siteidx"].append(OUTPUT_SITEIDX_DOKUJI)
         stems = [output["FILE_NAME"] for key, definitions in outputs.items()
                  if selected[key] for output in definitions]
+        if selected["shc"]:
+            stems.append(OUTPUT_SHC_CUSTOM["FILE_NAME"])
+        if selected["savearea"]:
+            stems.append(OUTPUT_SAVEAREA_CUSTOM["FILE_NAME"])
         return self._output_artifacts(self.main.elementsOutputDirFileWidget.filePath(), stems)
 
     def _downstream_artifacts(self, stages=None):
@@ -2414,6 +2428,16 @@ class ForestZoningMainDialogElements:
             return
         if not self._confirm_shc_method():
             return
+        if self.main.elementsShcCheckbox.isChecked() and CustomShcManager().load_enabled():
+            # 既存成果物を外す前に、独自計算に必要なモジュールを確認する。
+            try:
+                from .processes.raster_writer import custom_shc  # noqa: F401
+            except ImportError as e:
+                QMessageBox.warning(
+                    self.main, "等高線法の複雑さを計算できません",
+                    f"等高線法の複雑さに必要なPythonモジュールを読み込めません。\n{e}",
+                )
+                return
         self.main.hide()
 
         target_element_checkboxes = {
@@ -2493,6 +2517,7 @@ class ForestZoningMainDialogElements:
         # 結果のレイヤー追加と知らせは、進捗の窓を消してから行う（run_with_progress）
         # 中断したときも、それまでに作れたレイヤーは追加する（前のレイヤーは実行前に外してあるため）
         # 詳細行には、工程の中の段階名と進み具合（%）を出す。行は出したままにして、窓の高さを変えない
+        show_default_element_names = None
         outcome = run_with_progress(thread, show_detail=True, keep_detail_line=True)
         # レイヤー追加で結果辞書は空になるため、今回作成した要素名を先に保持する。
         produced_names = set(outcome.get("result", {}))
@@ -2514,41 +2539,44 @@ class ForestZoningMainDialogElements:
                 self.main, "途中ファイルを破棄できません",
                 "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files),
             )
-        if "error" in outcome:
-            QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
-        elif thread.abort_flag:
-            QMessageBox.information(self.main, "中断", "処理を中断しました。")
-        else:
-            if getattr(thread, "no_road_distance_created", False):
-                self._show_guide_warning(
-                    "地利を全域1点相当で作成しました",
-                    "設定された道路データには、地利計算に使える有効な道路地物がありませんでした。\n"
-                    "地利はDEM全域を道路から遠い条件（1点相当）として作成しました。\n\n"
-                    "実際の林道・作業道を反映する場合は、独自の道路データの作成をおすすめします。",
-                    MORIZON_GUIDE_ROAD_PAGES,
-                    icon=QMessageBox.Icon.Information,
-                )
-            if getattr(thread, "no_building_savearea_created", False):
-                self._show_guide_warning(
-                    "保全対象を含む流域を全域0で作成しました",
-                    "設定された建物データには、建物がありませんでした。\n"
-                    "保全対象を含む流域は、どの流域にも保全対象が無い条件（全域0）として作成しました。\n\n"
-                    "地域の保全対象を反映する場合は、独自の建物データの作成をおすすめします。",
-                    MORIZON_GUIDE_BUILDING_PAGES,
-                    icon=QMessageBox.Icon.Information,
-                )
-            if getattr(thread, "no_overlap_savearea_created", False):
-                self._show_guide_warning(
-                    "保全対象を含む流域が全域0になりました",
-                    "建物データはありますが、解析範囲の流域に重なる建物がありませんでした。\n"
-                    "保全対象を含む流域は、全域0（どの流域にも保全対象が無い）になっています。\n\n"
-                    "影響のある範囲に保全対象が無い場合は、このままで問題ありません。\n"
-                    "解析範囲の下流（範囲の外）に集落などの保全対象がある場合は、範囲を下流まで広げるか、\n"
-                    "地域の保全対象を描き足してください（マニュアル 1.9）。",
-                    MORIZON_GUIDE_BUILDING_PAGES,
-                    icon=QMessageBox.Icon.Information,
-                )
-            QMessageBox.information(self.main, "終了", "処理が終了しました。")
+
+        def notify_result():
+            # 画面の準備がすべて済んでから、終了などの知らせを出す
+            if "error" in outcome:
+                QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
+            elif thread.abort_flag:
+                QMessageBox.information(self.main, "中断", "処理を中断しました。")
+            else:
+                if getattr(thread, "no_road_distance_created", False):
+                    self._show_guide_warning(
+                        "地利を全域1点相当で作成しました",
+                        "設定された道路データには、地利計算に使える有効な道路地物がありませんでした。\n"
+                        "地利はDEM全域を道路から遠い条件（1点相当）として作成しました。\n\n"
+                        "実際の林道・作業道を反映する場合は、独自の道路データの作成をおすすめします。",
+                        MORIZON_GUIDE_ROAD_PAGES,
+                        icon=QMessageBox.Icon.Information,
+                    )
+                if getattr(thread, "no_building_savearea_created", False):
+                    self._show_guide_warning(
+                        "保全対象を含む流域を全域0で作成しました",
+                        "設定された建物データには、建物がありませんでした。\n"
+                        "保全対象を含む流域は、どの流域にも保全対象が無い条件（全域0）として作成しました。\n\n"
+                        "地域の保全対象を反映する場合は、独自の建物データの作成をおすすめします。",
+                        MORIZON_GUIDE_BUILDING_PAGES,
+                        icon=QMessageBox.Icon.Information,
+                    )
+                if getattr(thread, "no_overlap_savearea_created", False):
+                    self._show_guide_warning(
+                        "保全対象を含む流域が全域0になりました",
+                        "建物データはありますが、解析範囲の流域に重なる建物がありませんでした。\n"
+                        "保全対象を含む流域は、全域0（どの流域にも保全対象が無い）になっています。\n\n"
+                        "影響のある範囲に保全対象が無い場合は、このままで問題ありません。\n"
+                        "解析範囲の下流（範囲の外）に集落などの保全対象がある場合は、範囲を下流まで広げるか、\n"
+                        "地域の保全対象を描き足してください（マニュアル 1.9）。",
+                        MORIZON_GUIDE_BUILDING_PAGES,
+                        icon=QMessageBox.Icon.Information,
+                    )
+                QMessageBox.information(self.main, "終了", "処理が終了しました。")
 
         # 今回選んだ要素で書き出されなかったものは、前のファイルが残っていても未完了とする。
         finished_this_run = self._finished_element_outputs(target_elements_dict, produced_names)
@@ -2564,10 +2592,19 @@ class ForestZoningMainDialogElements:
             self._update_element_checks_after_run(
                 target_elements_dict, target_element_checkboxes, produced_names
             )
+            show_default_element_names = produced_names
 
         self.refresh_elements_ui()
 
         self.main.show()
+        # 画面を出し、予約された合わせ直し（選択欄を新しいレイヤーに合わせる）を済ませてから、
+        # 既定で「地位スコア」を地図に表示する（何も表示していないと、何ができたか分かりにくいため）。
+        # ここまで済ませてから知らせを出す（知らせの窓が出ている間に動いて OK を押せなくならないように）
+        self.main.settle_pending_updates()
+        if show_default_element_names:
+            self.main.scoring.show_default_element(show_default_element_names)
+            self.main.settle_pending_updates()
+        notify_result()
 
     def _get_final_extent_for_current_dem(self):
         dem_path = self.main.elementsDemFileWidget.filePath()

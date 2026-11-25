@@ -11,6 +11,7 @@ DIR_YOUSO = "YOUSO"          # 要素計算の出力
 DIR_ZONING = "ZONING"        # スコアリング（収益性・災害リスク）とゾーニングの出力
 DIR_AGGREGATE = "AGGREGATE"  # 集計の出力（原版には無い。MORIZON NEXTで追加）
 DIR_SHARED = "shared"        # 解析をまたいで使い回すキャッシュ。保存・破棄の対象外
+DIR_LOG = "log"              # 処理時間の記録。morizon_next/log/<qgz 名>/ に置く
 DIR_LAYER = "LAYER"          # 描画用の DB（GPKG）。morizon_next/LAYER/<qgz 名>/ に置く（layer_db.py）
 DATA_INFO_FILE_NAME = "MORIZON_NEXT.txt"  # 保存データの最上位に置く説明
 # 出力レイヤーをまとめるレイヤーツリーのグループ（プロジェクトの最上位）
@@ -104,6 +105,25 @@ OUTPUT_SHC = {
     "DISPLAY_NAME": "災害リスク/地形の複雑さ",
     "FILE_NAME": "Y_11_chikei",
 }
+OUTPUT_SHC_CUSTOM = {
+    "DISPLAY_NAME": "災害リスク/地形の複雑さ＋等高線法",
+    "FILE_NAME": "Y_11_custom_chikei",
+}
+OUTPUT_SAVEAREA_CUSTOM = {
+    "DISPLAY_NAME": "災害リスク/保全対象を含む流域＋等高線法",
+    "FILE_NAME": "Y_13_custom_hozen",
+}
+# 保全対象を含む流域＋等高線法を災害リスクに使うとき、保全対象を含む流域の点に足す点（設定の点に足す）
+SAVEAREA_CONTOUR_BONUS = 1
+
+
+def savearea_bonus_for_layer_name(layer_name) -> int:
+    """災害リスクの計算で、保全対象を含む流域の点に足す点。等高線法のレイヤーのときだけ足す"""
+    if layer_name and str(layer_name).startswith(OUTPUT_SAVEAREA_CUSTOM["DISPLAY_NAME"]):
+        return SAVEAREA_CONTOUR_BONUS
+    return 0
+
+
 OUTPUT_PARAMS_JSON = {
     "FILE_NAME": "params",
     "EXTENSION": "json"

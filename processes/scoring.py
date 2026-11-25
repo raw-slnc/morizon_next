@@ -11,6 +11,7 @@ from ..utils import move_output_layers_to_main_thread
 from ..constants import (
     OUTPUT_PROFIT,
     OUTPUT_RISK,
+    savearea_bonus_for_layer_name,
 )
 
 
@@ -34,6 +35,9 @@ class ProcessingThread(QThread):
         self.input_thresholds_dict = input_thresholds_dict
         self.target_scores_dict = target_scores_dict
         self.output_dir = output_dir
+        # 等高線法の保全対象を含む流域のときの加点（レイヤー名は、メインスレッドで読んでおく）
+        savearea_layer = input_layers_dict.get("savearea")
+        self.savearea_bonus = savearea_bonus_for_layer_name(savearea_layer.name() if savearea_layer else "")
 
         self.abort_flag = False
 
@@ -90,6 +94,7 @@ class ProcessingThread(QThread):
                     self.input_thresholds_dict["shc"],
                     self.input_layers_dict["savearea"],
                     self.output_dir,
+                    savearea_bonus=self.savearea_bonus,
                 )
                 rlayer = QgsRasterLayer(risk_filepath, OUTPUT_RISK["DISPLAY_NAME"])
                 qml_filepath = raster_styler.risk.write_qml(

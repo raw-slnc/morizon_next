@@ -5,14 +5,14 @@
 
 import json
 
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
     QRadioButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import saga_check
-from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager
+from .settings_manager import SettingsManager, DEFAULT_SETTINGS, FgdCredentialsManager, ShcMethodManager, CustomShcManager
 from .work_system_defaults import WorkSystemDefaultsManager
 
 
@@ -77,7 +77,7 @@ class ForestZoningMainDialogSettings:
         self.work_system_note = QLabel("解析用CSVは「CSVとして反映する」を押したときに設定されます。")
         self.work_system_note.setWordWrap(True)
         group_layout.addWidget(self.work_system_note)
-        self.main.morizonNextSettingsTab.layout().insertWidget(1, group)
+        self.main.morizonNextSettingsTab.layout().insertWidget(2, group)
         self.work_system_builtin_radio.toggled.connect(
             lambda checked: self._select_work_system_source(WorkSystemDefaultsManager.BUILTIN) if checked else None
         )
@@ -131,6 +131,7 @@ class ForestZoningMainDialogSettings:
 
     def init_ui(self):
         self._init_aggregate_risk_threshold_ui()
+        self._init_custom_shc_ui()
         self._init_work_system_source_ui()
         self.main.elements.show_selected_work_system_default()
         self.widget.storeSettingsPushButton.clicked.connect(self.store_settings)
@@ -165,6 +166,77 @@ class ForestZoningMainDialogSettings:
             lambda: self.force_odd(self.widget.settingsShcSpinbox))
 
         self.set_values_from_stored_settings()
+
+    def _init_custom_shc_ui(self):
+        group = QGroupBox("地形の複雑さ")
+        group.setObjectName("customShcGroupBox")
+        group_layout = QVBoxLayout(group)
+        self.custom_shc_checkbox = QCheckBox("地形の複雑さに、等高線法の計算も加える")
+        self.custom_shc_checkbox.setObjectName("customShcCheckbox")
+        self.custom_shc_manager = CustomShcManager()
+        self.custom_shc_checkbox.setChecked(self.custom_shc_manager.load_enabled())
+        self.custom_shc_checkbox.toggled.connect(self.custom_shc_manager.store_enabled)
+        group_layout.addWidget(self.custom_shc_checkbox)
+        # 沢の中心線と2ha流域の補正に使う流れの計算。両方とも同じ方式で切り替える（説明を1行、ボタンを1行ずつ。ボタンの注釈も画面に出す）
+        self.custom_shc_flow_label = QLabel("沢・流域の補正に使う流れの計算（両方に同じ方式を使います）")
+        self.custom_shc_mfd_radio = QRadioButton("MFD（多方向流：流れを複数の下流側へ分ける。沢は太めに出る）")
+        self.custom_shc_mfd_radio.setObjectName("customShcMfdRadio")
+        self.custom_shc_dinf_radio = QRadioButton("D∞（Tarboton：最急方向を角度で求め隣の2セルへ分ける。沢は細い線で出る）")
+        self.custom_shc_dinf_radio.setObjectName("customShcDinfRadio")
+        # チェックの子の項目だと分かるよう、字下げして並べる
+        flow_layout = QVBoxLayout()
+        flow_layout.setContentsMargins(24, 0, 0, 0)
+        flow_layout.addWidget(self.custom_shc_flow_label)
+        flow_layout.addWidget(self.custom_shc_mfd_radio)
+        flow_layout.addWidget(self.custom_shc_dinf_radio)
+        group_layout.addLayout(flow_layout)
+        self._show_custom_shc_flow_model(self.custom_shc_manager.load_flow_model())
+        self.custom_shc_dinf_radio.toggled.connect(
+            lambda checked: self.custom_shc_manager.store_flow_model("dinf" if checked else "mfd"))
+        self.custom_shc_checkbox.toggled.connect(self._update_custom_shc_flow_enabled)
+        self._update_custom_shc_flow_enabled(self.custom_shc_checkbox.isChecked())
+        self.main.morizonNextSettingsTab.layout().insertWidget(1, group)
+        # 操作したときに保存したことを知らせる欄（普段は隠れていて、操作したときだけ現れる）
+        self.next_settings_message_label = QLabel()
+        self.next_settings_message_label.setWordWrap(True)
+        self.next_settings_message_label.setStyleSheet("color:#188038;")
+        self.next_settings_message_label.hide()
+        # 作業システム設定グループの直下に置く。そのグループは、この後 index 2 に差し込まれるので、ここでは index 2 に置いて下へ押し下げる
+        self.main.morizonNextSettingsTab.layout().insertWidget(2, self.next_settings_message_label)
+        self._next_settings_message_timer = QTimer(self.next_settings_message_label)
+        self._next_settings_message_timer.setSingleShot(True)
+        self._next_settings_message_timer.setInterval(6000)
+        self._next_settings_message_timer.timeout.connect(self.next_settings_message_label.hide)
+        self.custom_shc_checkbox.toggled.connect(self._announce_custom_shc_enabled)
+        self.custom_shc_dinf_radio.toggled.connect(self._announce_custom_shc_flow_model)
+
+    def show_next_settings_message(self, text):
+        """Next設定で操作したことを、タブの下部に数秒出す（設定はその場で保存される）"""
+        self.next_settings_message_label.setText(text)
+        self.next_settings_message_label.show()
+        self._next_settings_message_timer.start()
+
+    def _announce_custom_shc_enabled(self, enabled):
+        flow = "D∞" if self.custom_shc_manager.load_flow_model() == "dinf" else "MFD"
+        self.show_next_settings_message(
+            f"保存しました：地形の複雑さに、等高線法の計算を加えます（流れの計算：{flow}）" if enabled
+            else "保存しました：地形の複雑さに、等高線法の計算は加えません"
+        )
+
+    def _announce_custom_shc_flow_model(self, dinf_checked):
+        # ラジオは片方が選ばれると他方が外れ、両方から合図が出る。選ばれたほうだけ知らせる
+        if dinf_checked:
+            self.show_next_settings_message("保存しました：沢・流域の補正の流れの計算を D∞ にしました")
+        elif self.custom_shc_mfd_radio.isChecked():
+            self.show_next_settings_message("保存しました：沢・流域の補正の流れの計算を MFD にしました")
+
+    def _show_custom_shc_flow_model(self, flow_model):
+        self.custom_shc_dinf_radio.setChecked(flow_model == "dinf")
+        self.custom_shc_mfd_radio.setChecked(flow_model != "dinf")
+
+    def _update_custom_shc_flow_enabled(self, enabled):
+        for widget in (self.custom_shc_flow_label, self.custom_shc_mfd_radio, self.custom_shc_dinf_radio):
+            widget.setEnabled(bool(enabled))
 
     # ボタンの状態ごとの計算形式の説明（折り返しは決めた位置の改行だけにする）
     SHC_METHOD_DESCRIPTIONS = {
@@ -353,6 +425,9 @@ class ForestZoningMainDialogSettings:
         # 上の初期化だけでは戻らず、一度 ON にするとリセットしても ON のまま残っていた
         ShcMethodManager().store_use_saga(False)
         self.update_shc_method_button()
+        self.custom_shc_checkbox.setChecked(False)
+        self.custom_shc_manager.store_flow_model(CustomShcManager.DEFAULT_FLOW_MODEL)
+        self._show_custom_shc_flow_model(CustomShcManager.DEFAULT_FLOW_MODEL)
         self.set_values_from_stored_settings()
         self.main.scoring.set_scoring_score_labels_from_settings()
         self.main.elements.costcsv_editor.set_axis_kind(smanager.get_setting("cost_algorithm"))

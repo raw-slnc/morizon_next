@@ -464,6 +464,8 @@ class ForestZoningMainDialogZoning:
                     self.main, "途中ファイルを破棄できません",
                     "次のファイルを削除できませんでした。\n" + "\n".join(failed_partial_files),
                 )
+        # 画面の合わせ直しを済ませてから知らせの窓を出す（窓が出ている間に動いて、OK を押せなくならないように）
+        self.main.settle_pending_updates()
         if "error" in outcome:
             QMessageBox.information(self.main, "エラー", f"エラーが発生しました。\n\n{outcome['error']}")
         elif thread.abort_flag:
