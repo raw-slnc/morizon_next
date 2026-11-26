@@ -7,7 +7,7 @@ qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=Forest zoning support plugin for Japan that examines forest management direction from both forestry profitability and mountain disaster risk. An independent, unofficial continuation of MORIZON (もりぞん).
 description[ja]=林業の収益性と山地災害リスクの両面から森林管理の方向性を検討する、日本向けの森林ゾーニング支援プラグインです。「もりぞん（MORIZON）」を土台とする非公式の独自継続版です。
-version=0.2.1
+version=0.2.2
 author=Hideharu Masai
 email=hideharumasai@void.mints.ne.jp
 about=Morizon Next is an independent continuation of MORIZON (もりぞん), a forest zoning support tool originally developed through a project commissioned by the Forestry Agency of Japan. It is not an official release of the Japan Forest Technology Association or the Forestry Agency of Japan.
@@ -29,6 +29,7 @@ about[ja]=Morizon Next は、林野庁委託事業として開発された森林
 
     謝辞：原版は、林野庁の委託事業において、日本森林技術協会がゾーニングの考え方と作業フローを取りまとめ、MIERUNE Inc. が QGIS プラグインとして実装したものです。
 changelog=
+    0.2.2 - 地形の複雑さ＋等高線法: the correction now uses the parts the CS立体図 (CS Map) shows blue, such as valleys, valley heads and concave slopes, raising them by 20 percent and lowering the rest by 10 percent. The flow-based corrections (MFD and D∞) and their choice in Next設定 have been removed.
     0.2.1 - After calculation, 地位スコア appears on the map by default. The scoring tab shows which element is displayed and lets you switch by clicking its name. With 保全対象を含む流域＋等高線法, the target watershed receives one extra disaster-risk point, marked “{等高線法+1}”. Step timings are saved without private data in the project’s log folder. Minor UI refinements.
     0.2.0 - A single-polygon layer can now define the DEM acquisition and analysis area, with the area preview shown on the map until analysis begins. Work-system defaults can be switched between the plugin files and saved custom CSV/Excel files; when starting from the map view, you choose whether to reuse the previous work-system CSV. Completed elements are removed from the next calculation selection, unfinished elements are shown, and starting a new analysis discards later-stage results so older maps are not mistaken for current results. Improved the settings layout and Mac window display.
     0.1.11 - [CRITICAL FIX] VIRTUAL SHIZUOKA DEM: fetching no longer fails when the area includes the sea or lakes, and tiles measured in 2022 are no longer missed. Gaps in a newer survey are filled with older surveys, and land without VIRTUAL SHIZUOKA data (outside the surveyed area or the prefecture) is filled with the GSI DEM (1 m, then 5 m and 10 m); how much was filled is shown. A network failure is now reported instead of being treated as missing tiles, and survey years added to the server are found automatically. The source can now be chosen whenever the map view touches Shizuoka.

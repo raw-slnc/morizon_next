@@ -293,9 +293,9 @@ class CustomShcManager:
 
     SETTING_GROUP = '/MORIZON/custom_shc'
     ENABLED_KEY = 'enabled'
-    FLOW_MODEL_KEY = 'flow_model'
-    FLOW_MODELS = ('mfd', 'dinf')
-    DEFAULT_FLOW_MODEL = 'mfd'
+    # 以前の補正の方式の選択（MFD・D∞ など）。方式を CS立体図の青に決めたので選択は無くした。
+    # 保存されている値は remove_legacy_flow_model で消す
+    LEGACY_FLOW_MODEL_KEY = 'flow_model'
 
     def load_enabled(self) -> bool:
         qsettings = QSettings()
@@ -310,18 +310,12 @@ class CustomShcManager:
         qsettings.setValue(self.ENABLED_KEY, bool(enabled))
         qsettings.endGroup()
 
-    def load_flow_model(self) -> str:
-        """沢の中心線と2ha流域の補正に使う流れの計算（どちらも同じ方式）。'mfd' か 'dinf'"""
+    def remove_legacy_flow_model(self):
+        """以前の補正の方式の選択を、保存された設定から消す（無ければ何もしない）"""
         qsettings = QSettings()
         qsettings.beginGroup(self.SETTING_GROUP)
-        value = str(qsettings.value(self.FLOW_MODEL_KEY, self.DEFAULT_FLOW_MODEL))
-        qsettings.endGroup()
-        return value if value in self.FLOW_MODELS else self.DEFAULT_FLOW_MODEL
-
-    def store_flow_model(self, flow_model: str):
-        qsettings = QSettings()
-        qsettings.beginGroup(self.SETTING_GROUP)
-        qsettings.setValue(self.FLOW_MODEL_KEY, flow_model if flow_model in self.FLOW_MODELS else self.DEFAULT_FLOW_MODEL)
+        if qsettings.contains(self.LEGACY_FLOW_MODEL_KEY):
+            qsettings.remove(self.LEGACY_FLOW_MODEL_KEY)
         qsettings.endGroup()
 
 

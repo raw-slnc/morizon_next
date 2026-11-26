@@ -68,7 +68,6 @@ class ProcessingThread(QThread):
         self._log_dem_info = "不明"
         self._log_finished = False
         self.custom_shc_enabled = CustomShcManager().load_enabled()
-        self.custom_shc_flow_model = CustomShcManager().load_flow_model()
         self.no_road_distance_created = False
         self.no_building_savearea_created = False
         self.no_overlap_savearea_created = False
@@ -138,7 +137,7 @@ class ProcessingThread(QThread):
                 f"記録日時: {time.strftime('%Y-%m-%d %H:%M:%S')}",
                 f"結果: {status}",
                 f"DEM: {dem_info}",
-                "等高線法: " + (f"オン（流れの計算: {self.custom_shc_flow_model}）" if self.custom_shc_enabled else "オフ"),
+                "等高線法: " + ("オン（CS立体図の青で補正）" if self.custom_shc_enabled else "オフ"),
                 "",
                 "工程ごとの所要時間",
             ]
@@ -390,8 +389,7 @@ class ProcessingThread(QThread):
                     progress_counter += 1
                     custom_path = custom_shc.generate(
                         self.input_files_dict["dem"], self.output_dir,
-                        target_dem_filepath=dem_for_processes, feedback=self.feedback,
-                        flow_model=self.custom_shc_flow_model)
+                        target_dem_filepath=dem_for_processes, feedback=self.feedback)
                     custom_path = self._clip_final_output(custom_path)
                     filename_stem = OUTPUT_SHC_CUSTOM["FILE_NAME"]
                     raw_qml = raster_styler.shc.write_rawdata_qml(

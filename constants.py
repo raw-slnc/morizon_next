@@ -115,6 +115,10 @@ OUTPUT_SAVEAREA_CUSTOM = {
 }
 # 保全対象を含む流域＋等高線法を災害リスクに使うとき、保全対象を含む流域の点に足す点（設定の点に足す）
 SAVEAREA_CONTOUR_BONUS = 1
+# 地形の複雑さ（等高線法）の CS立体図の青の補正：青く見える部分を強める割合と、それ以外を弱める割合。
+# 計算（processes/raster_writer/custom_shc.py）と、設定タブの説明の両方で使う
+CUSTOM_SHC_CSMAP_GAIN_UP = 0.20
+CUSTOM_SHC_CSMAP_GAIN_DOWN = 0.10
 
 
 def savearea_bonus_for_layer_name(layer_name) -> int:

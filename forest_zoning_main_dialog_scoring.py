@@ -263,6 +263,9 @@ class ForestZoningMainDialogScoring:
         self.savearea_show_button.clicked.connect(
             lambda: self.show_layer_on_map(self.main.scoringSaveareaLayerCombobox.currentLayer())
         )
+        # 利用者が選択欄で選び直したときは、選んだレイヤーを地図に表示する
+        # （activated は利用者の操作のときだけ出る。地形の複雑さとの連動や既定の再読込では表示を変えない）
+        self.main.scoringSaveareaLayerCombobox.activated.connect(self.on_savearea_layer_activated)
 
         # 初期値に戻すボタン
         self.main.scoringSiteidxStyleInitPushbutton.clicked.connect(
@@ -722,6 +725,13 @@ class ForestZoningMainDialogScoring:
                         o["DISPLAY_NAME"] + suffix, allowed_extensions={".tif", ".tiff"})
                     if layer is not None:
                         break
+        if layer is not None:
+            self.show_layer_on_map(layer)
+        self.update_element_display_indicator()
+
+    def on_savearea_layer_activated(self, _index):
+        """保全対象を含む流域の選択欄で選び直したとき：選んだレイヤーを地図に表示する"""
+        layer = self.main.scoringSaveareaLayerCombobox.currentLayer()
         if layer is not None:
             self.show_layer_on_map(layer)
         self.update_element_display_indicator()

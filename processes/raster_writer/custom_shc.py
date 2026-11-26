@@ -1,8 +1,9 @@
-"""Optional contour based terrain complexity, with gully and basin context.
+"""Optional contour based terrain complexity, corrected by the CS Map's valley blue.
 
-The 10 m analysis grid, 10 m contours, 490 m contour window, MFD channel
-evidence and 2 ha signed basin correction reproduce the accepted prototype.
-The resulting value is an index; its scoring thresholds are set independently.
+The 10 m analysis grid, 10 m contours and 490 m contour window give the base
+value; the parts the CS Map shows blue (valleys, valley heads, concave slopes)
+are raised and the rest lowered. The resulting value is an index; its scoring
+thresholds are set independently.
 """
 
 import gc
@@ -14,9 +15,11 @@ from osgeo import gdal, ogr
 from scipy.ndimage import distance_transform_edt, gaussian_filter, maximum_filter, minimum_filter
 from scipy.spatial import cKDTree
 
-from ...constants import OUTPUT_SHC_CUSTOM, PIXELS_THRESHOLD_RESAMPLING
+from ...constants import (
+    CUSTOM_SHC_CSMAP_GAIN_DOWN, CUSTOM_SHC_CSMAP_GAIN_UP, OUTPUT_SHC_CUSTOM, PIXELS_THRESHOLD_RESAMPLING,
+)
 from ..processing_feedback import set_stage
-from . import custom_shc_catchments, custom_shc_contours, custom_shc_dinf, custom_shc_flow
+from . import custom_shc_contours, custom_shc_csmap
 
 
 NODATA = -9999.0
@@ -28,26 +31,20 @@ SMOOTH_SIGMA = 0.6  # 結果の仕上げの平滑化（セル数）。小さい�
 # True なら、等高線の曲がりを「長さあたり」（曲率に相当）で測り、cos(傾斜)の重みも外す（傾斜との相関は下がる）。
 # ただし山頂の小さな閉じた等高線が曲率の大きい所として最上位に出るため、既定は False（面積あたり。山頂は等高線の間隔が広く低く出る）
 SLOPE_INDEPENDENT = False
-# 沢の中心線（D∞の流量が大きく、周囲より凹んだ所）だけを細く薄く強める。沢の中心は、平面上の曲がりに加えて
-# 断面方向の曲がりも強いため。幅は1セル分ほどに絞り、沢の周りまで一緒に濃くしない。0 なら補正しない
-# 沢の中心線・2ha流域の補正に使う流れの計算の既定（実際は設定タブの選択を generate に渡す）。"mfd"（多方向流。QLAE 由来）か "dinf"（D∞。FOL 由来、より細い線）
-FLOW_MODEL = "mfd"
-CHANNEL_GAIN = 0.80
-CHANNEL_FLOW_MIN = 50  # 沢の中心線とみなす流量の下限（セル数）
-CHANNEL_FLOW_FULL = 1000  # この流量以上で、補正を最大にする
-CHANNEL_SIGMA_M = 5.0
-CHANNEL_CUTOFF_M = 10.0
-CHANNEL_DEPTH_FULL_M = 6.0  # 周囲より凹んでいる深さがこれ以上で、補正を最大にする
-# 流れが集まる沢筋と、その出口（平らな所）の床上げ。平らな所は等高線がほとんど無く、掛け算の補正では値が付かないので、
-# 「上流から流れ込む複雑さの平均」に比例した値を、下限として足す。D∞の流量が大きい沢筋の周りだけに効かせ、
-# 流量が大きすぎる所（大きな川の氾濫原）では効かなくする。0 なら使わない（D∞のときだけ）
-PRESSURE_RATIO = 0.0
-PRESSURE_SIGMA_M = 7.5
-PRESSURE_CUTOFF_M = 15.0
-PRESSURE_RIVER_START = 20000  # 流量（セル）がこれを超えると、川とみなして弱める
-PRESSURE_RIVER_END = 100000  # これ以上で 0
-BASIN_GAIN_UP = 0.25  # 2ha流域の平均が全体より高いとき、最大 +25%
-BASIN_GAIN_DOWN = 0.40  # 全体より低いとき、最大 -40%（低い流域をより弱める）
+# CS立体図の青の補正：CS立体図で青く見える部分（沢・谷頭・凹んだ斜面）を一律に強め、それ以外を一律に弱める。
+# 青く見える部分の判定は QLAE の CS Valley と同じ（custom_shc_csmap.py）。青の濃さは使わず、青い部分かどうかだけを使う。
+# 細かい出力格子があれば、その細かい DEM で CS立体図を作る（細かい DEM で見る青にそろえる）
+CSMAP_GAIN_UP = CUSTOM_SHC_CSMAP_GAIN_UP  # 青く見える部分を強める割合（constants.py）
+CSMAP_GAIN_DOWN = CUSTOM_SHC_CSMAP_GAIN_DOWN  # 青くない部分を弱める割合（constants.py）
+
+# ── 試して使わなかった補正（2026-11-26、CS立体図の青に決めた。コードは削除し、概要だけ残す）──────────────
+# ・沢の中心線：流れの計算（MFD＝多方向流 QLAE 由来、または D∞＝Tarboton FOL 由来）で流量が 50 セル以上、かつ
+#   周りより 2m 以上凹んだ所を、幅 10m ほどで最大 +80% 強める（凹みの深さと流量の対数で重み）
+# ・沢筋の床上げ（D∞のときだけ、既定はオフ）：上流から流れ込む複雑さの平均に比例した値を、沢筋の周りの下限にする
+# ・2ha流域の相対補正：2ha の流域ごとの平均を全体の平均と比べ、高い流域を最大 +25%、低い流域を最大 -40%。
+#   流域の中は同じ倍率になり、流域の境界で値が段になった
+# ・凹みの深さ：周り（σ 30m）の平均より何 m 低いかで、4m 以上凹んだ所を最大 +80%、出っ張った所を最大 -40%
+# ・ベースの等高線法の差を縮める（平均からの差を一定の割合に）：補正を強めたときの組み合わせとして試した
 
 
 class _Context:
@@ -68,6 +65,12 @@ def _smooth(array, valid, sigma):
     numerator = gaussian_filter(np.where(valid, array, 0.0), sigma, mode="constant")
     denominator = gaussian_filter(valid.astype(np.float64), sigma, mode="constant")
     return np.divide(numerator, denominator, out=np.zeros_like(array), where=denominator > 0)
+
+
+def _csmap_factor(dem, valid, cell_m):
+    """CS立体図の青の補正の倍率：青く見える部分は一律 1+UP、それ以外は一律 1-DOWN（青の濃さは使わない）"""
+    blue = custom_shc_csmap.cs_blue_part(np.where(valid, dem, np.nan), cell_m)
+    return np.where(blue, 1.0 + CSMAP_GAIN_UP, 1.0 - CSMAP_GAIN_DOWN)
 
 
 def _sample_line(points):
@@ -227,7 +230,7 @@ def _write(path, values, valid, reference):
     dataset = None
 
 
-def _calculate(dataset, dem, valid, work_dir, context, flow_model=FLOW_MODEL, fine=None):
+def _calculate(dataset, dem, valid, work_dir, context, fine=None):
     """fine：出力の細かい格子（{"dataset", "dem", "valid"}）。あれば、等高線をその細かい DEM から引き、
     曲がりの評価値を細かい格子に直接割り当てる。戻り値は (値, 値の格子のデータセット, その有効マスク)"""
     gt = dataset.GetGeoTransform()
@@ -262,7 +265,6 @@ def _calculate(dataset, dem, valid, work_dir, context, flow_model=FLOW_MODEL, fi
     terrain = _smooth(dem, valid, 1.5)
     dzdy, dzdx = np.gradient(terrain, CELL_M, CELL_M)
     slope = np.arctan(np.hypot(dzdx, dzdy))
-    surface_weight = 1.0 / np.maximum(np.cos(slope), .1)
     high = maximum_filter(np.where(valid, terrain, -np.inf), 11)
     low = minimum_filter(np.where(valid, terrain, np.inf), 11)
     relief = np.maximum(high - low, 0.0)
@@ -270,71 +272,13 @@ def _calculate(dataset, dem, valid, work_dir, context, flow_model=FLOW_MODEL, fi
     slope_weight = (1.0 if SLOPE_INDEPENDENT else np.cos(slope)) * meaning
     base = _smooth(raw * slope_weight, valid, SMOOTH_SIGMA)
 
-    terrain_nan = np.where(valid, terrain, np.nan)
-    if flow_model == "dinf":
-        context.report("D∞の流れの集まりを計算中")
-        flow, proportions = custom_shc_dinf.flow_and_proportions(terrain_nan, CELL_M, context)
-    else:
-        context.report("MFDの流れの集まりを計算中")
-        flow = custom_shc_flow.flow_accumulation(terrain_nan, 5, context)
-        proportions = None
-    evidence = np.zeros_like(base)
-    if CHANNEL_GAIN > 0:
-        surrounding = _smooth(terrain, valid, 9.0)
-        channel = valid & (flow >= CHANNEL_FLOW_MIN) & ((surrounding - terrain) >= 2.0) & (relief >= 10.0)
-        if np.any(channel):
-            distance = distance_transform_edt(~channel) * CELL_M
-            evidence = np.exp(-0.5 * (distance / CHANNEL_SIGMA_M) ** 2)
-            evidence[distance > CHANNEL_CUTOFF_M] = 0.0
-            # 断面方向の曲がりの強さの目安として、周囲より凹んだ深さで重みを付ける
-            depth = np.clip((surrounding - terrain) / CHANNEL_DEPTH_FULL_M, 0.3, 1.0)
-            # 流れが多く集まる沢ほど強く（流れが集まる所に災害がかかる）。流量の対数で 0.3〜1 の重み
-            gather = np.clip(np.log10(np.maximum(flow, 1.0) / CHANNEL_FLOW_MIN)
-                             / np.log10(CHANNEL_FLOW_FULL / CHANNEL_FLOW_MIN), 0.3, 1.0)
-            evidence *= depth * gather
-    existing = base * (1.0 + CHANNEL_GAIN * evidence)
-    floor_value = None
-    if PRESSURE_RATIO > 0 and flow_model == "dinf":
-        context.report("上流の複雑さが流れ込む沢筋の床上げを計算中")
-        upstream_sum = custom_shc_dinf.weighted_accumulation(terrain_nan, proportions, base, context)
-        upstream_mean = np.divide(upstream_sum, flow, out=np.zeros_like(base), where=flow > 0)
-        stream = valid & (flow >= CHANNEL_FLOW_MIN)
-        if np.any(stream):
-            distance = distance_transform_edt(~stream) * CELL_M
-            near = np.exp(-0.5 * (distance / PRESSURE_SIGMA_M) ** 2)
-            near[distance > PRESSURE_CUTOFF_M] = 0.0
-            gather = np.clip(np.log10(np.maximum(flow, 1.0) / CHANNEL_FLOW_MIN)
-                             / np.log10(CHANNEL_FLOW_FULL / CHANNEL_FLOW_MIN), 0.3, 1.0)
-            river = np.clip(1.0 - np.log10(np.maximum(flow, 1.0) / PRESSURE_RIVER_START)
-                            / np.log10(PRESSURE_RIVER_END / PRESSURE_RIVER_START), 0.0, 1.0)
-            river = np.where(flow <= PRESSURE_RIVER_START, 1.0, river)
-            floor_value = PRESSURE_RATIO * upstream_mean * near * gather * river
-            existing = np.maximum(existing, floor_value)
-
-    context.report("2ha流域の相対補正を計算中")
-    if flow_model == "dinf":
-        labels = custom_shc_dinf.basin_labels(terrain_nan, flow, proportions, 200, context)
-    else:
-        labels = custom_shc_catchments.basin_labels(terrain_nan, 200, 5, context)
-    basin_factor = np.ones_like(existing)
-    assigned = valid & (labels > 0)
-    if np.any(assigned):
-        all_mean = np.average(existing[valid], weights=surface_weight[valid])
-        basin_area = np.bincount(labels[assigned].ravel(), weights=surface_weight[assigned].ravel())
-        basin_sum = np.bincount(labels[assigned].ravel(),
-                                weights=(existing[assigned] * surface_weight[assigned]).ravel())
-        basin_mean = np.divide(basin_sum, basin_area,
-                               out=np.zeros_like(basin_sum), where=basin_area > 0)
-        signed = np.divide(basin_mean - all_mean, basin_mean + all_mean,
-                           out=np.zeros_like(basin_mean), where=(basin_mean + all_mean) > 0)
-        basin_signed = signed[labels[assigned]]
-        basin_factor[assigned] = 1.0 + np.where(basin_signed >= 0, BASIN_GAIN_UP, BASIN_GAIN_DOWN) * basin_signed
+    context.report("CS立体図の青を計算中")
     if fine is None:
-        adjusted = existing * basin_factor
+        adjusted = base * _csmap_factor(dem, valid, CELL_M)
         adjusted[~valid] = NODATA
         return adjusted, dataset, valid
 
-    # 細かい出力格子：評価値は細かい格子に直接割り当て、10m で求めた重み・沢の補正・流域の補正は補間して掛ける
+    # 細かい出力格子：評価値と CS立体図の青は細かい格子で求め、10m で求めた重みは補間して掛ける
     context.report("細かい格子に合わせて仕上げ中")
     fine_dataset, fine_valid = fine["dataset"], fine["valid"]
     raw_fine = _rasterize_contour_score(parts, fine_dataset, fine_valid, context)
@@ -342,19 +286,13 @@ def _calculate(dataset, dem, valid, work_dir, context, flow_model=FLOW_MODEL, fi
     weight_fine = _to_fine_grid(slope_weight, valid, dataset, fine_dataset, 0.0)
     base_fine = _smooth(raw_fine * weight_fine, fine_valid, SMOOTH_SIGMA * CELL_M / fine_cell)
     del raw_fine, weight_fine
-    existing_fine = base_fine * (1.0 + CHANNEL_GAIN * _to_fine_grid(evidence, valid, dataset, fine_dataset, 0.0))
-    del base_fine
-    if floor_value is not None:
-        existing_fine = np.maximum(existing_fine, _to_fine_grid(floor_value, valid, dataset, fine_dataset, 0.0))
-    adjusted_fine = existing_fine * _to_fine_grid(basin_factor, valid, dataset, fine_dataset, 1.0)
+    adjusted_fine = base_fine * _csmap_factor(fine["dem"], fine_valid, fine_cell)
     adjusted_fine[~fine_valid] = NODATA
     return adjusted_fine, fine_dataset, fine_valid
 
 
-def generate(dem_filepath: str, output_dir: str, target_dem_filepath: str = None, feedback=None,
-             flow_model: str = None) -> str:
+def generate(dem_filepath: str, output_dir: str, target_dem_filepath: str = None, feedback=None) -> str:
     """Calculate from the source DEM; align the result with the other elements."""
-    flow_model = flow_model if flow_model in ("mfd", "dinf") else FLOW_MODEL
     context = _Context(feedback)
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, OUTPUT_SHC_CUSTOM["FILE_NAME"] + ".tif")
@@ -398,11 +336,13 @@ def generate(dem_filepath: str, output_dir: str, target_dem_filepath: str = None
                                 tgt_gt[0] + target.RasterXSize * tgt_gt[1], tgt_gt[3])
                     fitted = gdal.Warp(fine_path, source, outputBounds=bounds_f, width=target.RasterXSize,
                                        height=target.RasterYSize, resampleAlg="bilinear", dstNodata=NODATA)
-                    fitted = None
+                    if fitted is None:
+                        raise RuntimeError("出力の格子に合わせたDEMを作れませんでした")
+                    fitted = None  # 閉じて書き出す
                 fine_dataset, fine_dem, fine_valid = _read_dem(fine_path)
                 fine = {"dataset": fine_dataset, "dem": fine_dem, "valid": fine_valid}
-            set_stage(feedback, "地形の複雑さ（等高線法）：等高線・沢筋・流域")
-            values, grid, grid_valid = _calculate(analysis, dem, valid, work_dir, context, flow_model, fine)
+            set_stage(feedback, "地形の複雑さ（等高線法）：等高線・CS立体図の青")
+            values, grid, grid_valid = _calculate(analysis, dem, valid, work_dir, context, fine)
             analysis_output = os.path.join(work_dir, "custom_result.tif")
             _write(analysis_output, values, grid_valid, grid)
             same_grid = (target.RasterXSize == grid.RasterXSize

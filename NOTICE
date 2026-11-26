@@ -83,14 +83,12 @@ MORIZON NEXT is independently maintained. It is not an official
 modification or release of, nor guaranteed or supported by, the Japan
 Forest Technology Association or the Forestry Agency of Japan.
 
-The optional terrain-complexity method adapts contour and catchment code
-from Quick Landscape Analysis Explorer (GPL-2.0-or-later):
+The optional terrain-complexity method adapts contour and CS Map code
+from Quick Landscape Analysis Explorer (GPL-2.0-or-later, same author):
 https://github.com/raw-slnc/quick_landscape_analysis_explorer
-The adapted files are processes/raster_writer/custom_shc_contours.py,
-custom_shc_catchments.py, and custom_shc_flow.py. They are distributed
-under this plugin's GPL v3 license.
-The D-infinity flow accumulation in custom_shc_dinf.py is adapted from
-Forestry Operations Lite (GPL-2.0-or-later, same author).
+The adapted files are processes/raster_writer/custom_shc_contours.py
+and custom_shc_csmap.py. They are distributed under this plugin's GPL v3
+license.
 
 4. License
 
