@@ -183,7 +183,7 @@ class ForestZoningMainDialogSettings:
         # 計算の説明（チェックの子の項目だと分かるよう、字下げして置く）
         self.custom_shc_description_label = QLabel(
             "等高線の曲がりと間隔から、地形の複雑さを求めます。\n"
-            "そのうえで、CS立体図で青く見える部分（沢・谷頭・凹んだ斜面など、水が集まりやすい凹んだ所）を"
+            "そのうえで、沢・谷頭・凹んだ斜面など、水が集まりやすい凹んだ所を"
             f" {round(CUSTOM_SHC_CSMAP_GAIN_UP * 100)}% 強め、それ以外を {round(CUSTOM_SHC_CSMAP_GAIN_DOWN * 100)}% 弱めます。")
         self.custom_shc_description_label.setWordWrap(True)
         description_layout = QVBoxLayout()
